@@ -20,6 +20,12 @@ export { memoryKV, memoryBlobCache } from './env.ts';
 
 export const CORE_PACKAGE_NAME = '@doccloak/core';
 
+// T004: regex rules
+import type { RegionCode } from './regex/index.ts';
+export { ALL_REGEX_RULES } from './regex/index.ts';
+export type { RegexRule, PiiDomain, RegionCode } from './regex/index.ts';
+// end T004
+
 /*
  * Forward declarations. RegionCode and DetectedEntity are owned by the regex
  * and types extraction tasks; the shapes below mirror the web app source
@@ -27,27 +33,6 @@ export const CORE_PACKAGE_NAME = '@doccloak/core';
  * engine API can reference them today. They move to their own modules and
  * become re-exports when those tasks land.
  */
-
-export type RegionCode =
-  | 'universal'
-  | 'gb'
-  | 'pl'
-  | 'de'
-  | 'fr'
-  | 'es'
-  | 'pt'
-  | 'se'
-  | 'no'
-  | 'it'
-  | 'nl'
-  | 'be'
-  | 'at'
-  | 'ch'
-  | 'ie'
-  | 'dk'
-  | 'fi'
-  | 'us'
-  | (string & {});
 
 export type EntityType =
   | 'PERSON'
