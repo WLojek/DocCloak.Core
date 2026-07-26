@@ -20,6 +20,11 @@ export { memoryKV, memoryBlobCache } from './env.ts';
 
 export const CORE_PACKAGE_NAME = '@doccloak/core';
 
+// T006: model loader
+export { fetchModelBlob, evictModelFromCache, retryAsync } from './model-loader.ts';
+export type { ModelLoaderEnv, DownloadProgress, FetchModelOptions } from './model-loader.ts';
+// end T006
+
 // T004: regex rules
 import type { RegionCode } from './regex/index.ts';
 export { ALL_REGEX_RULES } from './regex/index.ts';
