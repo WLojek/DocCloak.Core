@@ -1,0 +1,30 @@
+{
+  "name": "@doccloak/core",
+  "version": "0.8.0-dev.0",
+  "description": "Environment-agnostic document anonymization engine for the DocCloak ecosystem.",
+  "license": "Apache-2.0",
+  "author": "Witold Lojek",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dom": "./src/dom.ts",
+    "./worker-protocol": "./src/worker-protocol.ts"
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "vitest": "4.1.0"
+  }
+}
