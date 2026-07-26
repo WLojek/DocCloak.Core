@@ -31,36 +31,12 @@ export { ALL_REGEX_RULES } from './regex/index.ts';
 export type { RegexRule, PiiDomain, RegionCode } from './regex/index.ts';
 // end T004
 
-/*
- * Forward declarations. RegionCode and DetectedEntity are owned by the regex
- * and types extraction tasks; the shapes below mirror the web app source
- * (DocCloak/src/core/regex/types.ts and DocCloak/src/core/types.ts) so the
- * engine API can reference them today. They move to their own modules and
- * become re-exports when those tasks land.
- */
-
-export type EntityType =
-  | 'PERSON'
-  | 'EMAIL'
-  | 'PHONE'
-  | 'SSN'
-  | 'CREDIT_CARD'
-  | 'DATE'
-  | 'CURRENCY'
-  | 'IP_ADDRESS'
-  | 'IBAN'
-  | 'ADDRESS'
-  | 'COMPANY'
-  | 'OTHER';
-
-export interface DetectedEntity {
-  type: EntityType;
-  value: string;
-  start: number;
-  end: number;
-  confidence: number;
-  detector: string;
-}
+// T003: types / session / doc
+import type { DetectedEntity } from './types.ts';
+export * from './types.ts';
+export * from './session.ts';
+export * from './doc.ts';
+// end T003
 
 /* Engine API, architecture doc section 4.3. */
 
