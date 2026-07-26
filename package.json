@@ -9,7 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./dom": "./src/dom.ts",
+    "./dom": "./src/dom/index.ts",
     "./worker-protocol": "./src/worker-protocol.ts"
   },
   "files": [
@@ -24,10 +24,13 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "jsdom": "24.1.3",
     "typescript": "5.8.3",
     "vitest": "4.1.0"
   },
   "dependencies": {
-    "cfb": "1.2.2"
+    "cfb": "1.2.2",
+    "jszip": "3.10.1",
+    "tesseract.js": "7.0.0"
   }
 }

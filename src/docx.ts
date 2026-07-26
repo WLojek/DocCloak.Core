@@ -1,9 +1,21 @@
 /**
- * Partial extraction of the web app's docx module (T003). doc.ts imports
- * normalizeReplacements from this path; the function is pure, so it moves
- * ahead of the full DOM-dependent docx move (T011, dom submodule). The body
- * below is copied verbatim from DocCloak/src/core/docx.ts.
+ * Pure, DOM-free part of the docx module. The full docx read/write logic
+ * (DOMParser/XMLSerializer-dependent) lives in src/dom/docx.ts behind the
+ * '@doccloak/core/dom' export (T011); it imports and re-exports the helpers
+ * below so the main entry stays free of DOM references. doc.ts also imports
+ * normalizeReplacements from this path. Bodies copied verbatim from
+ * DocCloak/src/core/docx.ts.
  */
+
+/**
+ * A pairing of an original sensitive value with its replacement placeholder,
+ * used to scrub places offset-based replacement cannot reach (relationship
+ * targets, field instruction attributes).
+ */
+export interface ValueReplacement {
+  value: string;
+  replacement: string;
+}
 
 /**
  * Sort replacements and clamp overlapping ranges so each character is covered
