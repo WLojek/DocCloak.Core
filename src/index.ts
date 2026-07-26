@@ -38,6 +38,10 @@ export * from './session.ts';
 export * from './doc.ts';
 // end T003
 
+// T008: bardsai provider
+export { BardsaiProvider } from './providers/bardsai.ts';
+// end T008
+
 // T005: pipeline
 export {
   detectWithRegex,
