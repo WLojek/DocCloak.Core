@@ -38,6 +38,10 @@ export * from './session.ts';
 export * from './doc.ts';
 // end T003
 
+// T007: gliner provider
+export { GlinerProvider } from './providers/gliner.ts';
+// end T007
+
 // T008: bardsai provider
 export { BardsaiProvider } from './providers/bardsai.ts';
 // end T008
