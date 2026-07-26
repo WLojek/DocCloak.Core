@@ -38,6 +38,16 @@ export * from './session.ts';
 export * from './doc.ts';
 // end T003
 
+// T005: pipeline
+export {
+  detectWithRegex,
+  resolveOverlaps,
+  filterFalsePositives,
+  propagateEntities,
+  detectEntities,
+} from './pipeline.ts';
+// end T005
+
 /* Engine API, architecture doc section 4.3. */
 
 export type ProviderId = 'gliner' | 'bardsai';
