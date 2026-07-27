@@ -1,0 +1,158 @@
+{
+  "region": "es",
+  "rules": [
+    {
+      "id": "regex:es:dni",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{8}[\\s-]?[A-Z]\\b",
+      "flags": "gi",
+      "confidence": 0.9,
+      "domains": [
+        "identity"
+      ],
+      "description": "Spanish DNI (8 digits + letter)",
+      "examples": [
+        "12345678Z",
+        "12345678-Z"
+      ],
+      "validate": "dni"
+    },
+    {
+      "id": "regex:es:nie",
+      "entityType": "SSN",
+      "pattern": "\\b[XYZ][\\s-]?\\d{7}[\\s-]?[A-Z]\\b",
+      "flags": "gi",
+      "confidence": 0.9,
+      "domains": [
+        "identity"
+      ],
+      "description": "Spanish NIE for foreigners (X/Y/Z + 7 digits + letter)",
+      "examples": [
+        "X1234567L",
+        "Y-1234567-A"
+      ]
+    },
+    {
+      "id": "regex:es:cif",
+      "entityType": "SSN",
+      "pattern": "\\b[A-H]\\d{7}[0-9A-J]\\b",
+      "flags": "gi",
+      "confidence": 0.8,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "Spanish CIF company tax ID",
+      "examples": [
+        "A12345678",
+        "B87654321"
+      ]
+    },
+    {
+      "id": "regex:es:cuenta_bancaria",
+      "entityType": "SSN",
+      "pattern": "\\b(?:ES)?\\d{2}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\b",
+      "flags": "gi",
+      "confidence": 0.8,
+      "domains": [
+        "financial"
+      ],
+      "description": "Spanish bank account number (CCC, 20 digits)",
+      "examples": [
+        "ES12 1234 5678 9012 3456 7890"
+      ]
+    },
+    {
+      "id": "regex:es:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?34[\\s-]?)?[6789]\\d{2}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Spanish phone number (9 digits, optionally with +34)",
+      "examples": [
+        "+34 612 345 678",
+        "912 345 678"
+      ]
+    },
+    {
+      "id": "regex:es:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+      "flags": "gu",
+      "confidence": 0.75,
+      "domains": [
+        "contact"
+      ],
+      "description": "Spanish postal code (5 digits) followed by city name",
+      "examples": [
+        "28001 Madrid",
+        "08001 Barcelona"
+      ]
+    },
+    {
+      "id": "regex:es:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:(?:en\\s+)?(?:letras?|palabras?)\\s*:\\s*|(?:la\\s+)?(?:cantidad|suma)\\s+de\\s+)[\\p{L}\\s-]+(?:euros?|céntimos?|pesos?|centavos?)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "Spanish amount written in words (e.g., \"en letras: ocho mil quinientos euros\")",
+      "examples": [
+        "en letras: ocho mil quinientos euros"
+      ]
+    },
+    {
+      "id": "regex:es:street",
+      "entityType": "ADDRESS",
+      "pattern": "(?:(?:C(?:alle)?|Av(?:enida|da)?|Avda|Pza|Plaza|Pl|Paseo|P\\.º|Ronda|Ctra|Carretera|Camino|Travesía|Glorieta)\\.?\\s+)[\\p{L}][\\p{L}\\s'-]+(?:,?\\s*(?:n\\.?º?\\s*)?\\d+)?",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Spanish street address (Calle/Avenida/Plaza + name + optional number)",
+      "examples": [
+        "Calle Mayor 15",
+        "Av. de la Constitución 3",
+        "Plaza de España"
+      ]
+    },
+    {
+      "id": "regex:es:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:\\s+)?(?:S\\.L\\.U\\.|S\\.L\\.U|S\\.L\\.|S\\.L|S\\.A\\.U\\.|S\\.A\\.U|S\\.A\\.|S\\.A|S\\.C\\.)\\b",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Spanish company name with legal form (S.L., S.A., S.L.U., S.A.U., S.C.)",
+      "examples": [
+        "Telefónica S.A.",
+        "Construcciones García S.L.",
+        "Inditex S.A."
+      ]
+    },
+    {
+      "id": "regex:es:nuss",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}[-/]?\\d{8}[-/]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "medical",
+        "hr"
+      ],
+      "description": "Spanish Social Security Number (NUSS/NAF, 12 digits: province + sequential + check)",
+      "examples": [
+        "28-12345678-56"
+      ]
+    }
+  ]
+}

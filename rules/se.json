@@ -1,0 +1,149 @@
+{
+  "region": "se",
+  "rules": [
+    {
+      "id": "regex:se:personnummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{6}[-+]?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Swedish personnummer (YYMMDD-XXXX or YYMMDDXXXX)",
+      "examples": [
+        "850523-0006",
+        "8505230006"
+      ],
+      "validate": "personnummer"
+    },
+    {
+      "id": "regex:se:personnummer_12",
+      "entityType": "SSN",
+      "pattern": "\\b(?:19|20)\\d{6}[-+]?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Swedish personnummer 12-digit format (YYYYMMDD-XXXX)",
+      "examples": [
+        "19850523-1478",
+        "198505231478"
+      ]
+    },
+    {
+      "id": "regex:se:samordningsnummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{6}[-+]?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.7,
+      "domains": [
+        "identity"
+      ],
+      "description": "Swedish samordningsnummer (coordination number, day +60)",
+      "examples": [
+        "850583-1478"
+      ],
+      "falsePositiveNotes": "Same format as personnummer — differentiated by day > 60",
+      "validate": "samordningsnummer"
+    },
+    {
+      "id": "regex:se:organisationsnummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{6}-?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.6,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "Swedish organisationsnummer (company number, 10 digits)",
+      "examples": [
+        "556036-0793"
+      ],
+      "falsePositiveNotes": "Same 10-digit format as personnummer"
+    },
+    {
+      "id": "regex:se:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?46[\\s-]?)?0?\\d{1,3}[\\s-]?\\d{2,3}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swedish phone number (variable-length area code)",
+      "examples": [
+        "+46 8 123 45 67",
+        "070-123 45 67"
+      ]
+    },
+    {
+      "id": "regex:se:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{3}\\s?\\d{2}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swedish postal code (XXX XX) followed by city name",
+      "examples": [
+        "111 22 Stockholm",
+        "41301 Göteborg"
+      ]
+    },
+    {
+      "id": "regex:se:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:(?:med\\s+)?(?:bokstäver|ord)\\s*:\\s*|(?:summan|beloppet)\\s+)[\\p{L}\\s-]+(?:kronor|öre)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "Swedish amount written in words (e.g., \"med bokstäver: åttatusen femhundra kronor\")",
+      "examples": [
+        "med bokstäver: åttatusen femhundra kronor"
+      ]
+    },
+    {
+      "id": "regex:se:street",
+      "entityType": "ADDRESS",
+      "pattern": "[\\p{L}][\\p{L}\\s-]*(?:gatan|vägen|stigen|torget|platsen|gränd|backen|liden|ängen)\\s+\\d+[\\p{L}]?",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swedish street address (name + gatan/vägen/etc. + number)",
+      "examples": [
+        "Drottninggatan 42",
+        "Sveavägen 15",
+        "Stortorget 3"
+      ]
+    },
+    {
+      "id": "regex:se:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:\\s+)?(?:AB|HB|KB)\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Swedish company name with legal form (AB, HB, KB)",
+      "examples": [
+        "Volvo AB",
+        "Handelsbanken AB",
+        "Ericsson AB"
+      ]
+    }
+  ]
+}

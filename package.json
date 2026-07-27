@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "rules",
     "LICENSE",
     "NOTICE",
     "README.md",
@@ -45,6 +46,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/fix-dts-extensions.mjs",
     "prepack": "npm run build && node scripts/package-exports.mjs dist",
     "postpack": "node scripts/package-exports.mjs src",
+    "rules:gen": "node scripts/generate-rules-module.mjs",
+    "rules:check": "node scripts/generate-rules-module.mjs --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

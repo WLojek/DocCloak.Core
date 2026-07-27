@@ -1,0 +1,70 @@
+{
+  "region": "be",
+  "rules": [
+    {
+      "id": "regex:be:national_register",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}[.\\s]?\\d{2}[.\\s]?\\d{2}[-.\\s]?\\d{3}[.\\s]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "hr"
+      ],
+      "description": "Belgian National Register Number (Rijksregisternummer / Numéro de registre national)",
+      "examples": [
+        "85.07.15-123.97",
+        "85071512397"
+      ],
+      "validate": "belgianNrn"
+    },
+    {
+      "id": "regex:be:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?32[\\s-]?|0)(?:4\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}|[1-9]\\d?[\\s-]?\\d{3}[\\s-]?\\d{2}[\\s-]?\\d{2})\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Belgian phone number (mobile 04xx or landline)",
+      "examples": [
+        "+32 475 12 34 56",
+        "02 123 45 67"
+      ]
+    },
+    {
+      "id": "regex:be:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b[1-9]\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+      "flags": "gu",
+      "confidence": 0.75,
+      "domains": [
+        "contact"
+      ],
+      "description": "Belgian postal code (4 digits, 1000-9999) followed by city name",
+      "examples": [
+        "1000 Bruxelles",
+        "2000 Antwerpen",
+        "9000 Gent"
+      ],
+      "falsePositiveNotes": "4-digit numbers are common"
+    },
+    {
+      "id": "regex:be:street",
+      "entityType": "ADDRESS",
+      "pattern": "(?:straat|laan|weg|plein|steenweg|lei|dreef|boulevard|avenue|rue|place|chaussée)[\\p{L}\\s'-]+\\d{1,5}[\\p{L}]?|[\\p{L}][\\p{L}\\s'-]*(?:straat|laan|weg|plein|steenweg|lei|dreef)\\s+\\d{1,5}[\\p{L}]?",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Belgian street address (Dutch/French street types + number)",
+      "examples": [
+        "Kerkstraat 12",
+        "Avenue Louise 54",
+        "Rue de la Loi 16"
+      ]
+    }
+  ]
+}

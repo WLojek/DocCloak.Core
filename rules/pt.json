@@ -1,0 +1,113 @@
+{
+  "region": "pt",
+  "rules": [
+    {
+      "id": "regex:pt:cc",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{9}\\s?[A-Z]{2}\\d\\b",
+      "flags": "gi",
+      "confidence": 0.85,
+      "domains": [
+        "identity"
+      ],
+      "description": "Portuguese Cartão de Cidadão number (citizen card)",
+      "examples": [
+        "123456789 ZZ1"
+      ]
+    },
+    {
+      "id": "regex:pt:nif",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{9}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "financial",
+        "identity"
+      ],
+      "description": "Portuguese NIF tax number (9 digits)",
+      "examples": [
+        "123456789"
+      ],
+      "falsePositiveNotes": "9 digits is very broad",
+      "validate": "nif"
+    },
+    {
+      "id": "regex:pt:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?351[\\s-]?)?\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Portuguese phone number (9 digits, optionally with +351)",
+      "examples": [
+        "+351 912 345 678",
+        "912-345-678"
+      ]
+    },
+    {
+      "id": "regex:pt:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{4}-\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+      "flags": "gu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Portuguese postal code (XXXX-XXX) followed by city name",
+      "examples": [
+        "1000-001 Lisboa",
+        "4000-322 Porto"
+      ]
+    },
+    {
+      "id": "regex:pt:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:(?:por\\s+)?extenso\\s*:\\s*|(?:a\\s+)?(?:quantia|importância|soma)\\s+de\\s+)[\\p{L}\\s-]+(?:euros?|cêntimos?|reais|centavos?)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "Portuguese amount written in words (e.g., \"por extenso: oito mil e quinhentos euros\")",
+      "examples": [
+        "por extenso: oito mil e quinhentos euros"
+      ]
+    },
+    {
+      "id": "regex:pt:street",
+      "entityType": "ADDRESS",
+      "pattern": "(?:(?:Rua|R\\.|Avenida|Av\\.|Praça|Pç\\.|Travessa|Tv\\.|Largo|Lg\\.|Alameda|Al\\.|Estrada|Est\\.)\\s+)[\\p{L}][\\p{L}\\s'-]+(?:,?\\s*(?:n\\.?º?\\s*)?\\d+)?",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Portuguese street address (Rua/Avenida/Praça + name + optional number)",
+      "examples": [
+        "Rua Augusta 42",
+        "Av. da Liberdade 10",
+        "Praça do Comércio"
+      ]
+    },
+    {
+      "id": "regex:pt:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:\\s+)?(?:Lda\\.?|S\\.A\\.?|SGPS)\\b",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Portuguese company name with legal form (Lda., S.A., SGPS)",
+      "examples": [
+        "Galp Energia S.A.",
+        "Construções Silva Lda.",
+        "EDP SGPS"
+      ]
+    }
+  ]
+}

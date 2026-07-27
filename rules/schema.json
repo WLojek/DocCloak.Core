@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/WLojek/DocCloak.Core/rules/schema.json",
+  "title": "DocCloak shared regex rule pack",
+  "description": "Canonical cross-runtime rule format (architecture doc section 6). One file per region plus universal.json. Patterns are restricted to the ECMAScript/Python common subset; flags live in the flags field (no inline flags); validate is a name resolved against the per-runtime validator registry (validators.ts / validators.py).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["region", "rules"],
+  "properties": {
+    "region": {
+      "type": "string",
+      "pattern": "^(universal|[a-z]{2})$"
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entityType", "pattern", "flags", "confidence", "domains", "description"],
+      "properties": {
+        "id": {
+          "description": "Stable detector identifier, e.g. regex:pl:pesel",
+          "type": "string",
+          "pattern": "^regex:(universal|[a-z]{2}):[a-z0-9_-]+$"
+        },
+        "entityType": {
+          "enum": [
+            "PERSON",
+            "EMAIL",
+            "PHONE",
+            "SSN",
+            "CREDIT_CARD",
+            "DATE",
+            "CURRENCY",
+            "IP_ADDRESS",
+            "IBAN",
+            "ADDRESS",
+            "COMPANY",
+            "OTHER"
+          ]
+        },
+        "pattern": {
+          "description": "Regex source in the ECMAScript/Python common subset (compiled per runtime)",
+          "type": "string",
+          "minLength": 1
+        },
+        "flags": {
+          "description": "Regex flags; the g flag is mandatory, inline flags in the pattern are forbidden",
+          "type": "string",
+          "pattern": "^g[imsuy]*$"
+        },
+        "confidence": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["financial", "medical", "legal", "hr", "identity", "contact", "technical", "general"]
+          }
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "examples": {
+          "description": "Strings that MUST match the compiled pattern (and pass validate, if any); drives the cross-runtime conformance test",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "falsePositiveNotes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validate": {
+          "description": "Name of a post-match validation function in the runtime validator registry",
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9]*$"
+        }
+      }
+    }
+  }
+}

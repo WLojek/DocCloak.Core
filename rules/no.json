@@ -1,0 +1,132 @@
+{
+  "region": "no",
+  "rules": [
+    {
+      "id": "regex:no:fodselsnummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{6}\\s?\\d{5}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Norwegian fødselsnummer (birth number, 11 digits, DDMMYY + 5)",
+      "examples": [
+        "01019912368"
+      ],
+      "falsePositiveNotes": "11-digit sequences are common in other contexts",
+      "validate": "fodselsnummer"
+    },
+    {
+      "id": "regex:no:d_nummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{6}\\s?\\d{5}\\b",
+      "flags": "g",
+      "confidence": 0.4,
+      "domains": [
+        "identity"
+      ],
+      "description": "Norwegian D-nummer (temporary ID for foreigners, 11 digits, day +40)",
+      "examples": [
+        "41019912345"
+      ],
+      "falsePositiveNotes": "Very broad match — 9 digits",
+      "validate": "dNummer"
+    },
+    {
+      "id": "regex:no:orgnr",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{9}\\s?(?:MVA)?\\b",
+      "flags": "g",
+      "confidence": 0.6,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "Norwegian organization number (9 digits, optionally followed by MVA)",
+      "examples": [
+        "123456789",
+        "123456789 MVA"
+      ]
+    },
+    {
+      "id": "regex:no:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?47[\\s-]?)?\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Norwegian phone number (8 digits, optionally with +47)",
+      "examples": [
+        "+47 12 34 56 78",
+        "12345678"
+      ]
+    },
+    {
+      "id": "regex:no:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Norwegian postal code (4 digits) followed by city name",
+      "examples": [
+        "0001 Oslo",
+        "5003 Bergen"
+      ]
+    },
+    {
+      "id": "regex:no:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:(?:med\\s+)?(?:bokstaver|ord)\\s*:\\s*|(?:summen|beløpet)\\s+)[\\p{L}\\s-]+(?:kroner|øre)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "Norwegian amount written in words (e.g., \"med bokstaver: åtte tusen fem hundre kroner\")",
+      "examples": [
+        "med bokstaver: åtte tusen fem hundre kroner"
+      ]
+    },
+    {
+      "id": "regex:no:street",
+      "entityType": "ADDRESS",
+      "pattern": "[\\p{L}][\\p{L}\\s-]*(?:gata|gaten|gate|veien|vegen|vei|veg|stien|torget|plassen|plass|allé|alleen)\\s+\\d+[\\p{L}]?",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "contact"
+      ],
+      "description": "Norwegian street address (name + gate/veien/vei/etc. + number)",
+      "examples": [
+        "Karl Johans gate 22",
+        "Storgata 15",
+        "Bygdøy allé 3"
+      ]
+    },
+    {
+      "id": "regex:no:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:\\s+)?(?:AS|ASA|ANS|DA)\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Norwegian company name with legal form (AS, ASA, ANS, DA)",
+      "examples": [
+        "Equinor ASA",
+        "Telenor ASA",
+        "Nordea Bank ASA"
+      ]
+    }
+  ]
+}

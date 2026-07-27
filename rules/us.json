@@ -1,0 +1,218 @@
+{
+  "region": "us",
+  "rules": [
+    {
+      "id": "regex:us:ssn",
+      "entityType": "SSN",
+      "pattern": "\\b(?!000|666|9\\d{2})[0-8]\\d{2}-(?!00)\\d{2}-(?!0000)\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.92,
+      "domains": [
+        "identity",
+        "hr",
+        "financial"
+      ],
+      "description": "US Social Security Number (SSA-valid ranges, hyphenated)",
+      "examples": [
+        "123-45-6789",
+        "078-05-1120"
+      ],
+      "falsePositiveNotes": "Hyphenated form only — un-hyphenated SSNs are indistinguishable from other 9-digit IDs."
+    },
+    {
+      "id": "regex:us:itin",
+      "entityType": "SSN",
+      "pattern": "\\b9\\d{2}-(?:5\\d|6[0-5]|7\\d|8[0-8]|9[0-24-9])-\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "identity",
+        "financial"
+      ],
+      "description": "US IRS Individual Taxpayer Identification Number (ITIN)",
+      "examples": [
+        "912-70-1234",
+        "987-88-4321"
+      ]
+    },
+    {
+      "id": "regex:us:ein",
+      "entityType": "SSN",
+      "pattern": "\\b(?:0[1-6]|1[0-6]|2[0-7]|[35]\\d|[468][0-8]|7[1-7]|9[0-58-9])-\\d{7}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "US IRS Employer Identification Number (EIN)",
+      "examples": [
+        "12-3456789",
+        "87-6543210"
+      ]
+    },
+    {
+      "id": "regex:us:passport",
+      "entityType": "SSN",
+      "pattern": "\\b[A-Z]?\\d{8,9}\\b",
+      "flags": "g",
+      "confidence": 0.35,
+      "domains": [
+        "identity"
+      ],
+      "description": "US passport number (9 alphanumerics)",
+      "examples": [
+        "123456789",
+        "A12345678"
+      ],
+      "falsePositiveNotes": "Very broad — best paired with the word \"passport\" in context."
+    },
+    {
+      "id": "regex:us:mbi",
+      "entityType": "SSN",
+      "pattern": "\\b[1-9][A-HJ-NP-Z][A-HJ-NP-Z0-9]\\d-?[A-HJ-NP-Z][A-HJ-NP-Z0-9]\\d-?[A-HJ-NP-Z]{2}\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.95,
+      "domains": [
+        "medical",
+        "identity"
+      ],
+      "description": "Medicare Beneficiary Identifier (MBI, replaces SSN-based HICN)",
+      "examples": [
+        "1EG4-TE5-MK73",
+        "1AB2CD3EF45"
+      ]
+    },
+    {
+      "id": "regex:us:dea",
+      "entityType": "SSN",
+      "pattern": "\\b[ABCDEFGHJKLMPRSTUX][A-Z]\\d{7}\\b",
+      "flags": "g",
+      "confidence": 0.92,
+      "domains": [
+        "medical"
+      ],
+      "description": "US DEA registration number (prescriber identifier, with checksum)",
+      "examples": [
+        "BJ1234563",
+        "AS9876547"
+      ],
+      "validate": "dea"
+    },
+    {
+      "id": "regex:us:npi",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{10}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "medical"
+      ],
+      "description": "US National Provider Identifier (NPI, Luhn-validated with 80840 prefix)",
+      "examples": [
+        "1234567893"
+      ],
+      "falsePositiveNotes": "Raw 10 digits is broad — Luhn check makes the false-positive rate negligible.",
+      "validate": "npi"
+    },
+    {
+      "id": "regex:us:routing",
+      "entityType": "OTHER",
+      "pattern": "\\b(?:0\\d|1[0-2]|2[1-9]|3[0-2]|6[1-9]|7[0-2]|80)\\d{7}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "US ABA bank routing number (9 digits, valid prefix + mod-10 checksum)",
+      "examples": [
+        "021000021",
+        "011000015"
+      ],
+      "validate": "aba"
+    },
+    {
+      "id": "regex:us:phone",
+      "entityType": "PHONE",
+      "pattern": "(?:\\+1[-.\\s]?)?(?:\\(([2-9]\\d{2})\\)[-.\\s]?|([2-9]\\d{2})[-.\\s])([2-9]\\d{2})[-.\\s](\\d{4})\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "US/NANP phone number (e.g., (555) 555-1234, 555-555-1234, +1 555.555.1234)",
+      "examples": [
+        "(415) 555-2671",
+        "415-555-2671",
+        "+1 415 555 2671",
+        "415.555.2671"
+      ],
+      "falsePositiveNotes": "Bare 10-digit runs are excluded to avoid colliding with SSN/account numbers."
+    },
+    {
+      "id": "regex:us:zip_plus4",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{5}-\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "US ZIP+4 postal code",
+      "examples": [
+        "94103-1741",
+        "10001-2345"
+      ]
+    },
+    {
+      "id": "regex:us:street",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{1,5}[A-Z]?\\s+(?:[NSEW]\\.?\\s+|North\\s+|South\\s+|East\\s+|West\\s+)?(?:\\d{1,4}(?:st|nd|rd|th)|[A-Z]\\w*)(?:\\s+(?:\\d{1,4}(?:st|nd|rd|th)|[A-Z]\\w*))*\\s+(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Circle|Cir|Place|Pl|Square|Sq|Terrace|Ter|Trail|Trl|Parkway|Pkwy|Highway|Hwy|Way|Plaza|Plz|Loop|Alley|Aly|Crossing|Xing|Expressway|Expy|Freeway|Fwy)\\b\\.?",
+      "flags": "gi",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "US street address (number + name + USPS suffix)",
+      "examples": [
+        "1600 Pennsylvania Ave",
+        "350 5th Avenue",
+        "1 Infinite Loop",
+        "742 Evergreen Terrace"
+      ]
+    },
+    {
+      "id": "regex:us:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:in\\s+(?:the\\s+)?(?:amount|sum)\\s+of|pay(?:able)?(?:\\s+the\\s+(?:amount|sum))?\\s+of)\\s+[\\p{L}\\s-]+(?:dollars?|cents?)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "US dollar amount written in words (e.g., \"in the amount of eight thousand five hundred dollars\")",
+      "examples": [
+        "in the amount of five thousand dollars",
+        "payable the sum of two hundred fifty dollars"
+      ]
+    },
+    {
+      "id": "regex:us:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:,?\\s+)?(?:Inc\\.?|LLC|L\\.L\\.C\\.|Corp\\.?|Corporation|Co\\.|Company|Ltd\\.?|LP|L\\.P\\.|LLP|L\\.L\\.P\\.|PLLC|P\\.C\\.)\\b",
+      "flags": "gu",
+      "confidence": 0.85,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "US company name with legal suffix (Inc, LLC, Corp, etc.)",
+      "examples": [
+        "Apple Inc.",
+        "Acme LLC",
+        "Stark Industries Corp",
+        "Wayne Enterprises, Inc."
+      ]
+    }
+  ]
+}

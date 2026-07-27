@@ -1,4 +1,5 @@
 export type { RegexRule, PiiDomain, RegionCode } from './types.ts';
+export type { RegexRuleJson, RegionRulesJson } from './loader.ts';
 
 /**
  * Region choices for the regex detector: 'all' plus every shipped region
@@ -13,42 +14,13 @@ export const REGEX_REGIONS = [
 export type RegexRegionId = typeof REGEX_REGIONS[number];
 
 import type { RegexRule } from './types.ts';
-import { rules as universal } from './universal.ts';
-import { rules as gb } from './regions/gb.ts';
-import { rules as pl } from './regions/pl.ts';
-import { rules as de } from './regions/de.ts';
-import { rules as fr } from './regions/fr.ts';
-import { rules as es } from './regions/es.ts';
-import { rules as pt } from './regions/pt.ts';
-import { rules as se } from './regions/se.ts';
-import { rules as no } from './regions/no.ts';
-import { rules as it } from './regions/it.ts';
-import { rules as nl } from './regions/nl.ts';
-import { rules as be } from './regions/be.ts';
-import { rules as at } from './regions/at.ts';
-import { rules as ch } from './regions/ch.ts';
-import { rules as ie } from './regions/ie.ts';
-import { rules as dk } from './regions/dk.ts';
-import { rules as fi } from './regions/fi.ts';
-import { rules as us } from './regions/us.ts';
+import { loadRegexRules } from './loader.ts';
+import { RULES_DATA } from './rules.data.ts';
 
-export const ALL_REGEX_RULES: RegexRule[] = [
-  ...universal,
-  ...gb,
-  ...pl,
-  ...de,
-  ...fr,
-  ...es,
-  ...pt,
-  ...se,
-  ...no,
-  ...it,
-  ...nl,
-  ...be,
-  ...at,
-  ...ch,
-  ...ie,
-  ...dk,
-  ...fi,
-  ...us,
-];
+/**
+ * All regex rules, compiled from the canonical rules/*.json packs (T018).
+ * The JSON is embedded at authoring time via the generated rules.data.ts;
+ * pack order there matches the pre-T018 hand-written concatenation order.
+ * An unknown validator name in the data fails right here, at module init.
+ */
+export const ALL_REGEX_RULES: RegexRule[] = loadRegexRules(RULES_DATA);

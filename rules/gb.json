@@ -1,0 +1,194 @@
+{
+  "region": "gb",
+  "rules": [
+    {
+      "id": "regex:gb:nino",
+      "entityType": "SSN",
+      "pattern": "\\b[A-Z]{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?[A-D]\\b",
+      "flags": "gi",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "hr",
+        "financial"
+      ],
+      "description": "UK National Insurance Number (NINO, e.g., AB 12 34 56 C)",
+      "examples": [
+        "AB 12 34 56 C",
+        "CE123456C"
+      ],
+      "validate": "nino"
+    },
+    {
+      "id": "regex:gb:nhs",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{3}\\s?\\d{3}\\s?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.6,
+      "domains": [
+        "medical",
+        "identity"
+      ],
+      "description": "UK NHS number (10 digits)",
+      "examples": [
+        "943 476 5919"
+      ],
+      "falsePositiveNotes": "10-digit format overlaps with many phone numbers",
+      "validate": "nhs"
+    },
+    {
+      "id": "regex:gb:passport",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{9}\\b",
+      "flags": "g",
+      "confidence": 0.4,
+      "domains": [
+        "identity"
+      ],
+      "description": "UK passport number (9 digits)",
+      "examples": [
+        "123456789"
+      ],
+      "falsePositiveNotes": "Very broad — 9 digits matches many things. Best paired with context clues."
+    },
+    {
+      "id": "regex:gb:sort_code",
+      "entityType": "OTHER",
+      "pattern": "\\b\\d{2}-\\d{2}-\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.65,
+      "domains": [
+        "financial"
+      ],
+      "description": "UK bank sort code (XX-XX-XX)",
+      "examples": [
+        "12-34-56"
+      ],
+      "falsePositiveNotes": "Also matches dates in dd-mm-yy format"
+    },
+    {
+      "id": "regex:gb:bank_account",
+      "entityType": "OTHER",
+      "pattern": "\\b\\d{7,8}\\b",
+      "flags": "g",
+      "confidence": 0.3,
+      "domains": [
+        "financial"
+      ],
+      "description": "UK bank account number (7-8 digits)",
+      "examples": [
+        "12345678"
+      ],
+      "falsePositiveNotes": "Extremely broad — disabled by default in low-sensitivity mode"
+    },
+    {
+      "id": "regex:gb:vat",
+      "entityType": "SSN",
+      "pattern": "\\b(?:GB)?\\d{3}\\s?\\d{4}\\s?\\d{2}(?:\\s?\\d{3})?\\b",
+      "flags": "gi",
+      "confidence": 0.75,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "UK VAT number (GB + 9 or 12 digits)",
+      "examples": [
+        "GB123 4567 89",
+        "GB123456789"
+      ]
+    },
+    {
+      "id": "regex:gb:phone_landline",
+      "entityType": "PHONE",
+      "pattern": "\\b0\\d{4}\\s?\\d{6}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "UK landline phone number (e.g., 020 7946 0958)",
+      "examples": [
+        "01234 567890",
+        "02079 460958"
+      ]
+    },
+    {
+      "id": "regex:gb:phone_mobile",
+      "entityType": "PHONE",
+      "pattern": "\\b07\\d{3}\\s?\\d{6}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "UK mobile phone number (07XXX XXXXXX)",
+      "examples": [
+        "07911 123456"
+      ]
+    },
+    {
+      "id": "regex:gb:postcode",
+      "entityType": "ADDRESS",
+      "pattern": "\\b[A-Z]{1,2}\\d[A-Z\\d]?\\s?\\d[A-Z]{2}\\b",
+      "flags": "gi",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "UK postcode (e.g., SW1A 1AA, EC2A 1NT, M1 1AA)",
+      "examples": [
+        "SW1A 1AA",
+        "EC2A 1NT",
+        "M1 1AA",
+        "B33 8TH"
+      ]
+    },
+    {
+      "id": "regex:gb:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:in\\s+(?:the\\s+)?(?:amount|sum)\\s+of|pay(?:able)?(?:\\s+the\\s+(?:amount|sum))?\\s+of)\\s+[\\p{L}\\s-]+(?:pounds?|pence|sterling)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "English (UK) amount written in words (e.g., \"in the amount of eight thousand five hundred pounds\")",
+      "examples": [
+        "in the amount of eight thousand five hundred pounds"
+      ]
+    },
+    {
+      "id": "regex:gb:street",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{1,4}[A-Z]?\\s+[A-Z][\\w]+(?:\\s+[A-Z][\\w]+)*\\s+(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Drive|Dr|Close|Cl|Crescent|Cres|Terrace|Terr|Place|Pl|Gardens|Gdns|Grove|Way|Court|Ct|Square|Sq|Mews|Row|Rise|Hill|Park|Gate|Walk|Green|Parade|Wharf)\\.?\\b",
+      "flags": "gi",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "UK street address (number + street name + type)",
+      "examples": [
+        "10 Downing Street",
+        "221B Baker Street",
+        "42 Oxford Road"
+      ]
+    },
+    {
+      "id": "regex:gb:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:,?\\s+)?(?:Ltd\\.?|PLC|LLP|L\\.L\\.P\\.)\\b",
+      "flags": "gu",
+      "confidence": 0.85,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "UK company name with legal suffix (Ltd, PLC, LLP)",
+      "examples": [
+        "Barclays PLC",
+        "Tesco Ltd",
+        "Deloitte LLP"
+      ]
+    }
+  ]
+}

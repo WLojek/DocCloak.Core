@@ -1,0 +1,66 @@
+{
+  "region": "ch",
+  "rules": [
+    {
+      "id": "regex:ch:ahv-avs-number",
+      "entityType": "SSN",
+      "pattern": "\\b756[.\\s]?\\d{4}[.\\s]?\\d{4}[.\\s]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.95,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Swiss AHV/AVS social security number (new format, EAN-13 based)",
+      "examples": [
+        "756.1234.5678.97"
+      ],
+      "validate": "ahv"
+    },
+    {
+      "id": "regex:ch:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?41[\\s-]?|0)[1-9]\\d[\\s-]?\\d{3}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swiss phone number"
+    },
+    {
+      "id": "regex:ch:postal-city",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swiss postal code followed by city name"
+    },
+    {
+      "id": "regex:ch:street-german",
+      "entityType": "ADDRESS",
+      "pattern": "[\\p{L}][\\p{L}\\s-]*(?:strasse|str\\.|weg|gasse|platz|allee|rain|matte)\\s+\\d+[\\p{L}]?",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swiss street address in German (e.g. Bahnhofstrasse 10)"
+    },
+    {
+      "id": "regex:ch:street-french",
+      "entityType": "ADDRESS",
+      "pattern": "(?:rue|avenue|chemin|route|place|boulevard)\\s+[\\p{L}][\\p{L}\\s'-]+\\s*\\d+",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Swiss street address in French (e.g. rue de Lausanne 12)"
+    }
+  ]
+}

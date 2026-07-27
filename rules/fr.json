@@ -1,0 +1,178 @@
+{
+  "region": "fr",
+  "rules": [
+    {
+      "id": "regex:fr:nir",
+      "entityType": "SSN",
+      "pattern": "\\b[12]\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}(?:\\s?\\d{2})?\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "medical",
+        "hr"
+      ],
+      "description": "French NIR / INSEE number (numéro de sécurité sociale, 13+2 digits)",
+      "examples": [
+        "1 85 05 78 049 013 36"
+      ],
+      "validate": "nir"
+    },
+    {
+      "id": "regex:fr:passport",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}[A-Z]{2}\\d{5}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "identity"
+      ],
+      "description": "French passport number (2 digits + 2 letters + 5 digits)",
+      "examples": [
+        "12AB34567"
+      ]
+    },
+    {
+      "id": "regex:fr:cni",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{12}\\b",
+      "flags": "g",
+      "confidence": 0.4,
+      "domains": [
+        "identity"
+      ],
+      "description": "French national ID card number (12 digits, new format)",
+      "examples": [
+        "123456789012"
+      ],
+      "falsePositiveNotes": "Very broad — 12 digits matches many things"
+    },
+    {
+      "id": "regex:fr:siret",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{3}\\s?\\d{3}\\s?\\d{3}(?:\\s?\\d{5})?\\b",
+      "flags": "g",
+      "confidence": 0.65,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "French SIRET (14 digits) or SIREN (9 digits) business number",
+      "examples": [
+        "362 521 879 00034",
+        "362 521 879"
+      ],
+      "falsePositiveNotes": "9-digit SIREN overlaps with many formats"
+    },
+    {
+      "id": "regex:fr:vat",
+      "entityType": "SSN",
+      "pattern": "\\b(?:FR)?\\d{2}\\s?\\d{9}\\b",
+      "flags": "gi",
+      "confidence": 0.75,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "French VAT number (FR + 2 digits + 9 digits SIREN)",
+      "examples": [
+        "FR12 362521879",
+        "FR 12362521879"
+      ]
+    },
+    {
+      "id": "regex:fr:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b0[1-9](?:\\s?\\d{2}){4}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "French phone number (0X XX XX XX XX)",
+      "examples": [
+        "01 23 45 67 89",
+        "06 12 34 56 78",
+        "0612345678"
+      ]
+    },
+    {
+      "id": "regex:fr:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "French postal code (5 digits) followed by city name",
+      "examples": [
+        "75008 Paris",
+        "69001 Lyon",
+        "13001 Marseille"
+      ]
+    },
+    {
+      "id": "regex:fr:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:(?:soit|montant)\\s+(?:en\\s+)?(?:lettres?|toutes?\\s+lettres?)\\s*:\\s*|(?:la\\s+)?somme\\s+de\\s+)[\\p{L}\\s'-]+(?:euros?|centimes?)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "French amount written in words (e.g., \"soit en lettres: huit mille cinq cents euros\")",
+      "examples": [
+        "soit en lettres: huit mille cinq cents euros"
+      ]
+    },
+    {
+      "id": "regex:fr:street",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{1,5}(?:\\s*(?:bis|ter))?\\s*,?\\s*(?:rue|avenue|av\\.|boulevard|bd\\.?|place|pl\\.|impasse|allée|passage|chemin|route|quai|cours|square|voie|sentier|résidence)\\s+[\\p{L}][\\p{L}\\s'-]+",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "contact"
+      ],
+      "description": "French street address (number + rue/avenue/boulevard + name)",
+      "examples": [
+        "12 rue de Rivoli",
+        "42 avenue des Champs-Élysées",
+        "8 bis boulevard Haussmann"
+      ]
+    },
+    {
+      "id": "regex:fr:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.']+(?:\\s+)?(?:SARL|SAS|SA|EURL|SCI|SNC|SASU)\\b",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "French company name with legal form (SARL, SAS, SA, EURL, SCI, SNC)",
+      "examples": [
+        "Total SA",
+        "Capgemini SAS",
+        "Dupont et Fils SARL"
+      ]
+    },
+    {
+      "id": "regex:fr:carte_vitale",
+      "entityType": "OTHER",
+      "pattern": "\\b\\d{1}\\s?\\d{2}\\s?\\d{2}\\s?\\d{3}\\s?\\d{3}\\b",
+      "flags": "g",
+      "confidence": 0.7,
+      "domains": [
+        "medical"
+      ],
+      "description": "French Carte Vitale number (same as NIR, 13 digits)",
+      "examples": [
+        "1 85 05 780 490"
+      ],
+      "falsePositiveNotes": "Duplicate of NIR — overlap resolution will keep one"
+    }
+  ]
+}

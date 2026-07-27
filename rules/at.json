@@ -1,0 +1,70 @@
+{
+  "region": "at",
+  "rules": [
+    {
+      "id": "regex:at:svnr",
+      "entityType": "SSN",
+      "pattern": "\\b[1-9]\\d{3}\\s?(?:0[1-9]|[12]\\d|3[01])(?:0[1-9]|1[0-2])\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Austrian social insurance number (SVNR / Sozialversicherungsnummer, 10 digits)",
+      "examples": [
+        "1237 010180"
+      ],
+      "validate": "svnr"
+    },
+    {
+      "id": "regex:at:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?43[\\s-]?|0)\\d{1,4}[\\s-]?\\d{4,10}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "contact"
+      ],
+      "description": "Austrian phone number (variable-length area codes)",
+      "examples": [
+        "+43 1 12345678",
+        "0664 1234567"
+      ]
+    },
+    {
+      "id": "regex:at:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Austrian postal code (4 digits) followed by city name",
+      "examples": [
+        "1010 Wien",
+        "5020 Salzburg",
+        "8010 Graz"
+      ]
+    },
+    {
+      "id": "regex:at:street",
+      "entityType": "ADDRESS",
+      "pattern": "[\\p{L}][\\p{L}\\s-]*(?:straße|strasse|str\\.|gasse|weg|platz|ring|allee)\\s+\\d+[\\p{L}]?(?:\\s*[/\\\\]\\s*\\d+)?",
+      "flags": "giu",
+      "confidence": 0.85,
+      "domains": [
+        "contact"
+      ],
+      "description": "Austrian street address (name + Straße/Gasse/Weg/Platz + number)",
+      "examples": [
+        "Mariahilfer Straße 45",
+        "Währinger Str. 12",
+        "Hauptplatz 1",
+        "Neubaugasse 7/3"
+      ]
+    }
+  ]
+}

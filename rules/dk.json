@@ -1,0 +1,43 @@
+{
+  "region": "dk",
+  "rules": [
+    {
+      "id": "regex:dk:cpr-number",
+      "entityType": "SSN",
+      "pattern": "\\b(?:0[1-9]|[12]\\d|3[01])(?:0[1-9]|1[0-2])\\d{2}[-\\s]?\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "identity",
+        "hr"
+      ],
+      "description": "Danish CPR (Central Person Register) number",
+      "examples": [
+        "010190-1234"
+      ],
+      "falsePositiveNotes": "Post-2007 CPR numbers may not satisfy modulo-11 check"
+    },
+    {
+      "id": "regex:dk:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?45[\\s-]?)?\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "contact"
+      ],
+      "description": "Danish phone number"
+    },
+    {
+      "id": "regex:dk:postal-city",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Danish postal code followed by city name"
+    }
+  ]
+}

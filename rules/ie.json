@@ -1,0 +1,48 @@
+{
+  "region": "ie",
+  "rules": [
+    {
+      "id": "regex:ie:pps-number",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{7}[A-W][ABWTXZ]?\\b",
+      "flags": "gi",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "hr"
+      ],
+      "description": "Irish PPS (Personal Public Service) number",
+      "examples": [
+        "1234567T",
+        "1234567TW"
+      ],
+      "validate": "pps"
+    },
+    {
+      "id": "regex:ie:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?353[\\s-]?|0)[1-9]\\d?[\\s-]?\\d{3}[\\s-]?\\d{3,4}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Irish phone number"
+    },
+    {
+      "id": "regex:ie:eircode",
+      "entityType": "ADDRESS",
+      "pattern": "\\b[A-Z]\\d{2}\\s?[A-Z0-9]{4}\\b",
+      "flags": "gi",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Irish Eircode postal code",
+      "examples": [
+        "A65 F4E2",
+        "D08YX4T"
+      ]
+    }
+  ]
+}

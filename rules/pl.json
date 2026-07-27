@@ -1,0 +1,210 @@
+{
+  "region": "pl",
+  "rules": [
+    {
+      "id": "regex:pl:pesel",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}[0-3]\\d[0-3]\\d{6}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "identity",
+        "hr",
+        "medical"
+      ],
+      "description": "Polish PESEL national identification number (11 digits, YYMMDD + 5)",
+      "examples": [
+        "89052310002",
+        "02271400004"
+      ],
+      "validate": "pesel"
+    },
+    {
+      "id": "regex:pl:id_card",
+      "entityType": "SSN",
+      "pattern": "\\b[A-Z]{3}\\s?\\d{6}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "identity"
+      ],
+      "description": "Polish ID card number (3 letters + 6 digits)",
+      "examples": [
+        "ABC 523456"
+      ],
+      "validate": "plIdCard"
+    },
+    {
+      "id": "regex:pl:passport",
+      "entityType": "SSN",
+      "pattern": "\\b[A-Z]{2}\\s?\\d{7}\\b",
+      "flags": "g",
+      "confidence": 0.7,
+      "domains": [
+        "identity"
+      ],
+      "description": "Polish passport number (2 letters + 7 digits)",
+      "examples": [
+        "AB 1234567",
+        "CD1234567"
+      ]
+    },
+    {
+      "id": "regex:pl:nip",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{3}-?\\d{3}-?\\d{2}-?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "Polish NIP tax identification number (10 digits, XXX-XXX-XX-XX)",
+      "examples": [
+        "123-456-78-19",
+        "1234567819"
+      ],
+      "validate": "nip"
+    },
+    {
+      "id": "regex:pl:regon",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{9}(?:\\d{5})?\\b",
+      "flags": "g",
+      "confidence": 0.6,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "Polish REGON business registry number (9 or 14 digits)",
+      "examples": [
+        "123456785"
+      ],
+      "falsePositiveNotes": "9-digit REGON overlaps with many other number formats",
+      "validate": "regon"
+    },
+    {
+      "id": "regex:pl:bank_account",
+      "entityType": "OTHER",
+      "pattern": "\\b\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{2}\\b",
+      "flags": "g",
+      "confidence": 0.85,
+      "domains": [
+        "financial"
+      ],
+      "description": "Polish bank account number (26 digits, often spaced in groups of 4)",
+      "examples": [
+        "1234 5678 9012 3456 7890 1234 56"
+      ]
+    },
+    {
+      "id": "regex:pl:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?48[\\s-]?)?\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Polish phone number (9 digits, optionally with +48 prefix)",
+      "examples": [
+        "+48 600 123 456",
+        "600-123-456",
+        "48 600123456"
+      ]
+    },
+    {
+      "id": "regex:pl:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{2}-\\d{3}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "Polish postal code (XX-XXX) followed by city name",
+      "examples": [
+        "00-950 Warszawa",
+        "31-501 Kraków",
+        "80-244 Gdańsk Wrzeszcz"
+      ]
+    },
+    {
+      "id": "regex:pl:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:słownie:\\s*)[\\p{L}\\s]+(?:złot(?:ych|y|e)|groszy|grosz(?:e)?)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "Polish amount written in words after \"słownie:\" (e.g., \"słownie: osiem tysięcy pięćset złotych\")",
+      "examples": [
+        "słownie: osiem tysięcy pięćset złotych"
+      ]
+    },
+    {
+      "id": "regex:pl:street",
+      "entityType": "ADDRESS",
+      "pattern": "(?:ul\\.|al\\.|pl\\.|os\\.)\\s+[\\p{L}][\\p{L}\\s]+\\s+\\d+[\\p{L}]?(?:\\s*[/\\\\]\\s*\\d+[\\p{L}]?)?",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "contact"
+      ],
+      "description": "Polish street address (ul./al./pl./os. + name + number)",
+      "examples": [
+        "ul. Floriańska 27/3",
+        "ul. Juliusza Słowackiego 15/8",
+        "al. Krakowska 42",
+        "os. Złotego Wieku 12"
+      ]
+    },
+    {
+      "id": "regex:pl:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s]+(?:Sp(?:ółka)?\\s*z\\s*o\\.?\\s*o\\.?|Spółka\\s+z\\s+ograniczon[\\p{L}]+\\s+odpowiedzialno[\\p{L}]+|Sp\\.\\s*j\\.|S\\.A\\.|Sp\\.\\s*k\\.)",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Polish company name with legal form (Sp. z o.o., S.A., Sp. j., Sp. k.)",
+      "examples": [
+        "Santander Bank Polska S.A.",
+        "NOVAMED Spółka z ograniczoną odpowiedzialnością"
+      ]
+    },
+    {
+      "id": "regex:pl:court_case",
+      "entityType": "OTHER",
+      "pattern": "\\b[IVXLCDM]+\\s+(?:K|C|Ca|Cz|Co|Gz|Ga|GCo|GC)\\s+\\d+\\/\\d{2,4}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "legal"
+      ],
+      "description": "Polish court case signature (e.g., \"III K 123/24\", \"I C 456/2023\")",
+      "examples": [
+        "III K 123/24",
+        "I C 456/2023"
+      ]
+    },
+    {
+      "id": "regex:pl:krs",
+      "entityType": "OTHER",
+      "pattern": "\\b\\d{4}\\/\\d{8}\\/\\d{4}\\b",
+      "flags": "g",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "Polish KRS company registry number",
+      "examples": [
+        "0000/12345678/0001"
+      ]
+    }
+  ]
+}

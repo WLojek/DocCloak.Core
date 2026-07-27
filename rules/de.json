@@ -1,0 +1,192 @@
+{
+  "region": "de",
+  "rules": [
+    {
+      "id": "regex:de:personalausweis",
+      "entityType": "SSN",
+      "pattern": "\\b[CFGHJKLMNPRTVWXYZ]\\d{2}[CFGHJKLMNPRTVWXYZ0-9]{6}\\d\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "identity"
+      ],
+      "description": "German ID card number (Personalausweisnummer)",
+      "examples": [
+        "T220001297"
+      ]
+    },
+    {
+      "id": "regex:de:passport",
+      "entityType": "SSN",
+      "pattern": "\\b[CFGHJKLMNPRTVWXYZ]\\d{2}[CFGHJKLMNPRTVWXYZ0-9]{5}\\d[A-Z]\\d{7}\\b",
+      "flags": "g",
+      "confidence": 0.75,
+      "domains": [
+        "identity"
+      ],
+      "description": "German passport number",
+      "examples": [
+        "C01X00T47D1234567"
+      ]
+    },
+    {
+      "id": "regex:de:steuernummer",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2,3}\\/?\\d{3}\\/?\\d{4,5}\\b",
+      "flags": "g",
+      "confidence": 0.6,
+      "domains": [
+        "financial"
+      ],
+      "description": "German tax number (Steuernummer, 10-11 digits, format varies by state)",
+      "examples": [
+        "93/815/08152",
+        "2181508152"
+      ],
+      "falsePositiveNotes": "Format varies by Bundesland — hard to validate precisely"
+    },
+    {
+      "id": "regex:de:steuerid",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}\\s?\\d{3}\\s?\\d{3}\\s?\\d{3}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "financial",
+        "identity"
+      ],
+      "description": "German tax ID (Steuerliche Identifikationsnummer, 11 digits)",
+      "examples": [
+        "12 345 678 903"
+      ],
+      "validate": "steuerId"
+    },
+    {
+      "id": "regex:de:vat",
+      "entityType": "SSN",
+      "pattern": "\\b(?:DE)?\\d{9}\\b",
+      "flags": "gi",
+      "confidence": 0.65,
+      "domains": [
+        "financial",
+        "legal"
+      ],
+      "description": "German VAT number (USt-IdNr., DE + 9 digits)",
+      "examples": [
+        "DE123456789"
+      ],
+      "falsePositiveNotes": "Without DE prefix, 9 digits alone has many false positives"
+    },
+    {
+      "id": "regex:de:phone",
+      "entityType": "PHONE",
+      "pattern": "\\b(?:\\+?49[\\s-]?)?\\(?\\d{2,5}\\)?[\\s-]?\\d{3,10}\\b",
+      "flags": "g",
+      "confidence": 0.7,
+      "domains": [
+        "contact"
+      ],
+      "description": "German phone number (variable-length area codes)",
+      "examples": [
+        "+49 30 12345678",
+        "089/12345678",
+        "(030) 12345678"
+      ],
+      "falsePositiveNotes": "Variable-length area codes make this pattern broad"
+    },
+    {
+      "id": "regex:de:postal",
+      "entityType": "ADDRESS",
+      "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "flags": "gu",
+      "confidence": 0.8,
+      "domains": [
+        "contact"
+      ],
+      "description": "German postal code (5 digits) followed by city name",
+      "examples": [
+        "10115 Berlin",
+        "80331 München"
+      ]
+    },
+    {
+      "id": "regex:de:currency_words",
+      "entityType": "CURRENCY",
+      "pattern": "(?:in\\s+(?:Höhe|Worten?)\\s+(?:von\\s+)?|(?:Betrag|Summe)\\s+von\\s+)[\\p{L}\\s-]+(?:Euro|Cent)\\b",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "financial"
+      ],
+      "description": "German amount written in words (e.g., \"in Höhe von achttausendfünfhundert Euro\")",
+      "examples": [
+        "in Höhe von achttausendfünfhundert Euro"
+      ]
+    },
+    {
+      "id": "regex:de:street",
+      "entityType": "ADDRESS",
+      "pattern": "[\\p{L}][\\p{L}\\s-]*(?:straße|strasse|str\\.|weg|gasse|platz|allee|ring|damm|ufer|chaussee)\\s+\\d+[\\p{L}]?(?:\\s*[/\\\\]\\s*\\d+)?",
+      "flags": "giu",
+      "confidence": 0.9,
+      "domains": [
+        "contact"
+      ],
+      "description": "German street address (name + straße/str./weg/gasse/platz + number)",
+      "examples": [
+        "Friedrichstraße 43",
+        "Berliner Str. 12",
+        "Hauptplatz 1",
+        "Am Damm 7a"
+      ]
+    },
+    {
+      "id": "regex:de:company",
+      "entityType": "COMPANY",
+      "pattern": "[\\p{L}][\\p{L}\\s&.]+(?:\\s+)?(?:GmbH|AG|KG|OHG|e\\.?\\s?V\\.?|GbR|UG|mbH|KGaA)\\b",
+      "flags": "gu",
+      "confidence": 0.9,
+      "domains": [
+        "legal",
+        "financial"
+      ],
+      "description": "German company name with legal form (GmbH, AG, KG, OHG, e.V., GbR, UG)",
+      "examples": [
+        "Deutsche Bank AG",
+        "Siemens GmbH",
+        "Bosch KG"
+      ]
+    },
+    {
+      "id": "regex:de:icd10gm",
+      "entityType": "OTHER",
+      "pattern": "\\b[A-Z]\\d{2}(?:\\.\\d{1,2})?(?:\\s?[GLRAZ])?\\b",
+      "flags": "g",
+      "confidence": 0.55,
+      "domains": [
+        "medical"
+      ],
+      "description": "ICD-10-GM diagnosis code (German modification)",
+      "examples": [
+        "J18.9 G",
+        "E11.65"
+      ],
+      "falsePositiveNotes": "Very short codes — high false positive risk"
+    },
+    {
+      "id": "regex:de:sozialversicherung",
+      "entityType": "SSN",
+      "pattern": "\\b\\d{2}(?:0[1-9]|[12]\\d|3[01])(?:0[1-9]|1[0-2])\\d{2}[A-Z]\\d{2}\\d\\b",
+      "flags": "gi",
+      "confidence": 0.75,
+      "domains": [
+        "hr",
+        "identity"
+      ],
+      "description": "German social insurance number (Sozialversicherungsnummer, 12 chars: area + DDMMYY birth date + letter + serial + check digit)",
+      "examples": [
+        "12010182A056"
+      ]
+    }
+  ]
+}
