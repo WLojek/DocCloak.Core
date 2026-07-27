@@ -1,6 +1,6 @@
 {
   "name": "@doccloak/core",
-  "version": "0.8.0-dev.0",
+  "version": "0.8.0",
   "description": "Environment-agnostic document anonymization engine for the DocCloak ecosystem.",
   "license": "Apache-2.0",
   "author": "Witold Lojek",
@@ -13,12 +13,38 @@
     "./worker-protocol": "./src/worker-protocol.ts"
   },
   "files": [
-    "src",
+    "dist",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "keywords": [
+    "anonymization",
+    "pii",
+    "ner",
+    "redaction",
+    "privacy",
+    "gdpr",
+    "onnx",
+    "docx",
+    "ocr"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WLojek/DocCloak.Core.git"
+  },
+  "homepage": "https://github.com/WLojek/DocCloak.Core#readme",
+  "bugs": {
+    "url": "https://github.com/WLojek/DocCloak.Core/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/fix-dts-extensions.mjs",
+    "prepack": "npm run build && node scripts/package-exports.mjs dist",
+    "postpack": "node scripts/package-exports.mjs src",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

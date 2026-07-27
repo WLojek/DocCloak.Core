@@ -1,0 +1,15 @@
+{
+  // Build config for the published artifact: emits ESM .js + .d.ts into dist/.
+  // The dev tsconfig stays noEmit (consumers on the file: link compile src/
+  // directly); rewriteRelativeImportExtensions turns the ./x.ts specifiers
+  // into ./x.js in both the JS and the declaration output.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

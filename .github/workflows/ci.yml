@@ -1,0 +1,22 @@
+# Build + test on every push. Publishing to npm stays a manual founder step
+# (see the release notes in CHANGELOG.md); there is deliberately no publish
+# job here.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
