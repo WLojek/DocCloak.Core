@@ -2382,5 +2382,296 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
         ]
       }
     ]
+  },
+  {
+    "region": "jp",
+    "rules": [
+      {
+        "id": "regex:jp:my_number",
+        "entityType": "SSN",
+        "pattern": "\\b\\d{4}\\s?\\d{4}\\s?\\d{4}\\b",
+        "flags": "g",
+        "confidence": 0.7,
+        "domains": [
+          "identity"
+        ],
+        "description": "Japanese My Number (individual number, 12 digits)",
+        "examples": [
+          "1234 5678 9012"
+        ]
+      },
+      {
+        "id": "regex:jp:passport",
+        "entityType": "SSN",
+        "pattern": "\\b[A-Z]{2}\\d{7}\\b",
+        "flags": "g",
+        "confidence": 0.7,
+        "domains": [
+          "identity"
+        ],
+        "description": "Japanese passport number (2 letters + 7 digits)",
+        "examples": [
+          "TK1234567"
+        ]
+      },
+      {
+        "id": "regex:jp:corporate_number",
+        "entityType": "SSN",
+        "pattern": "\\b\\d{13}\\b",
+        "flags": "g",
+        "confidence": 0.5,
+        "domains": [
+          "identity",
+          "financial"
+        ],
+        "description": "Japanese corporate number (houjin bangou, 13 digits)",
+        "examples": [
+          "1234567890123"
+        ]
+      },
+      {
+        "id": "regex:jp:phone",
+        "entityType": "PHONE",
+        "pattern": "\\b0\\d{1,4}[\\s-]?\\d{1,4}[\\s-]?\\d{3,4}\\b",
+        "flags": "g",
+        "confidence": 0.8,
+        "domains": [
+          "contact"
+        ],
+        "description": "Japanese phone number (0X-XXXX-XXXX, variable area code length)",
+        "examples": [
+          "03-1234-5678",
+          "090-1234-5678",
+          "0120-123-456"
+        ]
+      },
+      {
+        "id": "regex:jp:postal",
+        "entityType": "ADDRESS",
+        "pattern": "\\b\\d{3}-?\\d{4}\\b",
+        "flags": "g",
+        "confidence": 0.65,
+        "domains": [
+          "contact"
+        ],
+        "description": "Japanese postal code (XXX-XXXX)",
+        "examples": [
+          "100-0001",
+          "1600023"
+        ]
+      },
+      {
+        "id": "regex:jp:currency_kanji",
+        "entityType": "CURRENCY",
+        "pattern": "[一二三四五六七八九十百千万億兆]+\\s*円",
+        "flags": "g",
+        "confidence": 0.9,
+        "domains": [
+          "financial"
+        ],
+        "description": "Japanese amount in kanji numerals + yen sign (e.g., 八千五百円)",
+        "examples": [
+          "八千五百円"
+        ]
+      },
+      {
+        "id": "regex:jp:address",
+        "entityType": "ADDRESS",
+        "pattern": "[\\u4E00-\\u9FFF]+[都道府県][\\u4E00-\\u9FFF]+[市区町村郡][\\u4E00-\\u9FFF\\d-]+",
+        "flags": "g",
+        "confidence": 0.85,
+        "domains": [
+          "contact"
+        ],
+        "description": "Japanese address (prefecture + city/ward + district)",
+        "examples": [
+          "東京都千代田区丸の内1-1-1"
+        ]
+      },
+      {
+        "id": "regex:jp:company_prefix",
+        "entityType": "COMPANY",
+        "pattern": "(?:株式会社|有限会社|合同会社|合名会社|合資会社)\\s*[\\u4E00-\\u9FFF\\p{L}\\s]+",
+        "flags": "gu",
+        "confidence": 0.9,
+        "domains": [
+          "general"
+        ],
+        "description": "Japanese company with legal prefix (kabushiki gaisha etc.)",
+        "examples": [
+          "株式会社トヨタ自動車",
+          "有限会社田中商店"
+        ]
+      },
+      {
+        "id": "regex:jp:company_suffix",
+        "entityType": "COMPANY",
+        "pattern": "[\\u4E00-\\u9FFF\\p{L}][\\u4E00-\\u9FFF\\p{L}\\s]+(?:株式会社|有限会社|合同会社)",
+        "flags": "gu",
+        "confidence": 0.9,
+        "domains": [
+          "general"
+        ],
+        "description": "Japanese company with legal suffix (name + kabushiki gaisha)",
+        "examples": [
+          "トヨタ自動車株式会社"
+        ]
+      }
+    ]
+  },
+  {
+    "region": "cn",
+    "rules": [
+      {
+        "id": "regex:cn:resident_id",
+        "entityType": "SSN",
+        "pattern": "\\b\\d{6}(?:19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]\\b",
+        "flags": "g",
+        "confidence": 0.9,
+        "domains": [
+          "identity"
+        ],
+        "description": "Chinese Resident Identity Card number (18 digits)",
+        "examples": [
+          "110101199003070003"
+        ]
+      },
+      {
+        "id": "regex:cn:passport",
+        "entityType": "SSN",
+        "pattern": "\\b[GDE]\\d{8}\\b",
+        "flags": "g",
+        "confidence": 0.75,
+        "domains": [
+          "identity"
+        ],
+        "description": "Chinese passport number (G/D/E + 8 digits)",
+        "examples": [
+          "G12345678",
+          "E00000001"
+        ]
+      },
+      {
+        "id": "regex:cn:bank_card",
+        "entityType": "OTHER",
+        "pattern": "\\b\\d{15,19}\\b",
+        "flags": "g",
+        "confidence": 0.4,
+        "domains": [
+          "financial"
+        ],
+        "description": "Chinese bank card number (15-19 digits)",
+        "examples": [
+          "6222021234567890123"
+        ],
+        "falsePositiveNotes": "Any 15-19 digit run matches; low confidence by design"
+      },
+      {
+        "id": "regex:cn:uscc",
+        "entityType": "SSN",
+        "pattern": "\\b[0-9A-Z]{18}\\b",
+        "flags": "g",
+        "confidence": 0.6,
+        "domains": [
+          "identity",
+          "financial"
+        ],
+        "description": "Chinese Unified Social Credit Code (18 alphanumeric)",
+        "examples": [
+          "91110000710921000K"
+        ]
+      },
+      {
+        "id": "regex:cn:phone_mobile",
+        "entityType": "PHONE",
+        "pattern": "\\b(?:\\+?86[\\s-]?)?1[3-9]\\d[\\s-]?\\d{4}[\\s-]?\\d{4}\\b",
+        "flags": "g",
+        "confidence": 0.85,
+        "domains": [
+          "contact"
+        ],
+        "description": "Chinese mobile phone number (1XX-XXXX-XXXX, optionally with +86)",
+        "examples": [
+          "+86 138 1234 5678",
+          "13812345678"
+        ]
+      },
+      {
+        "id": "regex:cn:phone_landline",
+        "entityType": "PHONE",
+        "pattern": "\\b0\\d{2,3}[\\s-]?\\d{7,8}\\b",
+        "flags": "g",
+        "confidence": 0.8,
+        "domains": [
+          "contact"
+        ],
+        "description": "Chinese landline phone number (0XX-XXXXXXXX)",
+        "examples": [
+          "010-12345678",
+          "021-87654321"
+        ]
+      },
+      {
+        "id": "regex:cn:postal",
+        "entityType": "ADDRESS",
+        "pattern": "\\b\\d{6}\\b",
+        "flags": "g",
+        "confidence": 0.35,
+        "domains": [
+          "contact"
+        ],
+        "description": "Chinese postal code (6 digits)",
+        "examples": [
+          "100000",
+          "200000"
+        ],
+        "falsePositiveNotes": "Any standalone 6-digit number matches; low confidence by design"
+      },
+      {
+        "id": "regex:cn:currency_hanzi",
+        "entityType": "CURRENCY",
+        "pattern": "[零壹贰叁肆伍陆柒捌玖拾佰仟萬億一二三四五六七八九十百千万亿]+\\s*(?:元|圆|块)",
+        "flags": "g",
+        "confidence": 0.9,
+        "domains": [
+          "financial"
+        ],
+        "description": "Chinese amount in hanzi numerals + yuan sign (e.g., 捌仟伍佰元)",
+        "examples": [
+          "捌仟伍佰元",
+          "八千五百元"
+        ]
+      },
+      {
+        "id": "regex:cn:address",
+        "entityType": "ADDRESS",
+        "pattern": "[\\u4E00-\\u9FFF]+[省市][\\u4E00-\\u9FFF]+[市区县][\\u4E00-\\u9FFF\\d-]+",
+        "flags": "g",
+        "confidence": 0.85,
+        "domains": [
+          "contact"
+        ],
+        "description": "Chinese address (province/city + district + street)",
+        "examples": [
+          "北京市朝阳区建国路1号"
+        ]
+      },
+      {
+        "id": "regex:cn:company",
+        "entityType": "COMPANY",
+        "pattern": "[\\u4E00-\\u9FFF][\\u4E00-\\u9FFF\\s]+(?:有限公司|股份有限公司|集团|有限责任公司)",
+        "flags": "g",
+        "confidence": 0.9,
+        "domains": [
+          "general"
+        ],
+        "description": "Chinese company name with legal form",
+        "examples": [
+          "阿里巴巴集团",
+          "华为技术有限公司",
+          "腾讯科技股份有限公司"
+        ]
+      }
+    ]
   }
 ];

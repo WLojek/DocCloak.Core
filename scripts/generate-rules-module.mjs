@@ -28,7 +28,7 @@ const OUT_FILE = join(ROOT, 'src', 'regex', 'rules.data.ts');
  */
 export const PACK_ORDER = [
   'universal', 'gb', 'pl', 'de', 'fr', 'es', 'pt', 'se', 'no',
-  'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'us',
+  'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'us', 'jp', 'cn',
 ];
 
 export function render() {

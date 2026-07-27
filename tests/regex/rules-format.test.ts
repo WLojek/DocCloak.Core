@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
-import { ALL_REGEX_RULES } from '../../src/regex/index.ts';
+import { ALL_REGEX_RULES, REGEX_REGIONS } from '../../src/regex/index.ts';
 import { loadRegexRules, type RegionRulesJson } from '../../src/regex/loader.ts';
 import { RULES_DATA } from '../../src/regex/rules.data.ts';
 import { VALIDATORS } from '../../src/regex/validators.ts';
@@ -121,8 +121,8 @@ function validate(node: Record<string, unknown>, value: unknown, path: string, e
 // ── Schema validation ───────────────────────────────────────
 
 describe('rules/*.json: schema validation', () => {
-  it('found all 18 rule packs next to schema.json', () => {
-    expect(packFiles.length).toBe(18);
+  it('found all 20 rule packs next to schema.json', () => {
+    expect(packFiles.length).toBe(20);
   });
 
   for (const [file, pack] of packs) {
@@ -137,10 +137,10 @@ describe('rules/*.json: schema validation', () => {
     });
   }
 
-  it('rule ids are globally unique and total 147', () => {
+  it('rule ids are globally unique and total 166', () => {
     const ids = [...packs.values()].flatMap((p) => p.rules.map((r) => r.id));
-    expect(ids.length).toBe(147);
-    expect(new Set(ids).size).toBe(147);
+    expect(ids.length).toBe(166);
+    expect(new Set(ids).size).toBe(166);
   });
 
   it('every rule id embeds its pack region', () => {
@@ -213,11 +213,30 @@ describe('rules.data.ts', () => {
     expect(onDisk).toBe(render());
   });
 
-  it('embeds all 18 packs in the canonical order', () => {
+  it('embeds all 20 packs in the canonical order', () => {
     expect(RULES_DATA.map((p) => p.region)).toEqual([
       'universal', 'gb', 'pl', 'de', 'fr', 'es', 'pt', 'se', 'no',
-      'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'us',
+      'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'us', 'jp', 'cn',
     ]);
+  });
+
+  it('REGEX_REGIONS is exactly "all" plus every shipped region pack (T021 union set)', () => {
+    expect(REGEX_REGIONS).toEqual([
+      'all', 'gb', 'us', 'pl', 'de', 'fr', 'es', 'pt', 'se', 'no',
+      'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'jp', 'cn',
+    ]);
+    // 'all' + 19 country packs; universal ships in every selection and has no picker entry.
+    expect(REGEX_REGIONS.length).toBe(20);
+    const packRegions = new Set(RULES_DATA.map((p) => p.region));
+    expect(packRegions.size).toBe(20);
+    for (const region of REGEX_REGIONS) {
+      if (region === 'all') continue;
+      expect(packRegions.has(region), `picker region ${region} has no rule pack`).toBe(true);
+    }
+    for (const region of packRegions) {
+      if (region === 'universal') continue;
+      expect(REGEX_REGIONS.includes(region as (typeof REGEX_REGIONS)[number]), `pack ${region} missing from REGEX_REGIONS`).toBe(true);
+    }
   });
 });
 
@@ -248,6 +267,16 @@ describe('loader', () => {
 });
 
 // ── Metadata parity with the pre-T018 TS modules ────────────
+//
+// fixtures/metadata-baseline.json was captured from the hand-written TS rule
+// modules before the T018 switch to JSON packs. The original 147 entries are
+// FROZEN: never regenerate them (that would erase the parity guarantee).
+// T021 appended the promoted jp/cn rules additively, serialized from
+// rules/{jp,cn}.json in ALL_REGEX_RULES order with the same key order and
+// JSON.stringify(arr, null, 2) formatting, leaving the first 147 entries
+// byte-identical. To extend the baseline for a future new pack, do the same:
+// append entries derived from the new rules/*.json only, and verify with
+// git diff that no pre-existing line changed.
 
 interface BaselineRule {
   id: string;

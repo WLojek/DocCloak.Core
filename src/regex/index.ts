@@ -8,7 +8,7 @@ export type { RegexRuleJson, RegionRulesJson } from './loader.ts';
  */
 export const REGEX_REGIONS = [
   'all', 'gb', 'us', 'pl', 'de', 'fr', 'es', 'pt', 'se', 'no',
-  'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi',
+  'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi', 'jp', 'cn',
 ] as const;
 
 export type RegexRegionId = typeof REGEX_REGIONS[number];
