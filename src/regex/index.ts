@@ -1,5 +1,17 @@
 export type { RegexRule, PiiDomain, RegionCode } from './types.ts';
 
+/**
+ * Region choices for the regex detector: 'all' plus every shipped region
+ * pack. Order is significant - hosts render region pickers straight from
+ * this list (moved verbatim from the web app's engine.ts in T009).
+ */
+export const REGEX_REGIONS = [
+  'all', 'gb', 'us', 'pl', 'de', 'fr', 'es', 'pt', 'se', 'no',
+  'it', 'nl', 'be', 'at', 'ch', 'ie', 'dk', 'fi',
+] as const;
+
+export type RegexRegionId = typeof REGEX_REGIONS[number];
+
 import type { RegexRule } from './types.ts';
 import { rules as universal } from './universal.ts';
 import { rules as gb } from './regions/gb.ts';
