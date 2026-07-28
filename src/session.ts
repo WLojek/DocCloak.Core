@@ -2,11 +2,18 @@ import type { EntityType, DetectedEntity, ReplacementEntry } from './types.ts';
 
 export type ReplacementMode = 'labeled' | 'blanked';
 
+/**
+ * Typed placeholder token, e.g. "[PERSON_1]" or "[CREDIT_CARD_2]".
+ * EntityType ids are stable uppercase ASCII ([A-Z_]), so generated tokens
+ * always match the candidate pattern `\[[A-Z_]+_\d+\]`.
+ */
+const TYPED_PLACEHOLDER_RE = /^\[([A-Z_]+)_(\d+)\]$/;
+
 export class AnonymizationSession {
   private forwardMap = new Map<string, string>();
   private reverseMap = new Map<string, string>();
   private entityTypeMap = new Map<string, EntityType>();
-  private counter = 0;
+  private typeCounters = new Map<string, number>();
   private mode: ReplacementMode = 'labeled';
 
   setMode(mode: ReplacementMode): void {
@@ -17,14 +24,31 @@ export class AnonymizationSession {
     return this.mode;
   }
 
+  /**
+   * Issue the next typed placeholder for the given entity type using a
+   * per-type counter: [PERSON_1], [PERSON_2], [EMAIL_1], ... Numbers
+   * already present in the reverse map (a renamed label or an entry
+   * restored via deserialize) are skipped so a fresh placeholder never
+   * collides with an existing one.
+   */
+  private nextPlaceholder(entityType: EntityType): string {
+    let n = this.typeCounters.get(entityType) ?? 0;
+    let placeholder: string;
+    do {
+      n++;
+      placeholder = `[${entityType}_${n}]`;
+    } while (this.reverseMap.has(placeholder));
+    this.typeCounters.set(entityType, n);
+    return placeholder;
+  }
+
   anonymize(original: string, entityType: EntityType): string {
     if (this.forwardMap.has(original)) {
       return this.forwardMap.get(original)!;
     }
-    this.counter++;
     const placeholder = this.mode === 'blanked'
       ? '________'
-      : `<<REDACTED_${this.counter}>>`;
+      : this.nextPlaceholder(entityType);
     this.forwardMap.set(original, placeholder);
     // Blanked placeholders all collide on the same string; they are not
     // reversible, so keep them out of the restore map.
@@ -93,15 +117,15 @@ export class AnonymizationSession {
    *   [
    *     {
    *       "original": string,      // the original sensitive value
-   *       "replacement": string,   // its placeholder, e.g. "<<REDACTED_1>>" or a renamed label
+   *       "replacement": string,   // its placeholder, e.g. "[PERSON_1]" or a renamed label
    *       "entity_type": string    // EntityType value, e.g. "PERSON" (snake_case key, matching Python)
    *     },
    *     ...
    *   ]
    *
    * - Top level is a JSON array; one object per mapping, in insertion order.
-   * - The counter is NOT stored as a field. Like Python's load_map, deserialize
-   *   derives it from the number of entries.
+   * - Counters are NOT stored as fields. Like Python's load_map, deserialize
+   *   derives them from the entries themselves.
    * - The mode is NOT stored as a field. Like Python's load_map (which returns
    *   `cls()` with the default mode), deserialize yields a 'labeled' session.
    * - Blanked entries are intentionally OMITTED from the output: blanked
@@ -124,15 +148,19 @@ export class AnonymizationSession {
 
   /**
    * Rebuild a session from JSON produced by serialize() or by the Python
-   * CLI's save_map. Mirrors Python's load_map: forward/reverse/type maps are
-   * repopulated per entry and the counter is incremented once per entry.
-   * Additionally, the counter is raised to the highest N found among
-   * '<<REDACTED_N>>' placeholders (a map serialized with gaps, e.g. after
-   * blanked entries were omitted, would otherwise reissue a taken number),
-   * so new entities anonymized after restore continue numbering without
-   * colliding with restored placeholders. Blanked entries ('________') that a
-   * Python-produced map may contain are kept in the forward map but excluded
-   * from the reverse map, preserving their irreversibility.
+   * CLI's save_map. Mirrors Python's load_map: forward/reverse/type maps
+   * are repopulated per entry. Each per-type counter is raised to the
+   * highest N found among '[TYPE_N]' placeholders so new entities
+   * anonymized after restore continue numbering without colliding with
+   * restored placeholders (nextPlaceholder additionally skips any taken
+   * number, which also covers renamed labels shaped like '[TYPE_N]').
+   * Legacy '<<REDACTED_N>>' placeholders from maps written before 0.9.0
+   * (or by the Python CLI) are kept verbatim in both maps, so deanonymize
+   * still restores old-format text; they never collide with newly issued
+   * bracket placeholders and therefore need no counter. Blanked entries
+   * ('________') that a Python-produced map may contain are kept in the
+   * forward map but excluded from the reverse map, preserving their
+   * irreversibility.
    */
   static deserialize(json: string): AnonymizationSession {
     const data = JSON.parse(json) as Array<{
@@ -144,20 +172,19 @@ export class AnonymizationSession {
       throw new Error('Invalid session map JSON: expected a top-level array');
     }
     const session = new AnonymizationSession();
-    let maxPlaceholderNumber = 0;
     for (const entry of data) {
       session.forwardMap.set(entry.original, entry.replacement);
       if (entry.replacement !== '________') {
         session.reverseMap.set(entry.replacement, entry.original);
       }
       session.entityTypeMap.set(entry.original, entry.entity_type);
-      session.counter++;
-      const match = /^<<REDACTED_(\d+)>>$/.exec(entry.replacement);
+      const match = TYPED_PLACEHOLDER_RE.exec(entry.replacement);
       if (match) {
-        maxPlaceholderNumber = Math.max(maxPlaceholderNumber, Number(match[1]));
+        const [, type, num] = match;
+        const current = session.typeCounters.get(type) ?? 0;
+        session.typeCounters.set(type, Math.max(current, Number(num)));
       }
     }
-    session.counter = Math.max(session.counter, maxPlaceholderNumber);
     return session;
   }
 
@@ -165,6 +192,6 @@ export class AnonymizationSession {
     this.forwardMap.clear();
     this.reverseMap.clear();
     this.entityTypeMap.clear();
-    this.counter = 0;
+    this.typeCounters.clear();
   }
 }

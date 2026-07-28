@@ -4,6 +4,34 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-07-28
+
+### Changed
+
+- **Breaking (user-visible output):** `AnonymizationSession` now generates
+  typed placeholders with per-type counters, e.g. `[PERSON_1]`, `[EMAIL_1]`,
+  `[DATE_2]`, instead of the global `<<REDACTED_N>>`. Typed placeholders
+  keep LLM answers coherent (pronouns, date reasoning, formatting), make
+  protected text human-readable, and avoid the `<<...>>` token that
+  Markdown-rendering chats can mangle. Placeholder type names are the
+  stable uppercase `EntityType` ids, so every generated token matches
+  `\[[A-Z_]+_\d+\]`.
+- Blanked-mode replacements no longer consume counter numbers, so labeled
+  placeholders number contiguously per type.
+- `AnonymizationSession.deserialize` rebuilds the per-type counters from
+  `[TYPE_N]` placeholders in the map, and `anonymize` skips any number
+  already present in the reverse map (renamed labels included), so freshly
+  issued placeholders never collide with restored or renamed ones.
+
+### Backward compatibility
+
+- Restoring is unchanged: `deanonymize` performs exact-literal replacement
+  of whatever placeholder strings the map contains. Maps serialized before
+  0.9.0 (or by the Python CLI's `save_map`) with `<<REDACTED_N>>` tokens
+  still deserialize and restore old-format text byte-identically.
+- The serialization schema (`original` / `replacement` / `entity_type`,
+  Python `save_map` parity) is unchanged.
+
 ## [0.8.0] - 2026-07-27
 
 First public release. The engine was extracted from the DocCloak web app

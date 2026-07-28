@@ -17,7 +17,7 @@ describe('AnonymizationSession serialize/deserialize', () => {
     const restored = AnonymizationSession.deserialize(session.serialize());
 
     const aiResponse =
-      'Contact <<REDACTED_1>> at <<REDACTED_2>> or call <<REDACTED_3>>.';
+      'Contact [PERSON_1] at [EMAIL_1] or call [PHONE_1].';
     expect(restored.deanonymize(aiResponse)).toBe(
       'Contact Sarah Connor at sarah@law.com or call (555) 123-4567.'
     );
@@ -32,12 +32,12 @@ describe('AnonymizationSession serialize/deserialize', () => {
     expect(parsed).toEqual([
       {
         original: 'John Smith',
-        replacement: '<<REDACTED_1>>',
+        replacement: '[PERSON_1]',
         entity_type: 'PERSON',
       },
       {
         original: 'john@acme.com',
-        replacement: '<<REDACTED_2>>',
+        replacement: '[EMAIL_1]',
         entity_type: 'EMAIL',
       },
     ]);
@@ -55,13 +55,13 @@ describe('AnonymizationSession serialize/deserialize', () => {
   it('preserves renamed labels across a round trip', () => {
     const session = new AnonymizationSession();
     session.anonymize('John', 'PERSON');
-    session.renameLabel('John', '<<CLIENT_NAME>>');
+    session.renameLabel('John', '[CLIENT_NAME]');
     session.anonymize('Jane', 'PERSON');
 
     const restored = AnonymizationSession.deserialize(session.serialize());
 
-    expect(restored.getForward('John')).toBe('<<CLIENT_NAME>>');
-    expect(restored.deanonymize('Hello <<CLIENT_NAME>> and <<REDACTED_2>>')).toBe(
+    expect(restored.getForward('John')).toBe('[CLIENT_NAME]');
+    expect(restored.deanonymize('Hello [CLIENT_NAME] and [PERSON_2]')).toBe(
       'Hello John and Jane'
     );
   });
@@ -86,48 +86,46 @@ describe('AnonymizationSession serialize/deserialize', () => {
 
   it('omits only the blanked entries of a mixed-mode session', () => {
     const session = new AnonymizationSession();
-    session.anonymize('Alice', 'PERSON'); // <<REDACTED_1>>
+    session.anonymize('Alice', 'PERSON'); // [PERSON_1]
     session.setMode('blanked');
     session.anonymize('Bob', 'PERSON'); // ________
     session.setMode('labeled');
-    session.anonymize('Carol', 'PERSON'); // <<REDACTED_3>>
+    session.anonymize('Carol', 'PERSON'); // [PERSON_2]
 
     const parsed = JSON.parse(session.serialize());
     expect(parsed).toEqual([
-      { original: 'Alice', replacement: '<<REDACTED_1>>', entity_type: 'PERSON' },
-      { original: 'Carol', replacement: '<<REDACTED_3>>', entity_type: 'PERSON' },
+      { original: 'Alice', replacement: '[PERSON_1]', entity_type: 'PERSON' },
+      { original: 'Carol', replacement: '[PERSON_2]', entity_type: 'PERSON' },
     ]);
   });
 
-  it('continues counter numbering after restore without collisions', () => {
+  it('continues per-type numbering after restore without collisions', () => {
     const session = new AnonymizationSession();
     session.anonymize('John', 'PERSON');
     session.anonymize('Jane', 'PERSON');
+    session.anonymize('john@acme.com', 'EMAIL');
 
     const restored = AnonymizationSession.deserialize(session.serialize());
-    const next = restored.anonymize('Bob', 'PERSON');
-    expect(next).toBe('<<REDACTED_3>>');
+    expect(restored.anonymize('Bob', 'PERSON')).toBe('[PERSON_3]');
+    expect(restored.anonymize('bob@acme.com', 'EMAIL')).toBe('[EMAIL_2]');
 
     expect(
-      restored.deanonymize('<<REDACTED_1>>, <<REDACTED_2>>, <<REDACTED_3>>')
+      restored.deanonymize('[PERSON_1], [PERSON_2], [PERSON_3]')
     ).toBe('John, Jane, Bob');
   });
 
   it('does not reissue placeholder numbers when the map has gaps', () => {
-    // A mixed-mode session serializes with a numbering gap where the blanked
-    // entry was omitted; the restored counter must clear the highest number.
+    // A rename to a higher [TYPE_N] token leaves a gap-and-peak map; the
+    // restored counter must clear the highest number for that type.
     const session = new AnonymizationSession();
-    session.anonymize('Alice', 'PERSON'); // <<REDACTED_1>>
-    session.setMode('blanked');
-    session.anonymize('Bob', 'PERSON'); // ________ (omitted on serialize)
-    session.setMode('labeled');
-    session.anonymize('Carol', 'PERSON'); // <<REDACTED_3>>
+    session.anonymize('Alice', 'PERSON'); // [PERSON_1]
+    session.renameLabel('Alice', '[PERSON_5]');
 
     const restored = AnonymizationSession.deserialize(session.serialize());
     const next = restored.anonymize('Dave', 'PERSON');
-    expect(next).toBe('<<REDACTED_4>>');
-    expect(restored.deanonymize('<<REDACTED_3>> met <<REDACTED_4>>')).toBe(
-      'Carol met Dave'
+    expect(next).toBe('[PERSON_6]');
+    expect(restored.deanonymize('[PERSON_5] met [PERSON_6]')).toBe(
+      'Alice met Dave'
     );
   });
 
@@ -139,10 +137,10 @@ describe('AnonymizationSession serialize/deserialize', () => {
     const restored = AnonymizationSession.deserialize(session.serialize());
     const entries = restored.getEntries();
     expect(entries).toEqual([
-      { original: 'John', replacement: '<<REDACTED_1>>', entityType: 'PERSON' },
+      { original: 'John', replacement: '[PERSON_1]', entityType: 'PERSON' },
       {
         original: 'john@acme.com',
-        replacement: '<<REDACTED_2>>',
+        replacement: '[EMAIL_1]',
         entityType: 'EMAIL',
       },
     ]);
@@ -163,7 +161,9 @@ describe('AnonymizationSession serialize/deserialize', () => {
     );
   });
 
-  it('deserializes a map produced by the Python CLI (save_map fixture)', () => {
+  it('deserializes a legacy map produced by the Python CLI (save_map fixture)', () => {
+    // The fixture predates typed placeholders and uses '<<REDACTED_N>>';
+    // deserialize must keep those tokens restorable (backward compat).
     const json = readFileSync(fixturePath, 'utf8');
     const session = AnonymizationSession.deserialize(json);
 
@@ -187,8 +187,9 @@ describe('AnonymizationSession serialize/deserialize', () => {
         '(zofia.kowalska@acme.example, +48 601 234 567) at Acme Sp. z o.o..'
     );
 
-    // Counter continues past the Python-issued placeholders
-    expect(session.anonymize('New Person', 'PERSON')).toBe('<<REDACTED_6>>');
+    // New entities anonymized after restore use the typed format; per-type
+    // numbering starts fresh because legacy tokens carry no type counter.
+    expect(session.anonymize('New Person', 'PERSON')).toBe('[PERSON_1]');
   });
 
   it('round-trips the Python fixture byte-for-byte through serialize', () => {
@@ -197,5 +198,17 @@ describe('AnonymizationSession serialize/deserialize', () => {
     // Python's json.dumps(..., indent=2, ensure_ascii=False) output matches
     // JSON.stringify(entries, null, 2) exactly for this schema.
     expect(session.serialize()).toBe(json.trimEnd());
+  });
+
+  it('restores mixed old-format and new-format tokens in one text', () => {
+    const mixedMap = JSON.stringify([
+      { original: 'John', replacement: '<<REDACTED_1>>', entity_type: 'PERSON' },
+      { original: 'Jane', replacement: '[PERSON_1]', entity_type: 'PERSON' },
+    ]);
+    const session = AnonymizationSession.deserialize(mixedMap);
+    expect(session.deanonymize('<<REDACTED_1>> met [PERSON_1]')).toBe(
+      'John met Jane'
+    );
+    expect(session.anonymize('Bob', 'PERSON')).toBe('[PERSON_2]');
   });
 });
