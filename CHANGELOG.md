@@ -6,6 +6,27 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [0.9.0] - 2026-07-28
 
+### Added
+
+- **Surrogate replacement mode (T043):** `AnonymizationSession` accepts a
+  new `'surrogate'` mode in which replacements are realistic,
+  shape-preserving stand-ins instead of typed placeholders: locale-aware
+  fake names (EN + PL, gendered Polish surname endings), emails whose
+  local part mirrors the in-session person surrogate on reserved example
+  domains, dates shifted by a per-session day offset while keeping their
+  format, phones/IBANs/IDs/cards that keep their shape (IBAN mod-97,
+  PESEL and Luhn checksums valid; generated PESELs encode a 19th-century
+  birth date and SSN shapes use the never-allocated 900-999 area, so a
+  generated identifier can never be a real living person's). Generation
+  is deterministic per session (seeded by a per-session salt, new
+  `src/surrogates.ts` module) and collision-safe against every original
+  value and every already-issued replacement in the session. The default
+  mode remains `'labeled'` (typed placeholders); restore is unchanged
+  exact-literal lookup. Surrogate-mode `serialize()` wraps the entry
+  array in `{ mode, salt, entries }` so `deserialize()` reproduces the
+  mode and salt; placeholder/blanked sessions keep the plain-array
+  Python-parity schema byte-identically.
+
 ### Changed
 
 - **Breaking (user-visible output):** `AnonymizationSession` now generates

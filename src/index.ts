@@ -29,6 +29,17 @@ export * from './session.ts';
 export * from './doc.ts';
 // end T003
 
+// T043: surrogate generator (realistic, shape-preserving replacements)
+export {
+  generateSurrogate,
+  generateUniqueSurrogate,
+  generateSessionSalt,
+  sessionDayOffset,
+  FAKE_EMAIL_DOMAINS,
+} from './surrogates.ts';
+export type { SurrogateContext } from './surrogates.ts';
+// end T043
+
 // T007: gliner provider
 export { GlinerProvider } from './providers/gliner.ts';
 // end T007

@@ -1,6 +1,18 @@
 import type { EntityType, DetectedEntity, ReplacementEntry } from './types.ts';
+import { generateSessionSalt, generateUniqueSurrogate } from './surrogates.ts';
 
-export type ReplacementMode = 'labeled' | 'blanked';
+export type ReplacementMode = 'labeled' | 'blanked' | 'surrogate';
+
+export interface SessionOptions {
+  /** Initial replacement mode; defaults to 'labeled' (typed placeholders). */
+  mode?: ReplacementMode;
+  /**
+   * Per-session surrogate salt; defaults to a fresh random one. Passing an
+   * explicit salt makes surrogate generation fully reproducible (tests,
+   * deserialization).
+   */
+  salt?: string;
+}
 
 /**
  * Typed placeholder token, e.g. "[PERSON_1]" or "[CREDIT_CARD_2]".
@@ -14,7 +26,14 @@ export class AnonymizationSession {
   private reverseMap = new Map<string, string>();
   private entityTypeMap = new Map<string, EntityType>();
   private typeCounters = new Map<string, number>();
-  private mode: ReplacementMode = 'labeled';
+  private mode: ReplacementMode;
+  /** Surrogate-mode salt (T043); constant for the session's lifetime. */
+  private salt: string;
+
+  constructor(options?: SessionOptions) {
+    this.mode = options?.mode ?? 'labeled';
+    this.salt = options?.salt ?? generateSessionSalt();
+  }
 
   setMode(mode: ReplacementMode): void {
     this.mode = mode;
@@ -22,6 +41,10 @@ export class AnonymizationSession {
 
   getMode(): ReplacementMode {
     return this.mode;
+  }
+
+  getSalt(): string {
+    return this.salt;
   }
 
   /**
@@ -42,13 +65,31 @@ export class AnonymizationSession {
     return placeholder;
   }
 
+  /**
+   * Surrogate-mode replacement (T043): deterministic in (salt, type,
+   * original), collision-safe against every original value already in the
+   * session and every already-issued replacement. The map API is
+   * unchanged: the surrogate simply IS the replacement string, so
+   * deanonymize restores it via the same exact-literal lookup.
+   */
+  private nextSurrogate(original: string, entityType: EntityType): string {
+    return generateUniqueSurrogate(
+      original,
+      entityType,
+      { salt: this.salt, entries: this.getEntries() },
+      (candidate) => this.forwardMap.has(candidate) || this.reverseMap.has(candidate),
+    );
+  }
+
   anonymize(original: string, entityType: EntityType): string {
     if (this.forwardMap.has(original)) {
       return this.forwardMap.get(original)!;
     }
     const placeholder = this.mode === 'blanked'
       ? '________'
-      : this.nextPlaceholder(entityType);
+      : this.mode === 'surrogate'
+        ? this.nextSurrogate(original, entityType)
+        : this.nextPlaceholder(entityType);
     this.forwardMap.set(original, placeholder);
     // Blanked placeholders all collide on the same string; they are not
     // reversible, so keep them out of the restore map.
@@ -73,6 +114,17 @@ export class AnonymizationSession {
   }
 
   anonymizeText(text: string, entities: DetectedEntity[]): string {
+    // Surrogate mode (T043): map PERSON entities first, in reading order,
+    // so an email appearing before/after its owner in the text can derive
+    // its local part from the person's surrogate (jan.kowalski maps to
+    // adam.nowak style). anonymize() is idempotent per value, so the
+    // replacement pass below reuses these mappings. Labeled mode keeps its
+    // historical end-to-start issuing order (placeholder numbering).
+    if (this.mode === 'surrogate') {
+      for (const entity of [...entities].sort((a, b) => a.start - b.start)) {
+        if (entity.type === 'PERSON') this.anonymize(entity.value, entity.type);
+      }
+    }
     // Sort entities by position (end to start) to preserve indices during replacement
     const sorted = [...entities].sort((a, b) => b.start - a.start);
     let result = text;
@@ -134,6 +186,16 @@ export class AnonymizationSession {
    *   defeat that. Only reversible entries are serialized.
    * - Output formatting matches Python's json.dumps(entries, indent=2,
    *   ensure_ascii=False): 2-space indent, non-ASCII characters kept raw.
+   *
+   * Surrogate mode (T043) is the one exception to the top-level-array
+   * schema: it wraps the same entry objects in
+   * `{ "mode": "surrogate", "salt": "...", "entries": [...] }` so
+   * deserialize can restore the mode and the salt (new values anonymized
+   * after a restore then derive the same surrogates, and the per-session
+   * date offset stays stable). Placeholder ('labeled') and blanked
+   * sessions keep emitting the plain array byte-identically, so the
+   * Python-parity schema is untouched and absent fields mean placeholder
+   * mode.
    */
   serialize(): string {
     const entries = this.getEntries()
@@ -143,6 +205,9 @@ export class AnonymizationSession {
         replacement,
         entity_type: entityType,
       }));
+    if (this.mode === 'surrogate') {
+      return JSON.stringify({ mode: 'surrogate', salt: this.salt, entries }, null, 2);
+    }
     return JSON.stringify(entries, null, 2);
   }
 
@@ -163,16 +228,35 @@ export class AnonymizationSession {
    * irreversibility.
    */
   static deserialize(json: string): AnonymizationSession {
-    const data = JSON.parse(json) as Array<{
+    interface WireEntry {
       original: string;
       replacement: string;
       entity_type: EntityType;
-    }>;
-    if (!Array.isArray(data)) {
+    }
+    const data = JSON.parse(json) as unknown;
+    let entries: WireEntry[];
+    let session: AnonymizationSession;
+    if (Array.isArray(data)) {
+      entries = data as WireEntry[];
+      session = new AnonymizationSession();
+    } else if (
+      typeof data === 'object' &&
+      data !== null &&
+      (data as { mode?: unknown }).mode === 'surrogate' &&
+      Array.isArray((data as { entries?: unknown }).entries)
+    ) {
+      // Surrogate-mode wrapper (T043): restore mode + salt so surrogate
+      // derivation stays consistent after the round trip.
+      const wrapper = data as { salt?: unknown; entries: WireEntry[] };
+      entries = wrapper.entries;
+      session = new AnonymizationSession({
+        mode: 'surrogate',
+        salt: typeof wrapper.salt === 'string' ? wrapper.salt : undefined,
+      });
+    } else {
       throw new Error('Invalid session map JSON: expected a top-level array');
     }
-    const session = new AnonymizationSession();
-    for (const entry of data) {
+    for (const entry of entries) {
       session.forwardMap.set(entry.original, entry.replacement);
       if (entry.replacement !== '________') {
         session.reverseMap.set(entry.replacement, entry.original);
