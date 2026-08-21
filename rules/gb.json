@@ -189,6 +189,23 @@
         "Tesco Ltd",
         "Deloitte LLP"
       ]
+    },
+    {
+      "id": "regex:gb:driving_licence",
+      "entityType": "SSN",
+      "pattern": "\\b[A-Z9]{5}\\s?\\d{6}\\s?[A-Z9]{2}\\d[A-Z]{2}\\b",
+      "flags": "g",
+      "confidence": 0.8,
+      "domains": [
+        "identity"
+      ],
+      "description": "UK driving licence number (16 chars: surname block, encoded date of birth, initials, check chars)",
+      "examples": [
+        "MORGA657054SM9IJ",
+        "SMITH 751125 JM9AB"
+      ],
+      "falsePositiveNotes": "Best-effort: other 16-char uppercase codes can match the shape; the validator checks the embedded date-of-birth digit block",
+      "validate": "ukDrivingLicence"
     }
   ]
 }

@@ -1,7 +1,15 @@
 import type { EntityType, DetectedEntity, ReplacementEntry } from './types.ts';
+import { buildTolerantTokenIndex, resolveMangledToken } from './restore-tokens.ts';
 import { generateSessionSalt, generateUniqueSurrogate } from './surrogates.ts';
 
+export * from './restore-tokens.ts';
+
 export type ReplacementMode = 'labeled' | 'blanked' | 'surrogate';
+
+// T099: credentials never get realistic stand-ins - a same-shape fake key
+// still looks like a live credential to anyone (or any scanner) reading the
+// prompt. Surrogate mode falls back to typed placeholders for these types.
+const PLACEHOLDER_ONLY_TYPES: ReadonlySet<EntityType> = new Set(['SECRET', 'API_KEY']);
 
 export interface SessionOptions {
   /** Initial replacement mode; defaults to 'labeled' (typed placeholders). */
@@ -15,11 +23,50 @@ export interface SessionOptions {
 }
 
 /**
+ * Person-variant tokenization (T057): lowercase word tokens with edge
+ * punctuation stripped. EVERY token participates in the subset test -
+ * dropping short ones would collapse "Person 1" into "Person 11".
+ */
+function personTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/^[.,;:!?()"'\u201E\u201C\u201D]+|[.,;:!?()"'\u201E\u201C\u201D]+$/g, ''))
+    .filter((t) => t.length > 0);
+}
+
+/**
+ * Whether two PERSON values plausibly name the same person (T057): the
+ * token set of one must be a subset of the other's, and the shared part
+ * must contain at least one substantive token (>= 3 chars) so initials,
+ * digits or stray marks alone never unify. "John" and "Smith" both match
+ * "John Smith"; "Mr. Smith" does NOT (the 'mr' token has no counterpart,
+ * and honorific guessing would be overreach); "Person 1" never matches
+ * "Person 11" (the '1' token has no counterpart in the other value).
+ */
+function isPersonVariant(a: string, b: string): boolean {
+  const ta = personTokens(a);
+  const tb = personTokens(b);
+  if (ta.length === 0 || tb.length === 0) return false;
+  const [small, big] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  return small.every((t) => big.includes(t)) && small.some((t) => t.length >= 3);
+}
+
+/**
  * Typed placeholder token, e.g. "[PERSON_1]" or "[CREDIT_CARD_2]".
  * EntityType ids are stable uppercase ASCII ([A-Z_]), so generated tokens
  * always match the candidate pattern `\[[A-Z_]+_\d+\]`.
  */
 const TYPED_PLACEHOLDER_RE = /^\[([A-Z_]+)_(\d+)\]$/;
+
+
+/**
+ * Candidate scan for the tolerant deanonymize pass: bracketed tokens,
+ * legacy angle tokens, or strict bare typed tokens. Broad candidates are
+ * safe - replacement still requires an unambiguous index hit.
+ */
+const MANGLED_CANDIDATE_RE =
+  /\[[^[\]\n]+\]|<<[^<>\n]+>>|(?<![\p{L}\p{N}_[<])[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d+(?![\p{L}\p{N}_])/gu;
 
 export class AnonymizationSession {
   private forwardMap = new Map<string, string>();
@@ -81,13 +128,55 @@ export class AnonymizationSession {
     );
   }
 
+  /**
+   * The already-mapped PERSON value that best matches a new variant
+   * (T057): most shared tokens wins; ties keep the first-mapped value.
+   * Deterministic; returns null when nothing matches.
+   */
+  private findPersonVariant(value: string): string | null {
+    const tokens = personTokens(value);
+    if (tokens.length === 0) return null;
+    let best: string | null = null;
+    let bestShared = 0;
+    for (const [original] of this.forwardMap) {
+      if (this.entityTypeMap.get(original) !== 'PERSON') continue;
+      if (!isPersonVariant(value, original)) continue;
+      const shared = personTokens(original).filter((t) => tokens.includes(t)).length;
+      if (shared > bestShared) {
+        bestShared = shared;
+        best = original;
+      }
+    }
+    return best;
+  }
+
   anonymize(original: string, entityType: EntityType): string {
     if (this.forwardMap.has(original)) {
       return this.forwardMap.get(original)!;
     }
+    // T057 person-variant unification: "John Smith", "John" and "Smith"
+    // in one session are the same person and share one replacement (in
+    // every mode - the variant simply reuses the matched value's
+    // placeholder/surrogate). The reverse map keeps the LONGEST variant,
+    // so restore always yields the fullest known form.
+    if (entityType === 'PERSON') {
+      const match = this.findPersonVariant(original);
+      if (match) {
+        const placeholder = this.forwardMap.get(match)!;
+        this.forwardMap.set(original, placeholder);
+        this.entityTypeMap.set(original, entityType);
+        if (this.mode !== 'blanked') {
+          const canonical = this.reverseMap.get(placeholder);
+          if (canonical === undefined || original.length > canonical.length) {
+            this.reverseMap.set(placeholder, original);
+          }
+        }
+        return placeholder;
+      }
+    }
     const placeholder = this.mode === 'blanked'
       ? '________'
-      : this.mode === 'surrogate'
+      : this.mode === 'surrogate' && !PLACEHOLDER_ONLY_TYPES.has(entityType)
         ? this.nextSurrogate(original, entityType)
         : this.nextPlaceholder(entityType);
     this.forwardMap.set(original, placeholder);
@@ -110,7 +199,41 @@ export class AnonymizationSession {
       // Replacer function keeps '$' sequences in the original value inert
       result = result.replaceAll(placeholder, () => original);
     }
-    return result;
+    // T098: exact-literal replacement above is the unchanged fast path;
+    // tokens an LLM mangled (case, spacing, markdown, dropped brackets)
+    // survive it untouched and get one tolerant pass.
+    return this.deanonymizeMangledTokens(result);
+  }
+
+  /**
+   * Tolerant pass (T098) over text the exact pass already handled: scan
+   * for remaining token-shaped candidates and restore each one that
+   * unambiguously identifies a single map key (see
+   * buildTolerantTokenIndex). Anything else - unknown tokens, ambiguous
+   * canonical forms, partial tokens the candidate regex cannot even see -
+   * stays exactly as written: a missed restore is visible and
+   * recoverable, a guessed one silently corrupts the document. Runs after
+   * the exact pass, so an exact key never reaches this code; originals
+   * restored by the exact pass are plain user text and canonicalize to
+   * forms no key owns.
+   */
+  private deanonymizeMangledTokens(text: string): string {
+    const index = buildTolerantTokenIndex(this.reverseMap.keys());
+    if (index.byCanonical.size === 0) return text;
+    MANGLED_CANDIDATE_RE.lastIndex = 0;
+    let out = '';
+    let last = 0;
+    let match: RegExpExecArray | null;
+    while ((match = MANGLED_CANDIDATE_RE.exec(text)) !== null) {
+      const key = resolveMangledToken(match[0], index);
+      if (key === null) continue;
+      const original = this.reverseMap.get(key);
+      if (original === undefined) continue;
+      out += text.slice(last, match.index) + original;
+      last = match.index + match[0].length;
+    }
+    if (last === 0) return text;
+    return out + text.slice(last);
   }
 
   anonymizeText(text: string, entities: DetectedEntity[]): string {
@@ -155,9 +278,14 @@ export class AnonymizationSession {
   renameLabel(original: string, newLabel: string): void {
     const oldLabel = this.forwardMap.get(original);
     if (!oldLabel) return;
-    this.forwardMap.set(original, newLabel);
+    // T057: variants share one label; renaming any of them renames the
+    // whole group, and the canonical restore value carries over.
+    const canonical = this.reverseMap.get(oldLabel) ?? original;
+    for (const [orig, label] of this.forwardMap) {
+      if (label === oldLabel) this.forwardMap.set(orig, newLabel);
+    }
     this.reverseMap.delete(oldLabel);
-    this.reverseMap.set(newLabel, original);
+    this.reverseMap.set(newLabel, canonical);
   }
 
   /**
@@ -212,20 +340,49 @@ export class AnonymizationSession {
   }
 
   /**
-   * Rebuild a session from JSON produced by serialize() or by the Python
-   * CLI's save_map. Mirrors Python's load_map: forward/reverse/type maps
-   * are repopulated per entry. Each per-type counter is raised to the
-   * highest N found among '[TYPE_N]' placeholders so new entities
-   * anonymized after restore continue numbering without colliding with
-   * restored placeholders (nextPlaceholder additionally skips any taken
-   * number, which also covers renamed labels shaped like '[TYPE_N]').
-   * Legacy '<<REDACTED_N>>' placeholders from maps written before 0.9.0
-   * (or by the Python CLI) are kept verbatim in both maps, so deanonymize
-   * still restores old-format text; they never collide with newly issued
-   * bracket placeholders and therefore need no counter. Blanked entries
-   * ('________') that a Python-produced map may contain are kept in the
+   * Seed the live session with previously issued mappings (T106: the
+   * matter-persistence interface). Each entry lands in the forward map
+   * (value -> replacement, so anonymizing the same value again reuses
+   * the stored replacement instead of issuing a new one), the reverse
+   * map (replacement -> value, so deanonymize restores text produced in
+   * an earlier session; when several entries share a replacement, e.g.
+   * T057 person variants, the LONGEST original stays canonical
+   * regardless of entry order) and the type map. Per-type counters are
+   * raised to the highest N found among '[TYPE_N]' replacements so new
+   * entities anonymized afterwards continue numbering without colliding
+   * (nextPlaceholder additionally skips any taken number, which also
+   * covers renamed labels shaped like '[TYPE_N]'). Legacy
+   * '<<REDACTED_N>>' replacements are kept verbatim in both maps; they
+   * never collide with newly issued bracket placeholders and therefore
+   * need no counter. Blanked entries ('________') are kept in the
    * forward map but excluded from the reverse map, preserving their
-   * irreversibility.
+   * irreversibility. Entries merge into whatever the session already
+   * holds; call clear() first for a fresh seeded session.
+   */
+  importEntries(entries: ReplacementEntry[]): void {
+    for (const entry of entries) {
+      this.forwardMap.set(entry.original, entry.replacement);
+      if (entry.replacement !== '________') {
+        const canonical = this.reverseMap.get(entry.replacement);
+        if (canonical === undefined || entry.original.length > canonical.length) {
+          this.reverseMap.set(entry.replacement, entry.original);
+        }
+      }
+      this.entityTypeMap.set(entry.original, entry.entityType);
+      const match = TYPED_PLACEHOLDER_RE.exec(entry.replacement);
+      if (match) {
+        const [, type, num] = match;
+        const current = this.typeCounters.get(type) ?? 0;
+        this.typeCounters.set(type, Math.max(current, Number(num)));
+      }
+    }
+  }
+
+  /**
+   * Rebuild a session from JSON produced by serialize() or by the Python
+   * CLI's save_map. Mirrors Python's load_map: the per-entry map and
+   * counter population is importEntries (see its doc for the exact
+   * semantics, including legacy and blanked entries).
    */
   static deserialize(json: string): AnonymizationSession {
     interface WireEntry {
@@ -256,19 +413,13 @@ export class AnonymizationSession {
     } else {
       throw new Error('Invalid session map JSON: expected a top-level array');
     }
-    for (const entry of entries) {
-      session.forwardMap.set(entry.original, entry.replacement);
-      if (entry.replacement !== '________') {
-        session.reverseMap.set(entry.replacement, entry.original);
-      }
-      session.entityTypeMap.set(entry.original, entry.entity_type);
-      const match = TYPED_PLACEHOLDER_RE.exec(entry.replacement);
-      if (match) {
-        const [, type, num] = match;
-        const current = session.typeCounters.get(type) ?? 0;
-        session.typeCounters.set(type, Math.max(current, Number(num)));
-      }
-    }
+    session.importEntries(
+      entries.map((entry) => ({
+        original: entry.original,
+        replacement: entry.replacement,
+        entityType: entry.entity_type,
+      })),
+    );
     return session;
   }
 

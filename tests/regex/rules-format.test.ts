@@ -137,10 +137,11 @@ describe('rules/*.json: schema validation', () => {
     });
   }
 
-  it('rule ids are globally unique and total 166', () => {
+  // 177 after T099 (secrets tier) + 1 from T100 (regex:gb:driving_licence).
+  it('rule ids are globally unique and total 178', () => {
     const ids = [...packs.values()].flatMap((p) => p.rules.map((r) => r.id));
-    expect(ids.length).toBe(166);
-    expect(new Set(ids).size).toBe(166);
+    expect(ids.length).toBe(178);
+    expect(new Set(ids).size).toBe(178);
   });
 
   it('every rule id embeds its pack region', () => {
@@ -277,6 +278,11 @@ describe('loader', () => {
 // byte-identical. To extend the baseline for a future new pack, do the same:
 // append entries derived from the new rules/*.json only, and verify with
 // git diff that no pre-existing line changed.
+// T099 grew the universal pack in place (secrets tier): its 11 entries are
+// inserted right after the last pre-existing universal entry, serialized the
+// same way, again leaving every pre-existing entry byte-identical.
+// T100 grew the gb pack in place (UK region pack): the driving licence entry
+// is inserted right after the last pre-existing gb entry, same rules.
 
 interface BaselineRule {
   id: string;

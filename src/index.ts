@@ -14,8 +14,8 @@ export { memoryKV, memoryBlobCache } from './env.ts';
 export const CORE_PACKAGE_NAME = '@doccloak/core';
 
 // T006: model loader
-export { fetchModelBlob, evictModelFromCache, retryAsync } from './model-loader.ts';
-export type { ModelLoaderEnv, DownloadProgress, FetchModelOptions } from './model-loader.ts';
+export { fetchModelBlob, evictModelFromCache, retryAsync, ModelIntegrityError, verificationMarkerKey } from './model-loader.ts';
+export type { ModelLoaderEnv, DownloadProgress, FetchModelOptions, ModelVerification } from './model-loader.ts';
 // end T006
 
 // T004: regex rules (REGEX_REGIONS moved here from the web engine in T009)
@@ -41,11 +41,11 @@ export type { SurrogateContext } from './surrogates.ts';
 // end T043
 
 // T007: gliner provider
-export { GlinerProvider } from './providers/gliner.ts';
+export { GlinerProvider, GLINER_MODEL_URL, GLINER_MODEL_REVISION, GLINER_MODEL_SHA256 } from './providers/gliner.ts';
 // end T007
 
 // T008: bardsai provider
-export { BardsaiProvider } from './providers/bardsai.ts';
+export { BardsaiProvider, BARDSAI_MODEL_URL, BARDSAI_MODEL_REVISION, BARDSAI_MODEL_SHA256 } from './providers/bardsai.ts';
 // end T008
 
 // T005: pipeline

@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { fetchModelBlob, type ModelLoaderEnv } from '../src/model-loader.ts';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  fetchModelBlob,
+  evictModelFromCache,
+  verificationMarkerKey,
+  ModelIntegrityError,
+  type ModelLoaderEnv,
+  type ModelVerification,
+} from '../src/model-loader.ts';
 import { memoryBlobCache } from '../src/env.ts';
 
 /**
@@ -150,5 +157,150 @@ describe('fetchModelBlob', () => {
 
     await expect(fetchModelBlob(env, 'https://example.com/model.onnx', undefined, FAST_RETRY)).rejects.toThrow('network down');
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ── SHA-256 integrity verification (T116) ─────────────────
+
+const URL_ = 'https://example.com/model.onnx';
+/** SHA-256 of bytes 01 02 03 04 */
+const GOOD_SHA256 = '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a';
+
+describe('fetchModelBlob SHA-256 verification', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('accepts a matching download, reports verification and writes a marker', async () => {
+    const { env, fetchMock } = makeEnv();
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(1, 2), bytes(3, 4)], { total: 4 }));
+
+    const verifications: ModelVerification[] = [];
+    const blob = await fetchModelBlob(env, URL_, undefined, {
+      sha256: GOOD_SHA256,
+      onVerified: (v) => verifications.push(v),
+    });
+
+    expect(await blobBytes(blob)).toEqual(bytes(1, 2, 3, 4));
+    expect(verifications).toEqual([{ url: URL_, sha256: GOOD_SHA256 }]);
+    expect(await env.cache.match(URL_)).toBeDefined();
+    expect(await env.cache.match(verificationMarkerKey(URL_, GOOD_SHA256))).toBeDefined();
+  });
+
+  it('rejects a tampered download with ModelIntegrityError and does not cache it', async () => {
+    const { env, fetchMock } = makeEnv();
+    // Attacker-swapped bytes: same length, different content
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(9, 9), bytes(9, 9)], { total: 4 }));
+
+    const onVerified = vi.fn();
+    let caught: unknown;
+    try {
+      await fetchModelBlob(env, URL_, undefined, { sha256: GOOD_SHA256, onVerified });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ModelIntegrityError);
+    const integrityError = caught as ModelIntegrityError;
+    expect(integrityError.name).toBe('ModelIntegrityError');
+    expect(integrityError.url).toBe(URL_);
+    expect(integrityError.expectedSha256).toBe(GOOD_SHA256);
+    expect(integrityError.actualSha256).not.toBe(GOOD_SHA256);
+    expect(onVerified).not.toHaveBeenCalled();
+    // Nothing usable may remain in the cache
+    expect(await env.cache.match(URL_)).toBeUndefined();
+    expect(await env.cache.match(verificationMarkerKey(URL_, GOOD_SHA256))).toBeUndefined();
+    // Integrity failures are not retried
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts a cached blob that fails verification and re-downloads', async () => {
+    const { env, fetchMock } = makeEnv();
+    // Cache poisoned (or stale revision), no verification marker
+    await env.cache.put(URL_, new Blob([bytes(9, 9, 9, 9)]));
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(1, 2, 3, 4)], { total: 4 }));
+
+    const onVerified = vi.fn();
+    const blob = await fetchModelBlob(env, URL_, undefined, { sha256: GOOD_SHA256, onVerified });
+
+    expect(await blobBytes(blob)).toEqual(bytes(1, 2, 3, 4));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onVerified).toHaveBeenCalledWith({ url: URL_, sha256: GOOD_SHA256 });
+    expect(await blobBytes((await env.cache.match(URL_))!)).toEqual(bytes(1, 2, 3, 4));
+  });
+
+  it('verifies a cached blob without a marker once, then skips re-hashing', async () => {
+    const { env, fetchMock } = makeEnv();
+    // Pre-pinning cache entry with the CORRECT bytes but no marker
+    await env.cache.put(URL_, new Blob([bytes(1, 2, 3, 4)]));
+
+    const digestSpy = vi.spyOn(crypto.subtle, 'digest');
+
+    const first = await fetchModelBlob(env, URL_, undefined, { sha256: GOOD_SHA256 });
+    expect(await blobBytes(first)).toEqual(bytes(1, 2, 3, 4));
+    expect(digestSpy).toHaveBeenCalledTimes(1);
+    expect(await env.cache.match(verificationMarkerKey(URL_, GOOD_SHA256))).toBeDefined();
+
+    // Second startup: marker present, no re-hash, still reported verified
+    const onVerified = vi.fn();
+    const second = await fetchModelBlob(env, URL_, undefined, { sha256: GOOD_SHA256, onVerified });
+    expect(await blobBytes(second)).toEqual(bytes(1, 2, 3, 4));
+    expect(digestSpy).toHaveBeenCalledTimes(1);
+    expect(onVerified).toHaveBeenCalledWith({ url: URL_, sha256: GOOD_SHA256 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('verifies the final assembled blob on the resume path', async () => {
+    const { env, fetchMock } = makeEnv();
+    // First attempt dies after 2 of 4 bytes; resume delivers the rest
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(1, 2)], { total: 4, failAfter: true }));
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(3, 4)], { status: 206, total: 4, rangeStart: 2 }));
+
+    const onVerified = vi.fn();
+    const blob = await fetchModelBlob(env, URL_, undefined, {
+      ...FAST_RETRY,
+      sha256: GOOD_SHA256,
+      onVerified,
+    });
+
+    expect(await blobBytes(blob)).toEqual(bytes(1, 2, 3, 4));
+    expect(onVerified).toHaveBeenCalledWith({ url: URL_, sha256: GOOD_SHA256 });
+  });
+
+  it('rejects a resumed download whose assembled bytes are tampered', async () => {
+    const { env, fetchMock } = makeEnv();
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(1, 2)], { total: 4, failAfter: true }));
+    // Resume returns wrong bytes for the tail
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(9, 9)], { status: 206, total: 4, rangeStart: 2 }));
+
+    await expect(
+      fetchModelBlob(env, URL_, undefined, { ...FAST_RETRY, sha256: GOOD_SHA256 }),
+    ).rejects.toBeInstanceOf(ModelIntegrityError);
+    expect(await env.cache.match(URL_)).toBeUndefined();
+  });
+
+  it('leaves the unverified happy path unchanged when no sha256 is pinned', async () => {
+    const { env, fetchMock } = makeEnv();
+    fetchMock.mockResolvedValueOnce(streamResponse([bytes(1, 2, 3, 4)], { total: 4 }));
+
+    const digestSpy = vi.spyOn(crypto.subtle, 'digest');
+    const blob = await fetchModelBlob(env, URL_);
+
+    expect(await blobBytes(blob)).toEqual(bytes(1, 2, 3, 4));
+    expect(digestSpy).not.toHaveBeenCalled();
+    expect(await env.cache.match(verificationMarkerKey(URL_, GOOD_SHA256))).toBeUndefined();
+  });
+});
+
+describe('evictModelFromCache', () => {
+  it('removes the model entry and its verification marker', async () => {
+    const { env } = makeEnv();
+    await env.cache.put(URL_, new Blob([bytes(1, 2, 3, 4)]));
+    await env.cache.put(verificationMarkerKey(URL_, GOOD_SHA256), new Blob(['1']));
+
+    await evictModelFromCache(env, URL_, GOOD_SHA256);
+
+    expect(await env.cache.match(URL_)).toBeUndefined();
+    expect(await env.cache.match(verificationMarkerKey(URL_, GOOD_SHA256))).toBeUndefined();
   });
 });

@@ -10,6 +10,8 @@ export type EntityType =
   | 'IBAN'
   | 'ADDRESS'
   | 'COMPANY'
+  | 'SECRET'
+  | 'API_KEY'
   | 'OTHER';
 
 export interface DetectedEntity {
@@ -76,6 +78,8 @@ export const ENTITY_COLORS: Record<EntityType, string> = {
   IBAN: '#A16207',
   ADDRESS: '#DC2626',
   COMPANY: '#DB2777',
+  SECRET: '#E11D48',
+  API_KEY: '#059669',
   OTHER: '#6B7280',
 };
 
@@ -91,5 +95,7 @@ export const ENTITY_LABELS: Record<EntityType, string> = {
   IBAN: 'IBAN',
   ADDRESS: 'Address',
   COMPANY: 'Company',
+  SECRET: 'Secret',
+  API_KEY: 'API Key',
   OTHER: 'Other',
 };

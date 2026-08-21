@@ -14,11 +14,25 @@
 import * as ort from 'onnxruntime-web';
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
-import type { ModelLoaderEnv } from '../model-loader.ts';
-import { fetchModelBlob, retryAsync } from '../model-loader.ts';
+import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
+import { evictModelFromCache, fetchModelBlob, retryAsync } from '../model-loader.ts';
 
 // ── Model config ──────────────────────────────────────────
-const MODEL_URL = 'https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/main/onnx/model_quantized.onnx';
+// Supply-chain pinning (T116): the model is fetched from an immutable
+// commit revision, never from mutable resolve/main, and the downloaded
+// blob is verified against a pinned SHA-256. A model update is a
+// deliberate act: bump BARDSAI_MODEL_REVISION and BARDSAI_MODEL_SHA256
+// together in a reviewed commit and update
+// documentation/model-provenance.md.
+// Revision: main of bardsai/eu-pii-anonimization-multilang as of its last
+// modification 2026-05-13; pinned and hashed 2026-08-10.
+export const BARDSAI_MODEL_REVISION = '0e72e19f030ed4e661b1673e549af8e0dd176386';
+/** SHA-256 of onnx/model_quantized.onnx (278,736,360 bytes) at BARDSAI_MODEL_REVISION. */
+export const BARDSAI_MODEL_SHA256 = '8c9f555c743ed14eb7e505ff9d9c7785775a1671fd14031af33f424de8bd0e7b';
+export const BARDSAI_MODEL_URL = `https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/${BARDSAI_MODEL_REVISION}/onnx/model_quantized.onnx`;
+const MODEL_URL = BARDSAI_MODEL_URL;
+/** Pre-pinning download URL; its cache entry is evicted best-effort on load. */
+const LEGACY_MODEL_URL = 'https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/main/onnx/model_quantized.onnx';
 const TOKENIZER_HF = 'bardsai/eu-pii-anonimization-multilang';
 const MODEL_NAME = 'BardS.ai EU PII';
 const DEFAULT_THRESHOLD = 0.5;
@@ -112,9 +126,19 @@ export class BardsaiProvider implements DetectionProvider {
   private loadWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
   private progressCallback: ProgressCallback | null = null;
   private threshold = DEFAULT_THRESHOLD;
+  private verification: ModelVerification | null = null;
 
   constructor(env: CoreEnv) {
     this.env = env;
+  }
+
+  /**
+   * SHA-256 verification result of the served model blob (null until the
+   * model has been verified against the pinned hash). Surfaced so the
+   * model-status UI can show the positive "Model verified" state.
+   */
+  getVerification(): ModelVerification | null {
+    return this.verification;
   }
 
   isLoaded(): boolean {
@@ -160,9 +184,19 @@ export class BardsaiProvider implements DetectionProvider {
         persistStorage: this.env.persistStorage,
       };
 
+      // Old cache entry from the pre-pinning resolve/main URL - drop it so
+      // a 279 MB stale copy does not linger against the origin quota.
+      void evictModelFromCache(loaderEnv, LEGACY_MODEL_URL);
+
       // Load tokenizer and model in parallel (skip tokenizer if already loaded from a prior session)
       const tasks: Promise<unknown>[] = [
-        fetchModelBlob(loaderEnv, MODEL_URL, (downloaded, total) => this.progressCallback?.(downloaded, total)),
+        fetchModelBlob(loaderEnv, MODEL_URL, (downloaded, total) => this.progressCallback?.(downloaded, total), {
+          sha256: BARDSAI_MODEL_SHA256,
+          onVerified: (verification) => {
+            this.verification = verification;
+            console.info(`[DocCloak] Model verified: ${this._name} SHA-256 ${verification.sha256.slice(0, 12)}... matches the published hash (see documentation/model-provenance.md)`);
+          },
+        }),
       ];
       if (!this.tokenizer) {
         tasks.push(

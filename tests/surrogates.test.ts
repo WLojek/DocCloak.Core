@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   FAKE_EMAIL_DOMAINS,
+  detectSurrogateLocale,
   generateSessionSalt,
   generateSurrogate,
   generateUniqueSurrogate,
@@ -92,6 +93,163 @@ describe('PERSON', () => {
     const out = generateSurrogate('John', 'PERSON', ctx);
     expect(out.split(' ')).toHaveLength(1);
     expect(out).not.toBe('John');
+  });
+});
+
+describe('PERSON locales beyond EN/PL (T073)', () => {
+  it('locale detection: distinctive characters and name pools decide', () => {
+    expect(detectSurrogateLocale('Hans M\u00fcller')).toBe('de');
+    expect(detectSurrogateLocale('Fran\u00e7ois Dubois')).toBe('fr');
+    expect(detectSurrogateLocale('Jos\u00e9 Garc\u00eda')).toBe('es');
+    expect(detectSurrogateLocale('Giuseppe Rossi')).toBe('it');
+    expect(detectSurrogateLocale('Ji\u0159\u00ed Nov\u00e1k')).toBe('cs');
+    expect(detectSurrogateLocale('\u041e\u043b\u0435\u043d\u0430 \u0428\u0435\u0432\u0447\u0435\u043d\u043a\u043e')).toBe('uk');
+    expect(detectSurrogateLocale('Jo\u00e3o Silva')).toBe('pt');
+    expect(detectSurrogateLocale('Femke Bakker')).toBe('nl');
+    expect(detectSurrogateLocale('Jan Kowalski')).toBe('pl');
+    expect(detectSurrogateLocale('John Smith')).toBe('en');
+  });
+
+  it('surrogates stay in the original locale (round-trip property)', () => {
+    for (const [name, locale] of [
+      ['Hans M\u00fcller', 'de'],
+      ['Marie Lefebvre', 'fr'],
+      ['Carmen Rodr\u00edguez', 'es'],
+      ['Giovanni Bianchi', 'it'],
+      ['Kate\u0159ina Svobodov\u00e1', 'cs'],
+      ['\u0422\u0430\u0440\u0430\u0441 \u041a\u043e\u0432\u0430\u043b\u0435\u043d\u043a\u043e', 'uk'],
+      ['Tiago Ferreira', 'pt'],
+      ['Anouk Dijkstra', 'nl'],
+    ] as const) {
+      const out = generateSurrogate(name, 'PERSON', ctx);
+      expect(out).not.toBe(name);
+      expect(out.split(' ')).toHaveLength(2);
+      expect(detectSurrogateLocale(out)).toBe(locale);
+    }
+  });
+
+  it('Czech female names get -ov\u00e1 / -\u00e1 surnames', () => {
+    const out = generateSurrogate('Kate\u0159ina Svobodov\u00e1', 'PERSON', ctx);
+    expect(out.split(' ')[1]).toMatch(/(?:ov\u00e1|\u00e1)$/u);
+  });
+
+  it('Ukrainian surrogates stay Cyrillic and gender-consistent', () => {
+    const female = generateSurrogate('\u041e\u043b\u0435\u043d\u0430 \u0428\u0435\u0432\u0447\u0435\u043d\u043a\u043e', 'PERSON', ctx);
+    expect(female).toMatch(/^[\u0400-\u04ff\u2019' -]+$/u);
+    // Never a masculine adjectival surname for a female given name.
+    expect(female.split(' ')[1]).not.toMatch(/(?:\u0441\u044c\u043a\u0438\u0439|\u0446\u044c\u043a\u0438\u0439)$/u);
+  });
+});
+
+describe('Nordic + CJK locales (T073 web-parity)', () => {
+  it('Nordic names map to same-locale fakes', () => {
+    for (const [name, locale] of [
+      ['Sven Bergstr\u00f6m', 'sv'],
+      ['Bj\u00f8rn Haugen', 'no'],
+      ['Mette S\u00f8rensen', 'da'],
+      ['Juha Virtanen', 'fi'],
+    ] as const) {
+      const out = generateSurrogate(name, 'PERSON', ctx);
+      expect(out).not.toBe(name);
+      expect(out.split(' ')).toHaveLength(2);
+      expect(detectSurrogateLocale(out)).toBe(locale);
+    }
+  });
+
+  it('Japanese names: kana or 2-char surname prefix decides; output is Japanese-composed', () => {
+    expect(detectSurrogateLocale('\u7530\u4e2d\u592a\u90ce')).toBe('ja'); // kanji-only, surname prefix
+    expect(detectSurrogateLocale('\u3055\u304f\u3089')).toBe('ja'); // kana
+    const out = generateSurrogate('\u7530\u4e2d\u592a\u90ce', 'PERSON', ctx);
+    expect(out).not.toBe('\u7530\u4e2d\u592a\u90ce');
+    expect(out).toMatch(/^[\u3040-\u30ff\u4e00-\u9fff]+$/u); // no space, CJK only
+  });
+
+  it('Chinese names: 1-char surname prefix decides; given-name length mirrored', () => {
+    expect(detectSurrogateLocale('\u738b\u4f1f')).toBe('zh');
+    const out = generateSurrogate('\u738b\u4f1f', 'PERSON', ctx);
+    expect(out).not.toBe('\u738b\u4f1f');
+    expect(out).toMatch(/^[\u4e00-\u9fff]{2}$/u); // 2 chars in, 2 chars out
+    const out3 = generateSurrogate('\u674e\u79c0\u82f1', 'PERSON', ctx);
+    expect(out3).toMatch(/^[\u4e00-\u9fff]{3}$/u);
+  });
+
+  it('an unknown Han-script name still resolves via the script fallback', () => {
+    expect(detectSurrogateLocale('\u94b1\u6d69\u7136')).toBe('zh'); // surname not in pool
+  });
+
+  it('CJK dates (2024\u5e743\u670815\u65e5) shift and keep the format', () => {
+    const out = generateSurrogate('2024\u5e743\u670815\u65e5', 'DATE', ctx);
+    expect(out).not.toBe('2024\u5e743\u670815\u65e5');
+    expect(out).toMatch(/^\d{4}\u5e74\d{1,2}\u6708\d{1,2}\u65e5$/u);
+  });
+
+  it('Nordic and Finnish dates keep their language', () => {
+    const fi = generateSurrogate('15 maaliskuuta 2024', 'DATE', ctx);
+    expect(fi).toMatch(/^\d{1,2} \p{Ll}+ \d{4}$/u);
+    expect(fi).not.toBe('15 maaliskuuta 2024');
+    const da = generateSurrogate('15 marts 2024', 'DATE', ctx);
+    expect(da).toMatch(/^\d{1,2} \p{Ll}+ \d{4}$/u);
+  });
+
+  it('Nordic and CJK addresses follow their locale formats', () => {
+    expect(generateSurrogate('Storgatan 5', 'ADDRESS', ctx)).toMatch(/v\u00e4gen \d+$/);
+    expect(generateSurrogate('Kirkeveien 3', 'ADDRESS', ctx)).toMatch(/veien \d+$/);
+    expect(generateSurrogate('M\u00f8llevej 8', 'ADDRESS', ctx)).toMatch(/vej \d+$/);
+    expect(generateSurrogate('Mannerheiminkatu 10', 'ADDRESS', ctx)).toMatch(/katu \d+$/);
+    expect(generateSurrogate('\u685c\u753a3\u4e01\u76ee', 'ADDRESS', ctx)).toMatch(/\u4e01\u76ee$/u);
+    expect(generateSurrogate('\u4e2d\u5c71\u8def88\u53f7', 'ADDRESS', ctx)).toMatch(/\u53f7$/u);
+  });
+
+  it('Nordic and CJK company suffixes decide the pool; bare AB/AS need a space', () => {
+    expect(generateSurrogate('Volvex AB', 'COMPANY', ctx)).toMatch(/ AB$/);
+    expect(generateSurrogate('Fjellkraft AS', 'COMPANY', ctx)).toMatch(/ AS$/);
+    expect(generateSurrogate('Danske Byg A/S', 'COMPANY', ctx)).toMatch(/ A\/S$/);
+    expect(generateSurrogate('Metsola Oy', 'COMPANY', ctx)).toMatch(/ Oyj?$/);
+    // CJK suffixes attach without a space and stay attached.
+    const ja = generateSurrogate('\u7530\u4e2d\u5546\u4e8b\u682a\u5f0f\u4f1a\u793e', 'COMPANY', ctx);
+    expect(ja).toMatch(/^[\u3040-\u30ff\u4e00-\u9fff]+\u682a\u5f0f\u4f1a\u793e$/u);
+    const zh = generateSurrogate('\u534e\u4fe1\u79d1\u6280\u6709\u9650\u516c\u53f8', 'COMPANY', ctx);
+    expect(zh).toMatch(/^[\u4e00-\u9fff]+\u6709\u9650\u516c\u53f8$/u);
+    // 'SAAB' must NOT shed a bare 'AB' suffix.
+    const saab = generateSurrogate('SAAB', 'COMPANY', ctx);
+    expect(saab).not.toMatch(/ AB$/);
+  });
+});
+
+describe('localized DATE / ADDRESS / COMPANY (T073)', () => {
+  it('German and French month-name dates keep their language and case', () => {
+    const de = generateSurrogate('15 M\u00e4rz 2024', 'DATE', ctx);
+    expect(de).not.toBe('15 M\u00e4rz 2024');
+    expect(de).toMatch(/^\d{1,2} [A-Z\u00c4\u00d6\u00dc][\p{Ll}\u00e4\u00f6\u00fc]+ \d{4}$/u);
+    const fr = generateSurrogate('15 ao\u00fbt 2024', 'DATE', ctx);
+    expect(fr).toMatch(/^\d{1,2} \p{Ll}+ \d{4}$/u);
+  });
+
+  it('Ukrainian genitive dates shift and stay Ukrainian', () => {
+    const uk = generateSurrogate('15 \u0431\u0435\u0440\u0435\u0437\u043d\u044f 2024', 'DATE', ctx);
+    expect(uk).not.toBe('15 \u0431\u0435\u0440\u0435\u0437\u043d\u044f 2024');
+    expect(uk).toMatch(/^\d{1,2} [\u0400-\u04ff]+ \d{4}$/u);
+  });
+
+  it('addresses follow the locale format signalled by the keyword', () => {
+    expect(generateSurrogate('Hauptstra\u00dfe 5', 'ADDRESS', ctx)).toMatch(/stra\u00dfe \d+$/u);
+    expect(generateSurrogate('12 rue de Rivoli', 'ADDRESS', ctx)).toMatch(/^\d+ rue /);
+    expect(generateSurrogate('Calle Mayor 3', 'ADDRESS', ctx)).toMatch(/^Calle /);
+    expect(generateSurrogate('Via Nazionale 10', 'ADDRESS', ctx)).toMatch(/^Via /);
+    expect(generateSurrogate('\u0432\u0443\u043b. \u0417\u0435\u043b\u0435\u043d\u0430 98', 'ADDRESS', ctx)).toMatch(/^\u0432\u0443\u043b\. [\u0400-\u04ff]+ \d+$/u);
+    expect(generateSurrogate('Rua Augusta 12', 'ADDRESS', ctx)).toMatch(/^Rua /);
+    expect(generateSurrogate('Kerkstraat 4', 'ADDRESS', ctx)).toMatch(/straat \d+$/);
+    expect(generateSurrogate('ul. Polna 7', 'ADDRESS', ctx)).toMatch(/^ul\. /);
+  });
+
+  it('legal-form suffixes choose the company pool and are kept verbatim', () => {
+    expect(generateSurrogate('Musterbau GmbH', 'COMPANY', ctx)).toMatch(/ GmbH$/);
+    expect(generateSurrogate('Databene s.r.o.', 'COMPANY', ctx)).toMatch(/ s\.r\.o\.$/);
+    expect(generateSurrogate('Innovex S.r.l.', 'COMPANY', ctx)).toMatch(/ S\.r\.l\.$/);
+    const uk = generateSurrogate('\u0411\u0443\u0434\u0456\u043d\u0432\u0435\u0441\u0442 \u0422\u041e\u0412', 'COMPANY', ctx);
+    expect(uk).toMatch(/[\u0400-\u04ff]+ \u0422\u041e\u0412$/u);
+    expect(generateSurrogate('Ambar Unipessoal Lda.', 'COMPANY', ctx)).toMatch(/ Lda\.$/);
+    expect(generateSurrogate('Kaasgroothandel B.V.', 'COMPANY', ctx)).toMatch(/ B\.V\.$/);
   });
 });
 

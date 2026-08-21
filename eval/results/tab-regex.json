@@ -1,0 +1,188 @@
+{
+  "tier": "regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "TAB echr_test",
+  "documents": 127,
+  "annotatorReferences": 555,
+  "goldMentions": 20809,
+  "predictions": 11970,
+  "recall": {
+    "maskingStrict": {
+      "DATETIME": {
+        "hits": 7437,
+        "total": 9536,
+        "ratio": 0.779886744966443
+      },
+      "PERSON": {
+        "hits": 151,
+        "total": 4138,
+        "ratio": 0.036491058482358625
+      },
+      "ORG": {
+        "hits": 322,
+        "total": 1946,
+        "ratio": 0.16546762589928057
+      },
+      "CODE": {
+        "hits": 0,
+        "total": 1612,
+        "ratio": 0
+      },
+      "LOC": {
+        "hits": 575,
+        "total": 1459,
+        "ratio": 0.39410555174777245
+      },
+      "DEM": {
+        "hits": 119,
+        "total": 917,
+        "ratio": 0.1297709923664122
+      },
+      "QUANTITY": {
+        "hits": 30,
+        "total": 664,
+        "ratio": 0.045180722891566265
+      },
+      "MISC": {
+        "hits": 44,
+        "total": 537,
+        "ratio": 0.08193668528864059
+      }
+    },
+    "maskingLenient": {
+      "DATETIME": {
+        "hits": 8761,
+        "total": 9536,
+        "ratio": 0.9187290268456376
+      },
+      "PERSON": {
+        "hits": 948,
+        "total": 4138,
+        "ratio": 0.2290961817303045
+      },
+      "ORG": {
+        "hits": 961,
+        "total": 1946,
+        "ratio": 0.4938335046248715
+      },
+      "CODE": {
+        "hits": 1446,
+        "total": 1612,
+        "ratio": 0.8970223325062034
+      },
+      "LOC": {
+        "hits": 655,
+        "total": 1459,
+        "ratio": 0.44893762851267993
+      },
+      "DEM": {
+        "hits": 179,
+        "total": 917,
+        "ratio": 0.19520174482006544
+      },
+      "QUANTITY": {
+        "hits": 66,
+        "total": 664,
+        "ratio": 0.09939759036144578
+      },
+      "MISC": {
+        "hits": 156,
+        "total": 537,
+        "ratio": 0.2905027932960894
+      }
+    },
+    "typeAwareStrict": {
+      "DATETIME": {
+        "hits": 6529,
+        "total": 9536,
+        "ratio": 0.6846686241610739
+      },
+      "PERSON": {
+        "hits": 0,
+        "total": 4138,
+        "ratio": 0
+      },
+      "ORG": {
+        "hits": 25,
+        "total": 1946,
+        "ratio": 0.012846865364850977
+      },
+      "CODE": {
+        "hits": 0,
+        "total": 1612,
+        "ratio": 0
+      },
+      "LOC": {
+        "hits": 563,
+        "total": 1459,
+        "ratio": 0.3858807402330363
+      },
+      "DEM": {
+        "hits": 0,
+        "total": 917,
+        "ratio": 0
+      },
+      "QUANTITY": {
+        "hits": 14,
+        "total": 664,
+        "ratio": 0.02108433734939759
+      },
+      "MISC": {
+        "hits": 0,
+        "total": 537,
+        "ratio": 0
+      }
+    },
+    "byIdentifierType": {
+      "QUASI": {
+        "hits": 8632,
+        "total": 19197,
+        "ratio": 0.44965359170703756
+      },
+      "DIRECT": {
+        "hits": 46,
+        "total": 1612,
+        "ratio": 0.028535980148883373
+      }
+    },
+    "overallMaskingStrict": 0.41703109231582486,
+    "overallMaskingLenient": 0.6329953385554328,
+    "overallAttemptedMaskingStrict": 0.4539617997966936
+  },
+  "precision": {
+    "masking": 0.33751044277360065,
+    "maskingHits": 4040,
+    "total": 11970,
+    "overMaskingShare": 0.10225563909774436,
+    "spuriousShare": 0.560233918128655,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 1649,
+        "total": 9409,
+        "ratio": 0.17525773195876287
+      },
+      "DATE": {
+        "hits": 2072,
+        "total": 2118,
+        "ratio": 0.9782813975448537
+      },
+      "PHONE": {
+        "hits": 273,
+        "total": 275,
+        "ratio": 0.9927272727272727
+      },
+      "COMPANY": {
+        "hits": 44,
+        "total": 166,
+        "ratio": 0.26506024096385544
+      },
+      "CURRENCY": {
+        "hits": 2,
+        "total": 2,
+        "ratio": 1
+      }
+    }
+  },
+  "f1MaskingStrict": 0.3730804523602293
+}

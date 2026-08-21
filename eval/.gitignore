@@ -1,0 +1,3 @@
+# Benchmark datasets (fetched by download.mjs) and model/prediction caches.
+# eval/results/*.json ARE committed - they are the published numbers.
+data/

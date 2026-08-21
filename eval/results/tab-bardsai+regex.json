@@ -1,0 +1,193 @@
+{
+  "tier": "bardsai+regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "TAB echr_test",
+  "documents": 127,
+  "annotatorReferences": 555,
+  "goldMentions": 20809,
+  "predictions": 14402,
+  "recall": {
+    "maskingStrict": {
+      "DATETIME": {
+        "hits": 7576,
+        "total": 9536,
+        "ratio": 0.7944630872483222
+      },
+      "PERSON": {
+        "hits": 2243,
+        "total": 4138,
+        "ratio": 0.542049299178347
+      },
+      "ORG": {
+        "hits": 1532,
+        "total": 1946,
+        "ratio": 0.7872559095580678
+      },
+      "CODE": {
+        "hits": 477,
+        "total": 1612,
+        "ratio": 0.29590570719602977
+      },
+      "LOC": {
+        "hits": 1308,
+        "total": 1459,
+        "ratio": 0.8965044551062371
+      },
+      "DEM": {
+        "hits": 436,
+        "total": 917,
+        "ratio": 0.47546346782988
+      },
+      "QUANTITY": {
+        "hits": 376,
+        "total": 664,
+        "ratio": 0.5662650602409639
+      },
+      "MISC": {
+        "hits": 70,
+        "total": 537,
+        "ratio": 0.1303538175046555
+      }
+    },
+    "maskingLenient": {
+      "DATETIME": {
+        "hits": 8896,
+        "total": 9536,
+        "ratio": 0.9328859060402684
+      },
+      "PERSON": {
+        "hits": 3743,
+        "total": 4138,
+        "ratio": 0.9045432576123731
+      },
+      "ORG": {
+        "hits": 1773,
+        "total": 1946,
+        "ratio": 0.9110996916752312
+      },
+      "CODE": {
+        "hits": 1479,
+        "total": 1612,
+        "ratio": 0.9174937965260546
+      },
+      "LOC": {
+        "hits": 1421,
+        "total": 1459,
+        "ratio": 0.973954763536669
+      },
+      "DEM": {
+        "hits": 544,
+        "total": 917,
+        "ratio": 0.5932388222464559
+      },
+      "QUANTITY": {
+        "hits": 447,
+        "total": 664,
+        "ratio": 0.6731927710843374
+      },
+      "MISC": {
+        "hits": 199,
+        "total": 537,
+        "ratio": 0.37057728119180633
+      }
+    },
+    "typeAwareStrict": {
+      "DATETIME": {
+        "hits": 6687,
+        "total": 9536,
+        "ratio": 0.7012374161073825
+      },
+      "PERSON": {
+        "hits": 2119,
+        "total": 4138,
+        "ratio": 0.5120831319478009
+      },
+      "ORG": {
+        "hits": 1124,
+        "total": 1946,
+        "ratio": 0.5775950668036999
+      },
+      "CODE": {
+        "hits": 477,
+        "total": 1612,
+        "ratio": 0.29590570719602977
+      },
+      "LOC": {
+        "hits": 1217,
+        "total": 1459,
+        "ratio": 0.8341329677861549
+      },
+      "DEM": {
+        "hits": 268,
+        "total": 917,
+        "ratio": 0.29225736095965105
+      },
+      "QUANTITY": {
+        "hits": 361,
+        "total": 664,
+        "ratio": 0.5436746987951807
+      },
+      "MISC": {
+        "hits": 5,
+        "total": 537,
+        "ratio": 0.00931098696461825
+      }
+    },
+    "byIdentifierType": {
+      "QUASI": {
+        "hits": 13191,
+        "total": 19197,
+        "ratio": 0.6871386154086576
+      },
+      "DIRECT": {
+        "hits": 827,
+        "total": 1612,
+        "ratio": 0.5130272952853598
+      }
+    },
+    "overallMaskingStrict": 0.6736508241626219,
+    "overallMaskingLenient": 0.8891345091066366,
+    "overallAttemptedMaskingStrict": 0.7027981381413515
+  },
+  "precision": {
+    "masking": 0.37918344674350785,
+    "maskingHits": 5461,
+    "total": 14402,
+    "overMaskingShare": 0.1162338564088321,
+    "spuriousShare": 0.50458269684766,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 1095,
+        "total": 7383,
+        "ratio": 0.14831369362047947
+      },
+      "COMPANY": {
+        "hits": 748,
+        "total": 2838,
+        "ratio": 0.26356589147286824
+      },
+      "DATE": {
+        "hits": 2110,
+        "total": 2157,
+        "ratio": 0.9782104775150672
+      },
+      "PERSON": {
+        "hits": 946,
+        "total": 985,
+        "ratio": 0.9604060913705583
+      },
+      "OTHER": {
+        "hits": 388,
+        "total": 864,
+        "ratio": 0.44907407407407407
+      },
+      "PHONE": {
+        "hits": 174,
+        "total": 175,
+        "ratio": 0.9942857142857143
+      }
+    }
+  },
+  "f1MaskingStrict": 0.485237322656193
+}

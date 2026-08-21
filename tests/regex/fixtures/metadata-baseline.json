@@ -291,6 +291,186 @@
     "region": "universal"
   },
   {
+    "id": "regex:universal:aws_access_key",
+    "entityType": "API_KEY",
+    "pattern": "\\b(?:AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|AROA)[0-9A-Z]{16}\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "AWS access key ID (AKIA/ASIA + 16 uppercase alphanumeric)",
+    "examples": [
+      "AKIAIOSFODNN7EXAMPLE",
+      "ASIAJEXAMPLEKEY12345"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:github_token",
+    "entityType": "API_KEY",
+    "pattern": "\\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59})\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "GitHub token (classic ghp_/gho_/ghu_/ghs_/ghr_ or fine-grained github_pat_)",
+    "examples": [
+      "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
+      "github_pat_11ABCDEFG0123456789abc_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:slack_token",
+    "entityType": "API_KEY",
+    "pattern": "\\bxox[abprs]-[A-Za-z0-9-]{10,64}\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "Slack token (xoxb- bot, xoxp- user, xoxa-/xoxr-/xoxs- variants)",
+    "examples": [
+      "xoxb-NotARealBotToken-DocCloakTestFixture",
+      "xoxp-FakeUserToken-DocCloakTestFixture00"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:openai_api_key",
+    "entityType": "API_KEY",
+    "pattern": "\\bsk-(?:(?:proj|svcacct|admin)-[A-Za-z0-9_-]{40,}|[A-Za-z0-9]{40,})\\b",
+    "flags": "g",
+    "confidence": 0.92,
+    "domains": [
+      "technical"
+    ],
+    "description": "OpenAI API key (legacy sk- + 40+ alphanumeric, or sk-proj-/sk-svcacct-/sk-admin- project keys)",
+    "examples": [
+      "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh",
+      "sk-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKl"
+    ],
+    "falsePositiveNotes": "Anthropic sk-ant- keys never reach the alphanumeric-only branch (hyphen after ant stops it); the dedicated anthropic rule wins overlap resolution via its longer prefix",
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:anthropic_api_key",
+    "entityType": "API_KEY",
+    "pattern": "\\bsk-ant-[A-Za-z0-9_-]{24,}\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "Anthropic API key (sk-ant- prefix)",
+    "examples": [
+      "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-AbCdEfGh"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:google_api_key",
+    "entityType": "API_KEY",
+    "pattern": "\\bAIza[0-9A-Za-z_-]{35}\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "Google API key (AIza + 35 characters)",
+    "examples": [
+      "AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:private_key_block",
+    "entityType": "SECRET",
+    "pattern": "-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----",
+    "flags": "g",
+    "confidence": 0.99,
+    "domains": [
+      "technical"
+    ],
+    "description": "PEM private key block (RSA/EC/DSA/OPENSSH/ENCRYPTED/PGP), including SSH private keys",
+    "examples": [
+      "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0Z3VS5JJcds3xfn\n-----END RSA PRIVATE KEY-----",
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU\n-----END OPENSSH PRIVATE KEY-----"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:jwt",
+    "entityType": "SECRET",
+    "pattern": "\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b",
+    "flags": "g",
+    "confidence": 0.95,
+    "domains": [
+      "technical"
+    ],
+    "description": "JSON Web Token (three base64url segments, header starts with eyJ = base64 of '{\")",
+    "examples": [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    ],
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:connection_string_creds",
+    "entityType": "SECRET",
+    "pattern": "\\b[a-zA-Z][a-zA-Z0-9+.-]{1,30}:\\/\\/[^\\s:@\\/]{1,64}:[^\\s@]{1,128}@[^\\s\"']{1,256}",
+    "flags": "g",
+    "confidence": 0.9,
+    "domains": [
+      "technical"
+    ],
+    "description": "Connection string with inline credentials (scheme://user:password@host)",
+    "examples": [
+      "postgres://admin:S3cr3tPass@db.example.com:5432/mydb",
+      "mongodb+srv://appuser:hunter2pass@cluster0.abc.mongodb.net/prod"
+    ],
+    "falsePositiveNotes": "Plain URLs without a user:password pair never match (the colon between user and password is required before the @)",
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:secret_assignment",
+    "entityType": "SECRET",
+    "pattern": "\\b[a-zA-Z0-9_-]{0,32}?(?:api[_-]?key|apikey|secret|token|passwd|password|credential|auth|access[_-]?key|client[_-]?secret|private[_-]?key|signing[_-]?key)[a-zA-Z0-9_-]{0,32}[\"']?\\s*[:=]>?\\s*[\"']?[A-Za-z0-9+\\/_=-]{16,}",
+    "flags": "gi",
+    "confidence": 0.75,
+    "domains": [
+      "technical"
+    ],
+    "description": "Secret-ish keyword assignment (api_key = ..., password: ..., aws_secret_access_key: ...) with a 16+ char value; the value is Shannon-entropy gated by the secretAssignment validator",
+    "examples": [
+      "api_key = \"9fQz3kX7Lm2Pw8Rt5Vy1Jh6Nd4Bg0Cs\"",
+      "aws_secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      "session_token=a3f8c2d914b7e605d2c8a1f4b9e7d305"
+    ],
+    "falsePositiveNotes": "The keyword and separator are part of the match (lookbehind is banned for new rules), so the config key name is redacted along with the value. Low-entropy placeholder values (your_api_key_here, changeme) are rejected by the validator.",
+    "validate": "secretAssignment",
+    "region": "universal"
+  },
+  {
+    "id": "regex:universal:high_entropy_token",
+    "entityType": "SECRET",
+    "pattern": "\\b[A-Za-z0-9][A-Za-z0-9+\\/]{39,}={0,2}",
+    "flags": "g",
+    "confidence": 0.6,
+    "domains": [
+      "technical"
+    ],
+    "description": "Bare high-entropy base64/alphanumeric token (40+ chars); the highEntropyToken validator requires mixed character classes and Shannon entropy >= 4.5 bits/char",
+    "examples": [
+      "Zq7PmX2vR9kLtY4wNb8QcJ3fHd6GsA1uEi5oT0xVrKp",
+      "kM3nP8qR2sT7uV1wX5yZ9aB4cD6eF0gH1jK2lM3nP4qR5sT6"
+    ],
+    "falsePositiveNotes": "Low confidence by design. Git SHAs and UUID fragments are single-case hex (rejected by the class-mix check); base64 data blobs exceed the 256 char cap; identifiers and prose fall below the entropy threshold.",
+    "validate": "highEntropyToken",
+    "region": "universal"
+  },
+  {
     "id": "regex:gb:nino",
     "entityType": "SSN",
     "pattern": "\\b[A-Z]{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?[A-D]\\b",
@@ -489,6 +669,24 @@
       "Tesco Ltd",
       "Deloitte LLP"
     ],
+    "region": "gb"
+  },
+  {
+    "id": "regex:gb:driving_licence",
+    "entityType": "SSN",
+    "pattern": "\\b[A-Z9]{5}\\s?\\d{6}\\s?[A-Z9]{2}\\d[A-Z]{2}\\b",
+    "flags": "g",
+    "confidence": 0.8,
+    "domains": [
+      "identity"
+    ],
+    "description": "UK driving licence number (16 chars: surname block, encoded date of birth, initials, check chars)",
+    "examples": [
+      "MORGA657054SM9IJ",
+      "SMITH 751125 JM9AB"
+    ],
+    "falsePositiveNotes": "Best-effort: other 16-char uppercase codes can match the shape; the validator checks the embedded date-of-birth digit block",
+    "validate": "ukDrivingLicence",
     "region": "gb"
   },
   {

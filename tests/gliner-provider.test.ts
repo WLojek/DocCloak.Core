@@ -26,12 +26,24 @@ const ortMock = vi.hoisted(() => {
 
 vi.mock('onnxruntime-web', () => ortMock);
 
-import { GlinerProvider } from '../src/providers/gliner.ts';
+import { GlinerProvider, GLINER_MODEL_URL, GLINER_MODEL_REVISION, GLINER_MODEL_SHA256 } from '../src/providers/gliner.ts';
+import { verificationMarkerKey } from '../src/model-loader.ts';
 import { memoryKV, memoryBlobCache } from '../src/env.ts';
-import type { CoreEnv } from '../src/env.ts';
+import type { BlobCache, CoreEnv } from '../src/env.ts';
 
-const MODEL_URL = 'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx';
+// T116: the provider must fetch from the pinned immutable revision
+const MODEL_URL = GLINER_MODEL_URL;
 const LEGACY_KEY = 'doccloak-custom-labels';
+
+/**
+ * Seed the cache like a previously verified download (T116): blob plus the
+ * verification marker for the pinned hash. Without the marker the loader
+ * would hash the fake bytes, detect the mismatch and hit the network.
+ */
+async function seedVerifiedModel(cache: BlobCache, blob: Blob): Promise<void> {
+  await cache.put(MODEL_URL, blob);
+  await cache.put(verificationMarkerKey(MODEL_URL, GLINER_MODEL_SHA256), new Blob(['1']));
+}
 
 function makeEnv(overrides: Partial<CoreEnv> = {}): CoreEnv {
   return {
@@ -105,7 +117,7 @@ describe('GlinerProvider custom labels via env.kv', () => {
 describe('GlinerProvider load() via CoreEnv', () => {
   it('serves the model from the injected blob cache and configures wasm from env', async () => {
     const modelCache = memoryBlobCache();
-    await modelCache.put(MODEL_URL, new Blob([new Uint8Array([1, 2, 3])]));
+    await seedVerifiedModel(modelCache, new Blob([new Uint8Array([1, 2, 3])]));
     const env = makeEnv({ modelCache, wasm: { paths: '/app/', numThreads: 3 } });
     const provider = new GlinerProvider(env);
 
@@ -121,9 +133,30 @@ describe('GlinerProvider load() via CoreEnv', () => {
     });
   });
 
+  it('reports the pinned-hash verification after a cache-served load (T116)', async () => {
+    const modelCache = memoryBlobCache();
+    await seedVerifiedModel(modelCache, new Blob([new Uint8Array([1, 2, 3])]));
+    const provider = new GlinerProvider(makeEnv({ modelCache }));
+
+    expect(provider.getVerification()).toBeNull();
+    await provider.load();
+
+    expect(provider.getVerification()).toEqual({
+      url: MODEL_URL,
+      sha256: GLINER_MODEL_SHA256,
+    });
+  });
+
+  it('pins the model URL to an immutable revision (no resolve/main)', () => {
+    expect(MODEL_URL).toContain(`/resolve/${GLINER_MODEL_REVISION}/`);
+    expect(MODEL_URL).not.toContain('resolve/main');
+    expect(GLINER_MODEL_REVISION).toMatch(/^[0-9a-f]{40}$/);
+    expect(GLINER_MODEL_SHA256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('defaults to single-threaded wasm when env gives no numThreads', async () => {
     const modelCache = memoryBlobCache();
-    await modelCache.put(MODEL_URL, new Blob([new Uint8Array([1])]));
+    await seedVerifiedModel(modelCache, new Blob([new Uint8Array([1])]));
     const provider = new GlinerProvider(makeEnv({ modelCache }));
 
     await provider.load();

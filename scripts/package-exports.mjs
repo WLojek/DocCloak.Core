@@ -19,6 +19,7 @@ const SHAPES = {
     types: './src/index.ts',
     exports: {
       '.': './src/index.ts',
+      './restore-tokens': './src/restore-tokens.ts',
       './dom': './src/dom/index.ts',
       './worker-protocol': './src/worker-protocol.ts',
     },
@@ -28,6 +29,7 @@ const SHAPES = {
     types: './dist/index.d.ts',
     exports: {
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
+      './restore-tokens': { types: './dist/restore-tokens.d.ts', default: './dist/restore-tokens.js' },
       './dom': { types: './dist/dom/index.d.ts', default: './dist/dom/index.js' },
       './worker-protocol': { types: './dist/worker-protocol.d.ts', default: './dist/worker-protocol.js' },
     },

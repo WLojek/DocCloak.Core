@@ -4,9 +4,68 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
-## [0.9.0] - 2026-07-28
+## [0.9.0] - 2026-08-21
 
 ### Added
+
+- **Secrets & credentials detection (T099/T116):** new `SECRET` and
+  `API_KEY` entity types plus eleven universal regex rules covering AWS
+  access keys, GitHub/Slack tokens, OpenAI/Anthropic/Google API keys,
+  PEM private-key blocks, JWTs, connection strings with embedded
+  credentials, `secret=`-style assignments and high-entropy tokens, and
+  a GB driving-licence rule. Credentials never receive realistic
+  stand-ins — even in surrogate mode they always fall back to typed
+  placeholders, since a same-shape fake key still reads as a live
+  credential.
+
+- **Tolerant restore-token matching (T098):** new side-effect-free
+  `@doccloak/core/restore-tokens` export that restores placeholders LLM
+  replies have mangled — case changes (`[person_1]`), separator swaps
+  (`[PERSON 1]`), markdown wrapping (`**[PERSON_1]**`), dropped brackets
+  and stray edge punctuation. Restoration only happens on an unambiguous
+  canonical hit; anything ambiguous is left exactly as the model wrote
+  it, because a wrong restore silently corrupts the document while a
+  missed one is visible and recoverable.
+
+- **Model integrity verification:** `fetchModelBlob` verifies downloads
+  against a pinned SHA-256 when the caller provides one and rejects
+  mismatches with a dedicated `ModelIntegrityError` (the corrupt copy is
+  discarded; verified cache entries carry a marker so they are not
+  re-hashed). The GLiNER and bardsai providers export their pinned
+  `*_MODEL_URL` / `*_MODEL_REVISION` / `*_MODEL_SHA256` constants.
+
+- **Multilingual surrogates (T073):** realistic stand-ins now follow the
+  original's language beyond EN/PL. New locale packs matching every
+  region the web app's language picker offers: German, French, Spanish,
+  Italian, Czech, Ukrainian, Dutch, Portuguese, Swedish, Norwegian,
+  Danish, Finnish, Japanese and Chinese: given-name/surname pools with
+  gender detection and surname feminization (-ova, -ska/-cka), month
+  names for date shifting (genitive forms where dates inflect), street
+  formats (Hauptstrasse 5 / 12 rue des Lilas / Calle del Sol 3 / Via dei
+  Tigli 10 / vul. Zelena 98) and company pools with locale-detecting
+  legal suffixes (GmbH, SARL, S.r.l., s.r.o., TOV) kept verbatim.
+  Locale detection scores name-pool and surname matches per token
+  (shared names like "Marie" resolve to the best-matching language);
+  Cyrillic script resolves decisively. Non-Latin surrogate names fall
+  back to an unrelated ASCII identity in derived email local parts.
+  CJK names compose surname-first without spaces via a per-pack
+  formatPerson hook (Chinese given-name length mirrored; kana decides
+  Japanese, surname-prefix scoring separates kanji-only Japanese from
+  Chinese, a Han script fallback catches unpooled surnames); CJK dates
+  (2024\u5e743\u670815\u65e5) shift in place; Finnish dates keep the partitive.
+  Bare legal suffixes (AB/AS) now require a preceding space, so 'SAAB'
+  never sheds an 'AB'. Adding further locales is data-only (one
+  LocalePack entry).
+
+- **Person-variant unification (T057):** repeated mentions of the same
+  person share one replacement. When a new PERSON value is a name-variant
+  of an already-mapped one (case-insensitive token subset with at least
+  one substantive shared token: "John" and "Smith" both match
+  "John Smith"; "Mr. Smith" and "Person 11" do not), the session reuses
+  its placeholder/surrogate instead of issuing a new one. The reverse map
+  keeps the LONGEST variant, so restore always yields the fullest known
+  form; `renameLabel` renames the whole variant group; `deserialize`
+  keeps the longest variant canonical regardless of entry order.
 
 - **Surrogate replacement mode (T043):** `AnonymizationSession` accepts a
   new `'surrogate'` mode in which replacements are realistic,

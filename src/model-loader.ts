@@ -14,6 +14,10 @@
  * - Serves the model from the injected BlobCache when available and prefers
  *   the cached (typically disk-backed) copy over the in-memory one to reduce
  *   peak RAM, which matters on iOS Safari where large tabs get killed.
+ * - Verifies downloads against a pinned SHA-256 when the caller provides one
+ *   (supply-chain hardening, T116): mismatches evict the cache entry and
+ *   reject with ModelIntegrityError; verified cache entries carry a marker
+ *   so they are not re-hashed on every startup.
  *
  * Environment-agnostic: all host capabilities (blob cache, fetch, persistent
  * storage request) are injected via ModelLoaderEnv. This module never touches
@@ -50,6 +54,68 @@ class HttpError extends Error {
     this.name = 'HttpError';
     this.status = status;
   }
+}
+
+/**
+ * A downloaded (or cached) model blob did not match the pinned SHA-256.
+ * Distinct error type so hosts can show a dedicated "integrity check
+ * failed" state instead of a generic download error. The offending cache
+ * entry is evicted before this is thrown; the regex/rules tier keeps
+ * working (existing degraded-mode behavior).
+ */
+export class ModelIntegrityError extends Error {
+  url: string;
+  expectedSha256: string;
+  actualSha256: string;
+
+  constructor(url: string, expectedSha256: string, actualSha256: string) {
+    super(
+      `Model failed SHA-256 integrity check: expected ${expectedSha256.slice(0, 12)}..., ` +
+      `got ${actualSha256.slice(0, 12)}... (${url}). The downloaded copy was discarded.`,
+    );
+    this.name = 'ModelIntegrityError';
+    this.url = url;
+    this.expectedSha256 = expectedSha256;
+    this.actualSha256 = actualSha256;
+  }
+}
+
+/** Successful SHA-256 verification of a model blob, surfaced to the model-status UI. */
+export interface ModelVerification {
+  url: string;
+  /** The verified SHA-256, lowercase hex - equals the pinned hash. */
+  sha256: string;
+}
+
+/**
+ * Cache key of the tiny "this URL was verified against this hash" marker.
+ * Uses a query parameter (not a URL fragment) because Cache Storage strips
+ * fragments, which would collide with the model entry itself. Keyed by
+ * url AND hash so bumping a pinned hash automatically invalidates markers
+ * written for the previous pin.
+ */
+export function verificationMarkerKey(url: string, sha256: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}doccloak-sha256-verified=${sha256}`;
+}
+
+/**
+ * SHA-256 of a blob as lowercase hex. WebCrypto has no streaming digest,
+ * so the blob is hashed as one contiguous buffer: peak cost is one extra
+ * transient copy of the model, released before ONNX Runtime allocates its
+ * own copy.
+ */
+async function sha256Hex(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Best-effort write of the verification marker (a 1-byte blob). */
+async function markVerified(cache: BlobCache, url: string, sha256: string): Promise<void> {
+  try {
+    await cache.put(verificationMarkerKey(url, sha256), new Blob(['1']));
+  } catch { /* marker is an optimisation - next startup just re-hashes */ }
 }
 
 function isRetryable(err: unknown): boolean {
@@ -95,14 +161,16 @@ async function readFromCache(cache: BlobCache, url: string): Promise<Blob | null
  * surfaces either as put() resolving false or as a thrown error depending on
  * the adapter. Caching is an optimisation, not a correctness requirement.
  */
-async function tryCachePut(cache: BlobCache, url: string, blob: Blob): Promise<void> {
+async function tryCachePut(cache: BlobCache, url: string, blob: Blob): Promise<boolean> {
   try {
     const stored = await cache.put(url, blob);
     if (!stored) {
       console.warn('[DocCloak] Model cache put refused (model still loaded in memory)');
     }
+    return stored;
   } catch (err) {
     console.warn('[DocCloak] Model cache put failed (model still loaded in memory):', err);
+    return false;
   }
 }
 
@@ -180,6 +248,17 @@ async function downloadAttempt(
 export interface FetchModelOptions {
   maxAttempts?: number;
   retryBaseDelayMs?: number;
+  /**
+   * Pinned SHA-256 (lowercase hex) of the model blob. When set, every
+   * network download is hashed before use; a mismatch evicts the cache
+   * entry and rejects with ModelIntegrityError. Cached blobs that carry a
+   * verification marker for this hash skip re-hashing so startup cost is
+   * unchanged; cached blobs without a marker are hashed once and either
+   * marked verified or evicted and re-downloaded.
+   */
+  sha256?: string;
+  /** Fired once the served blob is known to match the pinned sha256. */
+  onVerified?: (verification: ModelVerification) => void;
 }
 
 /**
@@ -194,12 +273,34 @@ export async function fetchModelBlob(
 ): Promise<Blob> {
   const maxAttempts = options?.maxAttempts ?? MAX_ATTEMPTS;
   const retryBaseDelayMs = options?.retryBaseDelayMs ?? RETRY_BASE_DELAY_MS;
+  const expectedSha256 = options?.sha256?.toLowerCase();
   const cache = env.cache;
 
   const cachedBlob = await readFromCache(cache, url);
   if (cachedBlob) {
-    onProgress?.(cachedBlob.size, cachedBlob.size);
-    return cachedBlob;
+    if (!expectedSha256) {
+      onProgress?.(cachedBlob.size, cachedBlob.size);
+      return cachedBlob;
+    }
+    // Previously verified against this exact pin: skip the re-hash so
+    // startup cost is unchanged.
+    const marker = await readFromCache(cache, verificationMarkerKey(url, expectedSha256));
+    if (marker) {
+      onProgress?.(cachedBlob.size, cachedBlob.size);
+      options?.onVerified?.({ url, sha256: expectedSha256 });
+      return cachedBlob;
+    }
+    // No marker (cache predates pinning, or the pin changed): hash once.
+    const actualSha256 = await sha256Hex(cachedBlob);
+    if (actualSha256 === expectedSha256) {
+      await markVerified(cache, url, expectedSha256);
+      onProgress?.(cachedBlob.size, cachedBlob.size);
+      options?.onVerified?.({ url, sha256: expectedSha256 });
+      return cachedBlob;
+    }
+    // Stale or corrupt cached copy - evict and fall through to the network.
+    console.warn(`[DocCloak] Cached model failed SHA-256 check (expected ${expectedSha256.slice(0, 12)}..., got ${actualSha256.slice(0, 12)}...), re-downloading`);
+    await evictModelFromCache(env, url, expectedSha256);
   }
 
   await requestPersistentStorage(env);
@@ -270,22 +371,40 @@ export async function fetchModelBlob(
   let blob: Blob = new Blob(chunks);
   chunks = [];
 
-  await tryCachePut(cache, url, blob);
+  if (expectedSha256) {
+    // Verify the final assembled blob (covers both fresh and resumed
+    // downloads) BEFORE it is cached or handed to the runtime.
+    const actualSha256 = await sha256Hex(blob);
+    if (actualSha256 !== expectedSha256) {
+      await evictModelFromCache(env, url, expectedSha256);
+      throw new ModelIntegrityError(url, expectedSha256, actualSha256);
+    }
+  }
+
+  const stored = await tryCachePut(cache, url, blob);
+  if (expectedSha256 && stored) await markVerified(cache, url, expectedSha256);
   // Prefer the cached (disk-backed) copy so the in-memory chunks can be
   // collected before ONNX Runtime allocates its own copy of the model.
   const diskBlob = await readFromCache(cache, url);
   if (diskBlob && diskBlob.size === blob.size) blob = diskBlob;
 
+  if (expectedSha256) options?.onVerified?.({ url, sha256: expectedSha256 });
   return blob;
 }
 
 /**
- * Remove a single model from the cache (e.g. when its URL changes).
+ * Remove a single model from the cache (e.g. when its URL changes). When a
+ * pinned sha256 is given, the matching verification marker is removed too.
  */
-export async function evictModelFromCache(env: ModelLoaderEnv, url: string): Promise<void> {
+export async function evictModelFromCache(env: ModelLoaderEnv, url: string, sha256?: string): Promise<void> {
   try {
     await env.cache.delete(url);
   } catch { /* ignore */ }
+  if (sha256) {
+    try {
+      await env.cache.delete(verificationMarkerKey(url, sha256.toLowerCase()));
+    } catch { /* ignore */ }
+  }
 }
 
 /**

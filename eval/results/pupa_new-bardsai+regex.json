@@ -1,0 +1,90 @@
+{
+  "tier": "bardsai+regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "pupa_new",
+  "documents": 664,
+  "goldUnits": 1688,
+  "excludedPresidioArtifacts": 36,
+  "unlocatableUnits": 59,
+  "evaluatedUnits": 1593,
+  "predictions": 11554,
+  "recall": {
+    "unitStrict": 0.5718769617074702,
+    "unitStrictHits": 911,
+    "unitLenient": 0.7219083490269931
+  },
+  "precision": {
+    "overall": 0.16046390860308118,
+    "hits": 1854,
+    "total": 11554,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 399,
+        "total": 7078,
+        "ratio": 0.056371856456626165
+      },
+      "COMPANY": {
+        "hits": 519,
+        "total": 1674,
+        "ratio": 0.3100358422939068
+      },
+      "PERSON": {
+        "hits": 816,
+        "total": 1404,
+        "ratio": 0.5811965811965812
+      },
+      "OTHER": {
+        "hits": 40,
+        "total": 776,
+        "ratio": 0.05154639175257732
+      },
+      "DATE": {
+        "hits": 20,
+        "total": 177,
+        "ratio": 0.11299435028248588
+      },
+      "CURRENCY": {
+        "hits": 0,
+        "total": 175,
+        "ratio": 0
+      },
+      "PHONE": {
+        "hits": 13,
+        "total": 121,
+        "ratio": 0.10743801652892562
+      },
+      "SSN": {
+        "hits": 27,
+        "total": 75,
+        "ratio": 0.36
+      },
+      "IBAN": {
+        "hits": 0,
+        "total": 29,
+        "ratio": 0
+      },
+      "IP_ADDRESS": {
+        "hits": 10,
+        "total": 20,
+        "ratio": 0.5
+      },
+      "SECRET": {
+        "hits": 2,
+        "total": 9,
+        "ratio": 0.2222222222222222
+      },
+      "CREDIT_CARD": {
+        "hits": 1,
+        "total": 9,
+        "ratio": 0.1111111111111111
+      },
+      "EMAIL": {
+        "hits": 7,
+        "total": 7,
+        "ratio": 1
+      }
+    }
+  },
+  "f1Strict": 0.25060901619957865
+}

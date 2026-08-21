@@ -17,11 +17,17 @@
  *
  * Fake-identifier policy: we never deliberately generate a real person's
  * identifier. Generated PESELs encode a 19th-century birth date (a range
- * the registry never issued numbers for) and generated SSN shapes use the
- * 900-999 area (never allocated by the SSA). Random collisions with real
- * identifiers of other kinds are statistically possible but not
- * targetable: nothing about the original value survives into the surrogate
- * beyond its shape.
+ * the registry never issued numbers for), generated SSN shapes use the
+ * 900-999 area (never allocated by the SSA) with a group outside every
+ * valid ITIN range (T101: a 9xx area alone could still form a real ITIN),
+ * generated EIN shapes use campus prefixes the IRS has never assigned,
+ * generated ABA routing shapes are checksum-valid but carry the 99 leading
+ * pair (the ABA assigns only 00-12, 21-32, 61-72, and 80), generated NHS
+ * numbers sit in the mod-11-valid 999 test range (never issued to
+ * patients), and generated NINOs use the QQ prefix HMRC reserves for
+ * documentation examples. Random collisions with real identifiers of other
+ * kinds are statistically possible but not targetable: nothing about the
+ * original value survives into the surrogate beyond its shape.
  */
 
 import type { EntityType } from './types.ts';
@@ -146,6 +152,266 @@ function feminizePlSurname(surname: string): string {
   return surname; // invariant surnames (Nowak, Mazur, ...)
 }
 
+// ── Locale packs beyond EN/PL (T073) ───────────────────────
+//
+// Detection covers 24 EU languages (BardS.ai); generation must not hand
+// a German document an English fake name. Each pack carries the data one
+// language needs; adding a locale is adding data, not code. Pools are
+// deliberately modest (16-24 entries): variety within one session is
+// guaranteed by collision handling, not pool size.
+
+const DE_FIRST_MALE = [
+  'Hans', 'Peter', 'Michael', 'Thomas', 'Andreas', 'Wolfgang', 'Klaus', 'Jürgen',
+  'Stefan', 'Christian', 'Markus', 'Alexander', 'Frank', 'Uwe', 'Martin', 'Werner',
+  'Matthias', 'Bernd', 'Florian', 'Tobias', 'Sebastian', 'Lukas', 'Felix', 'Jonas',
+] as const;
+
+const DE_FIRST_FEMALE = [
+  'Ursula', 'Monika', 'Petra', 'Sabine', 'Renate', 'Helga', 'Karin', 'Brigitte',
+  'Andrea', 'Claudia', 'Susanne', 'Julia', 'Katrin', 'Anja', 'Nicole', 'Stefanie',
+  'Christina', 'Birgit', 'Heike', 'Lena', 'Hannah', 'Laura', 'Lisa', 'Sophie',
+] as const;
+
+const DE_SURNAMES = [
+  'Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker',
+  'Schulz', 'Hoffmann', 'Schäfer', 'Koch', 'Bauer', 'Richter', 'Klein', 'Wolf',
+  'Schröder', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange',
+] as const;
+
+const FR_FIRST_MALE = [
+  'Jean', 'Pierre', 'Michel', 'Philippe', 'Alain', 'Bernard', 'Christophe', 'Nicolas',
+  'François', 'Laurent', 'Éric', 'Julien', 'Olivier', 'Thierry', 'Antoine', 'Mathieu',
+  'Sébastien', 'Vincent', 'Guillaume', 'Hugo', 'Louis', 'Lucas', 'Thomas', 'Paul',
+] as const;
+
+const FR_FIRST_FEMALE = [
+  'Marie', 'Nathalie', 'Isabelle', 'Sylvie', 'Catherine', 'Françoise', 'Christine', 'Monique',
+  'Sophie', 'Céline', 'Julie', 'Aurélie', 'Camille', 'Léa', 'Chloé', 'Manon',
+  'Élise', 'Charlotte', 'Emma', 'Louise', 'Alice', 'Juliette', 'Margaux', 'Inès',
+] as const;
+
+const FR_SURNAMES = [
+  'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand',
+  'Leroy', 'Moreau', 'Simon', 'Laurent', 'Lefebvre', 'Michel', 'Garcia', 'David',
+  'Bertrand', 'Roux', 'Vincent', 'Fournier', 'Morel', 'Girard', 'Lambert', 'Fontaine',
+] as const;
+
+const ES_FIRST_MALE = [
+  'José', 'Antonio', 'Manuel', 'Francisco', 'Juan', 'David', 'Javier', 'Carlos',
+  'Miguel', 'Rafael', 'Pedro', 'Ángel', 'Alejandro', 'Fernando', 'Sergio', 'Pablo',
+  'Jorge', 'Alberto', 'Diego', 'Adrián', 'Raúl', 'Iván', 'Rubén', 'Óscar',
+] as const;
+
+const ES_FIRST_FEMALE = [
+  'María', 'Carmen', 'Josefa', 'Isabel', 'Ana', 'Dolores', 'Pilar', 'Teresa',
+  'Rosa', 'Cristina', 'Laura', 'Marta', 'Elena', 'Lucía', 'Sara', 'Paula',
+  'Raquel', 'Beatriz', 'Silvia', 'Patricia', 'Nuria', 'Alba', 'Andrea', 'Irene',
+] as const;
+
+const ES_SURNAMES = [
+  'García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez', 'Pérez',
+  'Gómez', 'Martín', 'Jiménez', 'Ruiz', 'Hernández', 'Díaz', 'Moreno', 'Muñoz',
+  'Álvarez', 'Romero', 'Alonso', 'Gutiérrez', 'Navarro', 'Torres', 'Domínguez', 'Vázquez',
+] as const;
+
+const IT_FIRST_MALE = [
+  'Giuseppe', 'Giovanni', 'Antonio', 'Mario', 'Luigi', 'Francesco', 'Angelo', 'Vincenzo',
+  'Pietro', 'Salvatore', 'Carlo', 'Franco', 'Domenico', 'Bruno', 'Paolo', 'Michele',
+  'Giorgio', 'Aldo', 'Sergio', 'Luciano', 'Marco', 'Alessandro', 'Andrea', 'Stefano',
+] as const;
+
+const IT_FIRST_FEMALE = [
+  'Maria', 'Anna', 'Giuseppina', 'Rosa', 'Angela', 'Giovanna', 'Teresa', 'Lucia',
+  'Carmela', 'Caterina', 'Francesca', 'Paola', 'Laura', 'Elena', 'Giulia', 'Chiara',
+  'Sofia', 'Alessia', 'Martina', 'Valentina', 'Federica', 'Silvia', 'Elisa', 'Sara',
+] as const;
+
+const IT_SURNAMES = [
+  'Rossi', 'Russo', 'Ferrari', 'Esposito', 'Bianchi', 'Romano', 'Colombo', 'Ricci',
+  'Marino', 'Greco', 'Bruno', 'Gallo', 'Conti', 'Vitale', 'Mancini', 'Costa',
+  'Giordano', 'Rizzo', 'Lombardi', 'Moretti', 'Barbieri', 'Fontana', 'Santoro', 'Mariani',
+] as const;
+
+/** Masculine base forms; feminizeCsSurname derives -ová / -á endings. */
+const CS_FIRST_MALE = [
+  'Jiří', 'Jan', 'Petr', 'Josef', 'Pavel', 'Martin', 'Tomáš', 'Jaroslav',
+  'Miroslav', 'Zdeněk', 'František', 'Václav', 'Michal', 'Milan', 'Karel', 'Lukáš',
+  'David', 'Ladislav', 'Stanislav', 'Roman', 'Ondřej', 'Jakub', 'Vladimír', 'Radek',
+] as const;
+
+const CS_FIRST_FEMALE = [
+  'Marie', 'Jiřina', 'Anna', 'Věra', 'Alena', 'Lenka', 'Hana', 'Jaroslava',
+  'Kateřina', 'Lucie', 'Eva', 'Jana', 'Petra', 'Martina', 'Zuzana', 'Michaela',
+  'Tereza', 'Barbora', 'Veronika', 'Kristýna', 'Markéta', 'Ivana', 'Monika', 'Klára',
+] as const;
+
+const CS_SURNAMES = [
+  'Novák', 'Svoboda', 'Novotný', 'Dvořák', 'Černý', 'Procházka', 'Kučera', 'Veselý',
+  'Horák', 'Němec', 'Marek', 'Pokorný', 'Pospíšil', 'Hájek', 'Král', 'Jelínek',
+  'Růžička', 'Beneš', 'Fiala', 'Sedláček', 'Doležal', 'Zeman', 'Kolář', 'Urban',
+] as const;
+
+function feminizeCsSurname(surname: string): string {
+  if (surname.endsWith('ý')) return surname.slice(0, -1) + 'á';
+  if (surname.endsWith('ová') || surname.endsWith('á')) return surname;
+  return surname + 'ová';
+}
+
+/** Masculine base forms; feminizeUkSurname derives -ська/-цька endings. */
+const UK_FIRST_MALE = [
+  'Олександр', 'Сергій', 'Андрій', 'Володимир', 'Іван', 'Михайло', 'Віктор', 'Юрій',
+  'Микола', 'Дмитро', 'Олег', 'Василь', 'Петро', 'Тарас', 'Богдан', 'Максим',
+  'Павло', 'Роман', 'Ігор', 'Антон', 'Назар', 'Остап', 'Денис', 'Артем',
+] as const;
+
+const UK_FIRST_FEMALE = [
+  'Олена', 'Тетяна', 'Наталія', 'Ірина', 'Оксана', 'Людмила', 'Світлана', 'Марія',
+  'Ганна', 'Юлія', 'Катерина', 'Вікторія', 'Анастасія', 'Ольга', 'Соломія', 'Дарина',
+  'Христина', 'Софія', 'Леся', 'Надія', 'Галина', 'Зоряна', 'Мирослава', 'Лілія',
+] as const;
+
+const UK_SURNAMES = [
+  'Шевченко', 'Бондаренко', 'Коваленко', 'Ткаченко', 'Кравченко', 'Олійник', 'Мельник', 'Поліщук',
+  'Бойко', 'Ковальчук', 'Лисенко', 'Савченко', 'Руденко', 'Марченко', 'Петренко', 'Козак',
+  'Мороз', 'Гончаренко', 'Левченко', 'Василенко', 'Кушнір', 'Романюк', 'Гаврилюк', 'Заєць',
+] as const;
+
+const NL_FIRST_MALE = [
+  'Daan', 'Sem', 'Bram', 'Lars', 'Thijs', 'Ruben', 'Kees', 'Joost',
+  'Maarten', 'Wouter', 'Jeroen', 'Sander', 'Bas', 'Niels', 'Floris', 'Gerrit',
+  'Pieter', 'Willem', 'Hendrik', 'Cornelis', 'Dirk', 'Jaap', 'Sjoerd', 'Teun',
+] as const;
+
+const NL_FIRST_FEMALE = [
+  'Sanne', 'Lotte', 'Femke', 'Anouk', 'Fleur', 'Iris', 'Nienke', 'Marloes',
+  'Ilse', 'Esmee', 'Roos', 'Lieke', 'Johanna', 'Cornelia', 'Willemien', 'Truus',
+  'Marijke', 'Annemiek', 'Wilma', 'Jantine', 'Gerda', 'Hanneke', 'Mieke', 'Els',
+] as const;
+
+/** Single-token forms only: multi-token surnames (van der ...) would
+ *  break the token-count preservation guarantee of generatePerson. */
+const NL_SURNAMES = [
+  'Jansen', 'Bakker', 'Visser', 'Smit', 'Meijer', 'Mulder', 'Bos', 'Vos',
+  'Peters', 'Hendriks', 'Dekker', 'Brouwer', 'Dijkstra', 'Smits', 'Kuipers', 'Post',
+  'Kok', 'Verhoeven', 'Willems', 'Maas', 'Hermans', 'Timmermans', 'Schouten', 'Jacobs',
+] as const;
+
+const PT_FIRST_MALE = [
+  'Jo\u00e3o', 'Lu\u00eds', 'Paulo', 'Rui', 'Nuno', 'Tiago', 'Ricardo', 'Andr\u00e9',
+  'Diogo', 'Gon\u00e7alo', 'Vasco', 'Duarte', 'Afonso', 'Bernardo', 'Rodrigo', 'Ant\u00f3nio',
+  'Manuel', 'Francisco', 'Carlos', 'Pedro', 'Miguel', 'Jos\u00e9', 'Henrique', 'Sim\u00e3o',
+] as const;
+
+const PT_FIRST_FEMALE = [
+  'Catarina', 'Margarida', 'Mariana', 'Joana', 'Rita', 'Carolina', 'Leonor', 'Matilde',
+  'Francisca', 'Madalena', 'Const\u00e2ncia', 'Louren\u00e7a', 'Gra\u00e7a', 'Concei\u00e7\u00e3o', 'Lurdes', 'In\u00eas',
+  'Beatriz', 'Isabel', 'Teresa', 'Sofia', 'Ana', 'Maria', 'Manuela', 'Fernanda',
+] as const;
+
+const PT_SURNAMES = [
+  'Silva', 'Santos', 'Ferreira', 'Pereira', 'Oliveira', 'Rodrigues', 'Martins', 'Sousa',
+  'Fernandes', 'Gon\u00e7alves', 'Gomes', 'Lopes', 'Marques', 'Alves', 'Almeida', 'Ribeiro',
+  'Pinto', 'Carvalho', 'Teixeira', 'Moreira', 'Correia', 'Mendes', 'Nunes', 'Coelho',
+] as const;
+
+function feminizeUkSurname(surname: string): string {
+  if (surname.endsWith('ський') || surname.endsWith('цький')) {
+    return surname.slice(0, -2) + 'а'; // -ський -> -ська, -цький -> -цька
+  }
+  return surname; // -енко/-ук/-як and similar are invariant
+}
+
+const SV_FIRST_MALE = [
+  'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Sven',
+  'Gunnar', 'Bo', '\u00c5ke', 'G\u00f6ran', 'Henrik', 'Magnus', 'Fredrik', 'Oskar',
+] as const;
+
+const SV_FIRST_FEMALE = [
+  'Anna', 'Eva', 'Maria', 'Karin', 'Ingrid', 'Kerstin', 'Lena', 'Helena',
+  'Marianne', 'Birgitta', 'Elin', 'Sara', 'Emma', 'Linnea', 'Astrid', 'Ebba',
+] as const;
+
+const SV_SURNAMES = [
+  'Andersson', 'Johansson', 'Karlsson', 'Nilsson', 'Eriksson', 'Larsson', 'Olsson', 'Persson',
+  'Svensson', 'Gustafsson', 'Pettersson', 'Jonsson', 'Lindberg', 'Lindqvist', 'Bergstr\u00f6m', 'Sandberg',
+] as const;
+
+const NO_FIRST_MALE = [
+  'Ole', 'Lars', 'Knut', 'Bj\u00f8rn', 'Arne', 'Odd', 'Geir', 'Tor',
+  'Terje', 'Kjell', 'Espen', 'H\u00e5kon', 'Sindre', 'Eirik', 'Trygve', 'Leif',
+] as const;
+
+const NO_FIRST_FEMALE = [
+  'Anne', 'Inger', 'Kari', 'Marit', 'Ingrid', 'Liv', 'Astrid', 'Solveig',
+  'Randi', 'Bj\u00f8rg', 'Silje', 'Mari', 'Ingeborg', 'Tone', 'Gunn', 'Sigrid',
+] as const;
+
+const NO_SURNAMES = [
+  'Hansen', 'Johansen', 'Olsen', 'Larsen', 'Andersen', 'Pedersen', 'Nilsen', 'Kristiansen',
+  'Jensen', 'Karlsen', 'Berg', 'Haugen', 'Hagen', 'Solberg', 'Moen', 'Lien',
+] as const;
+
+const DA_FIRST_MALE = [
+  'Jens', 'Peter', 'Lars', 'Henrik', 'S\u00f8ren', 'Niels', 'Ole', 'Erik',
+  'Mads', 'Rasmus', 'Bent', 'Kaj', 'Frederik', 'Mikkel', 'Emil', 'Bjarne',
+] as const;
+
+const DA_FIRST_FEMALE = [
+  'Kirsten', 'Mette', 'Hanne', 'Lone', 'Bente', 'Karen', 'Dorthe', 'Pia',
+  'Gitte', 'Ditte', 'Freja', 'Signe', 'Maja', 'Cecilie', 'Louise', 'Astrid',
+] as const;
+
+const DA_SURNAMES = [
+  'Nielsen', 'Jensen', 'Hansen', 'Pedersen', 'Andersen', 'Christensen', 'Larsen', 'S\u00f8rensen',
+  'Rasmussen', 'J\u00f8rgensen', 'Petersen', 'Madsen', 'Kristensen', 'Olsen', 'Thomsen', 'Poulsen',
+] as const;
+
+const FI_FIRST_MALE = [
+  'Juha', 'Matti', 'Pekka', 'Timo', 'Jari', 'Antti', 'Mikko', 'Kari',
+  'Heikki', 'Ville', 'Janne', 'Sami', 'Jussi', 'Eero', 'Olli', 'Tapio',
+] as const;
+
+const FI_FIRST_FEMALE = [
+  'Tiina', 'Sanna', 'Anne', 'P\u00e4ivi', 'Ritva', 'Leena', 'Maarit', 'Hanna',
+  'Laura', 'Elina', 'Kaisa', 'Aino', 'Helmi', 'Sofia', 'Emmi', 'Noora',
+] as const;
+
+const FI_SURNAMES = [
+  'Korhonen', 'Virtanen', 'M\u00e4kinen', 'Nieminen', 'M\u00e4kel\u00e4', 'H\u00e4m\u00e4l\u00e4inen', 'Laine', 'Heikkinen',
+  'Koskinen', 'J\u00e4rvinen', 'Lehtonen', 'Lehtinen', 'Saarinen', 'Salminen', 'Heinonen', 'Niemi',
+] as const;
+
+/** CJK pools: full-name composition differs (surname first, no space). */
+const JA_SURNAMES = [
+  '\u7530\u4e2d', '\u4f50\u85e4', '\u9234\u6728', '\u9ad8\u6a4b', '\u4f0a\u85e4', '\u6e21\u8fba', '\u5c71\u672c', '\u4e2d\u6751',
+  '\u5c0f\u6797', '\u52a0\u85e4', '\u5409\u7530', '\u5c71\u7530', '\u677e\u672c', '\u4e95\u4e0a', '\u6728\u6751', '\u6e05\u6c34',
+] as const;
+
+const JA_GIVEN_MALE = [
+  '\u592a\u90ce', '\u5065\u4e00', '\u8aa0', '\u6d69', '\u9686', '\u5b66', '\u4fee', '\u5927\u8f14',
+  '\u76f4\u6a39', '\u5065\u592a', '\u7fd4\u592a', '\u62d3\u54c9', '\u96c4\u4ecb', '\u5eb7\u5e73', '\u6b63\u6a39', '\u548c\u5f66',
+] as const;
+
+const JA_GIVEN_FEMALE = [
+  '\u82b1\u5b50', '\u7f8e\u54b2', '\u967d\u5b50', '\u6075\u5b50', '\u7531\u7f8e', '\u611b', '\u821e', '\u5343\u5c0b',
+  '\u7d50\u8863', '\u3055\u304f\u3089', '\u7f8e\u7a42', '\u771f\u7531', '\u5f69\u82b1', '\u679c\u6b69', '\u512a\u5b50', '\u660e\u65e5\u9999',
+] as const;
+
+const ZH_SURNAMES = [
+  '\u738b', '\u674e', '\u5f20', '\u5218', '\u9648', '\u6768', '\u9ec4', '\u8d75',
+  '\u5468', '\u5434', '\u5f90', '\u5b59', '\u9a6c', '\u6731', '\u80e1', '\u90ed',
+] as const;
+
+const ZH_GIVEN_MALE = [
+  '\u4f1f', '\u5f3a', '\u78ca', '\u519b', '\u52c7', '\u6770', '\u6d9b', '\u660e',
+  '\u8d85', '\u9e4f', '\u5efa\u534e', '\u6587\u8f89', '\u5fd7\u5f3a', '\u6d77\u6d0b', '\u5b87\u8ed2', '\u6653\u4e1c',
+] as const;
+
+const ZH_GIVEN_FEMALE = [
+  '\u82b3', '\u5a1c', '\u654f', '\u9759', '\u4e3d', '\u8273', '\u971e', '\u71d5',
+  '\u79c0\u82f1', '\u6842\u82f1', '\u96e8\u6674', '\u6021\u7136', '\u6b23\u6021', '\u4f73\u7434', '\u6653\u6885', '\u5a77\u5a77',
+] as const;
+
 // ── Other pools ────────────────────────────────────────────
 
 /** Reserved/example domains only (RFC 2606 / RFC 6761): never routable. */
@@ -177,41 +443,496 @@ const PL_COMPANIES = [
 ] as const;
 
 const COMPANY_SUFFIXES = [
-  'Sp. z o.o.', 'sp. z o.o.', 'S.A.', 'sp.j.', 'sp. j.', 'GmbH', 'AG',
-  'Ltd.', 'Ltd', 'LLC', 'Inc.', 'Inc', 'B.V.', 'S.à r.l.', 'AB', 'Oy',
+  'Sp. z o.o.', 'sp. z o.o.', 'S.A.', 'sp.j.', 'sp. j.', 'GmbH & Co. KG', 'GmbH', 'AG',
+  'Ltd.', 'Ltd', 'LLC', 'Inc.', 'Inc', 'B.V.', 'S.à r.l.', 'SARL', 'SAS', 'AB', 'Oy',
+  'S.r.l.', 'S.p.A.', 'S.L.', 'S.L.U.', 's.r.o.', 'a.s.', 'ТОВ', 'ПрАТ',
+  'N.V.', 'Unipessoal Lda.', 'Lda.', 'Lda',
+  'ApS', 'A/S', 'AS', 'ASA', 'Oyj', '\u682a\u5f0f\u4f1a\u793e', '\u6709\u9650\u516c\u53f8',
+] as const;
+
+// T073 street pools; each locale's formatAddress composes them below.
+const DE_STREETS = [
+  'Linden', 'Garten', 'Berg', 'Wald', 'Schul', 'Haupt', 'Birken', 'Rosen',
+  'Feld', 'Wiesen', 'Mühlen', 'Kirch', 'Bahnhof', 'Ahorn', 'Buchen', 'Tannen',
+] as const;
+
+const FR_STREETS = [
+  'des Lilas', 'des Érables', 'de la Gare', 'du Moulin', 'des Peupliers', 'de la Fontaine',
+  'des Tilleuls', 'du Château', 'des Acacias', 'de la Mairie', 'des Cerisiers', 'du Stade',
+] as const;
+
+const ES_STREETS = [
+  'del Sol', 'de la Luna', 'del Prado', 'de los Olivos', 'del Pinar', 'de la Fuente',
+  'de las Flores', 'del Rosal', 'de la Sierra', 'de los Almendros', 'del Parque', 'de la Vega',
+] as const;
+
+const IT_STREETS = [
+  'dei Tigli', 'delle Rose', 'dei Pini', 'del Sole', 'delle Querce', 'dei Gelsomini',
+  'della Fontana', 'dei Ciliegi', 'del Bosco', 'delle Viole', 'degli Ulivi', 'del Parco',
+] as const;
+
+const CS_STREETS = [
+  'Polní', 'Zahradní', 'Krátká', 'Školní', 'Lipová', 'Květinová', 'Luční', 'Lesní',
+  'Slunečná', 'Březová', 'Jasmínová', 'Růžová', 'Nádražní', 'Sportovní', 'Okružní', 'Havlíčkova',
+] as const;
+
+const UK_STREETS = [
+  'Зелена', 'Садова', 'Шкільна', 'Польова', 'Лісова', 'Квіткова', 'Сонячна', 'Вишнева',
+  'Калинова', 'Озерна', 'Джерельна', 'Ярова', 'Липова', 'Вербова', 'Степова', 'Затишна',
+] as const;
+
+const NL_STREETS = [
+  'Kerk', 'School', 'Molen', 'Dorps', 'Beuken', 'Wilgen', 'Tulpen', 'Eiken',
+  'Berken', 'Meidoorn', 'Zonnebloem', 'Sparren', 'Populieren', 'Kastanje', 'Rozen', 'Iepen',
+] as const;
+
+const PT_STREETS = [
+  'das Flores', 'do Sol', 'da Paz', 'dos Pinheiros', 'das Oliveiras', 'da Fonte',
+  'do Campo', 'das Amendoeiras', 'do Moinho', 'da Liberdade', 'das Ac\u00e1cias', 'dos Salgueiros',
+] as const;
+
+const DE_COMPANIES = [
+  'Nordbau Technik', 'Rheinwerk Systeme', 'Waldhof Logistik', 'Steinbach Metall',
+  'Bergland Elektro', 'Hansewerk Handel', 'Talblick Software', 'Eichenhof Bau',
+] as const;
+
+const FR_COMPANIES = [
+  'Techni Sud', 'Batim Ouest', 'Loginor', 'Métalfrance', 'Sologis', 'Verdalis',
+  'Clermontech', 'Rivelec',
+] as const;
+
+const ES_COMPANIES = [
+  'Construcciones Levante', 'Ibertec Soluciones', 'Logística Meridional', 'Metalúrgica Norte',
+  'Electrosur', 'Grupo Almenara', 'Tecnovega', 'Riberalia',
+] as const;
+
+const IT_COMPANIES = [
+  'Tecnitalia', 'Costruzioni Adriatica', 'Logistica Padana', 'Metallurgica Verde',
+  'Elettrosud', 'Gruppo Collina', 'Softogna', 'Riviera Impianti',
+] as const;
+
+const CS_COMPANIES = [
+  'Stavomont', 'Kovodílo', 'Elektroservis Morava', 'Dřevostav', 'Logistika Vltava',
+  'Technoplast', 'Montáže Sever', 'Agroslužby Haná',
+] as const;
+
+const UK_COMPANIES = [
+  'Будсервіс', 'Агротехніка', 'Металінвест', 'Електропостач', 'Логістик Захід',
+  'Технопривід', 'Деревобуд', 'Енергоресурс',
+] as const;
+
+const SV_STREETS = [
+  'Bj\u00f6rk', 'Ek', 'Lind', 'Ros', 'Kyrko', 'Skol', 'Strand', '\u00c4ngs',
+  'Berg', 'Sj\u00f6', 'Furu', 'Aspen',
+] as const;
+
+const NO_STREETS = [
+  'Bj\u00f8rke', 'Eike', 'Kirke', 'Skole', 'Strand', 'Fjell', 'Elve', 'Gran',
+  'Furubakk', 'Solbakk', 'Ljabru', 'Bekke',
+] as const;
+
+const DA_STREETS = [
+  'Birke', 'Ege', 'Kirke', 'Skole', 'Strand', 'M\u00f8lle', 'Ro', 'Sol',
+  'S\u00f8nder', 'N\u00f8rre', '\u00d8ster', 'Vester',
+] as const;
+
+const FI_STREETS = [
+  'Koivu', 'Tammi', 'Kirkko', 'Koulu', 'Ranta', 'M\u00e4ki', 'J\u00e4rvi', 'Kuusi',
+  'Honka', 'Niitty', 'Pelto', 'Vaahtera',
+] as const;
+
+const JA_STREETS = [
+  '\u685c', '\u7dd1', '\u672c', '\u65ed', '\u82e5\u8449', '\u6804', '\u5e73\u548c', '\u661f',
+] as const;
+
+const ZH_STREETS = [
+  '\u548c\u5e73\u8def', '\u89e3\u653e\u8def', '\u4eba\u6c11\u8def', '\u4e2d\u5c71\u8def', '\u5efa\u8bbe\u8def', '\u5149\u660e\u8def', '\u6587\u5316\u8def', '\u80dc\u5229\u8def',
+] as const;
+
+const SV_COMPANIES = [
+  'Nordstr\u00f6m Bygg', 'Sj\u00f6berg Teknik', 'Dalaverken', 'Lindqvist Handel',
+  'Berglund Logistik', 'Svea Konsult', 'Kustdata', 'Fj\u00e4llverk',
+] as const;
+
+const NO_COMPANIES = [
+  'Fjordbygg', 'Nordkraft Teknikk', 'Vestlandslogistikk', 'Bergheim Handel',
+  'Polardata', 'Kystverk Consult', 'Solli Entrepren\u00f8r', 'Elvestad Maskin',
+] as const;
+
+const DA_COMPANIES = [
+  'Nordjysk Byg', 'Baltika Handel', '\u00d8resund Teknik', 'Danlogistik',
+  'K\u00f8benhavns Maskinv\u00e6rk', 'Vestkyst Data', 'Gr\u00f8nvang Consult', 'Midtjysk Montage',
+] as const;
+
+const FI_COMPANIES = [
+  'Pohjolan Rakennus', 'J\u00e4rvitekniikka', 'Suomen Logistiikka', 'Kalustemesta',
+  'Datapaja', 'Konepaja Kaiku', 'Mets\u00e4palvelu Honka', 'Lakeuden S\u00e4hk\u00f6',
+] as const;
+
+const JA_COMPANIES = [
+  '\u7530\u4e2d\u5546\u4e8b', '\u5c71\u672c\u5de5\u696d', '\u4f50\u85e4\u7269\u7523', '\u9234\u6728\u96fb\u6a5f',
+  '\u4e2d\u6751\u5efa\u8a2d', '\u5927\u548c\u6280\u7814', '\u65ed\u901a\u5546', '\u685c\u88fd\u4f5c\u6240',
+] as const;
+
+const ZH_COMPANIES = [
+  '\u534e\u4fe1\u79d1\u6280', '\u5b8f\u8fbe\u8d38\u6613', '\u91d1\u6865\u5efa\u8bbe', '\u84dd\u5929\u7269\u6d41',
+  '\u4e1c\u65b9\u7535\u5b50', '\u65b0\u661f\u5b9e\u4e1a', '\u957f\u6cb0\u673a\u68b0', '\u6cf0\u5b89\u5b9e\u4e1a',
+] as const;
+
+const NL_COMPANIES = [
+  'Noordbouw', 'Rijnstaal', 'Deltatech', 'Havenlogistiek', 'Polderland Handel',
+  'Wielingen Installaties', 'Maasstad Software', 'Duinzicht Advies',
+] as const;
+
+const PT_COMPANIES = [
+  'Tecnolusa', 'Construtora Atl\u00e2ntico', 'Metalomec\u00e2nica Douro', 'Log\u00edstica Tejo',
+  'Ib\u00e9rica Montagens', 'Transportes Minho', 'Enerlis', 'Vidral\u00e2ndia',
 ] as const;
 
 // ── Locale / shape helpers ─────────────────────────────────
 
-type Locale = 'en' | 'pl';
-
-const PL_CHARS_RE = /[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/;
+const PL_CHARS_RE = /[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]/;
 
 function foldDiacritics(s: string): string {
   return s
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ł/g, 'l')
-    .replace(/Ł/g, 'L');
+    .replace(/\u0142/g, 'l')
+    .replace(/\u0141/g, 'L')
+    .replace(/\u00df/g, 'ss')
+    .replace(/\u0153/g, 'oe')
+    .replace(/\u0152/g, 'Oe');
 }
 
-const PL_FIRST_FOLDED = new Set(
-  [...PL_FIRST_MALE, ...PL_FIRST_FEMALE].map((n) => foldDiacritics(n).toLowerCase()),
-);
-const EN_FEMALE_LOWER = new Set(EN_FIRST_FEMALE.map((n) => n.toLowerCase()));
-const EN_MALE_LOWER = new Set(EN_FIRST_MALE.map((n) => n.toLowerCase()));
-const PL_FEMALE_FOLDED = new Set(PL_FIRST_FEMALE.map((n) => foldDiacritics(n).toLowerCase()));
-const PL_MALE_FOLDED = new Set(PL_FIRST_MALE.map((n) => foldDiacritics(n).toLowerCase()));
+type Gender = 'f' | 'm';
 
-function detectPersonLocale(value: string): Locale {
-  if (PL_CHARS_RE.test(value)) return 'pl';
-  const tokens = value.toLowerCase().split(/[\s-]+/);
-  for (const t of tokens) {
-    const folded = foldDiacritics(t);
-    if (PL_FIRST_FOLDED.has(folded)) return 'pl';
-    if (/(?:ski|ska|cki|cka|dzki|dzka|wicz|czyk|szek|owski|ewski)$/.test(folded)) return 'pl';
+/**
+ * Everything one language needs for locale-faithful surrogates (T073).
+ * Adding a locale is adding one of these to LOCALE_PACKS - no new code.
+ */
+interface LocalePack {
+  id: string;
+  firstMale: readonly string[];
+  firstFemale: readonly string[];
+  surnames: readonly string[];
+  /** Derive the female surname form; identity for invariant systems. */
+  feminizeSurname?: (surname: string) => string;
+  /** Characters DISTINCTIVE for this locale (drives person detection). */
+  chars?: RegExp;
+  /** Folded surname endings characteristic for this locale. */
+  surnameEndings?: RegExp;
+  /** UNFOLDED female surname endings (gender signal). */
+  femaleSurnameEndings?: RegExp;
+  /** UNFOLDED male surname endings (gender signal). */
+  maleSurnameEndings?: RegExp;
+  /** Female given names practically always end in -a (Slavic, ES/IT). */
+  aEndsFemale?: boolean;
+  /** Address keyword (ul./rue/calle/strasse...) for ADDRESS detection. */
+  addressHint?: RegExp;
+  streets?: readonly string[];
+  formatAddress?: (street: string, n: number) => string;
+  companies?: readonly string[];
+  /** Legal-form suffixes that mark a company as this locale's. */
+  companySuffixHint?: RegExp;
+  /**
+   * Full-name composer override (T073 CJK): languages whose names are
+   * not space-separated first+surname build the whole surrogate here.
+   */
+  formatPerson?: (original: string, rand: Rand) => string;
+  /** Surname prefixes for detection scoring (CJK: surname comes first;
+   *  longer prefixes score higher, so 2-char JA beats 1-char ZH). */
+  surnamePrefixes?: readonly string[];
+  /** Script range claiming otherwise-unmatched values (Han -> zh). */
+  scriptFallback?: RegExp;
+}
+
+const LOCALE_PACKS: readonly LocalePack[] = [
+  {
+    id: 'pl',
+    firstMale: PL_FIRST_MALE,
+    firstFemale: PL_FIRST_FEMALE,
+    surnames: PL_SURNAMES,
+    feminizeSurname: feminizePlSurname,
+    chars: PL_CHARS_RE,
+    surnameEndings: /(?:ski|ska|cki|cka|dzki|dzka|wicz|czyk|szek|owski|ewski)$/,
+    femaleSurnameEndings: /(?:ska|cka|dzka)$/,
+    maleSurnameEndings: /(?:ski|cki|dzki)$/,
+    aEndsFemale: true,
+    addressHint: /\b(?:ul|al|os|pl)\.\s/i,
+    streets: PL_STREETS,
+    formatAddress: (s, n) => `ul. ${s} ${n}`,
+    companies: PL_COMPANIES,
+    companySuffixHint: /z o\.o\.|S\.A\.|sp\. ?j\./i,
+  },
+  {
+    id: 'uk',
+    firstMale: UK_FIRST_MALE,
+    firstFemale: UK_FIRST_FEMALE,
+    surnames: UK_SURNAMES,
+    feminizeSurname: feminizeUkSurname,
+    // Cyrillic script is decisive on its own (uk is our Cyrillic pack).
+    chars: /[\u0400-\u04ff]/,
+    femaleSurnameEndings: /(?:\u0441\u044c\u043a\u0430|\u0446\u044c\u043a\u0430)$/,
+    maleSurnameEndings: /(?:\u0441\u044c\u043a\u0438\u0439|\u0446\u044c\u043a\u0438\u0439)$/,
+    aEndsFemale: true,
+    addressHint: /\u0432\u0443\u043b\.?\s/i,
+    streets: UK_STREETS,
+    formatAddress: (s, n) => `\u0432\u0443\u043b. ${s} ${n}`,
+    companies: UK_COMPANIES,
+    companySuffixHint: /\u0422\u041e\u0412|\u041f\u0440\u0410\u0422/,
+  },
+  {
+    id: 'cs',
+    firstMale: CS_FIRST_MALE,
+    firstFemale: CS_FIRST_FEMALE,
+    surnames: CS_SURNAMES,
+    feminizeSurname: feminizeCsSurname,
+    chars: /[\u0159\u011b\u016f\u0165\u010f\u0148\u0158\u011a\u016e\u0164\u010e\u0147]/,
+    surnameEndings: /(?:ova|acek|icek|ansky|ensky)$/,
+    femaleSurnameEndings: /ov\u00e1$/,
+    aEndsFemale: true,
+    streets: CS_STREETS,
+    formatAddress: (s, n) => `${s} ${n}`,
+    companies: CS_COMPANIES,
+    companySuffixHint: /s\.r\.o\.|a\.s\./i,
+  },
+  {
+    id: 'de',
+    firstMale: DE_FIRST_MALE,
+    firstFemale: DE_FIRST_FEMALE,
+    surnames: DE_SURNAMES,
+    chars: /\u00df/,
+    addressHint: /stra(?:\u00df|ss)e|\bweg\b|\bgasse\b/i,
+    streets: DE_STREETS,
+    formatAddress: (s, n) => `${s}stra\u00dfe ${n}`,
+    companies: DE_COMPANIES,
+    companySuffixHint: /GmbH|\bAG$/,
+  },
+  {
+    id: 'es',
+    firstMale: ES_FIRST_MALE,
+    firstFemale: ES_FIRST_FEMALE,
+    surnames: ES_SURNAMES,
+    chars: /[\u00f1\u00d1\u00a1\u00bf]/,
+    aEndsFemale: true,
+    addressHint: /\b(?:calle|avenida|avda|plaza)\b/i,
+    streets: ES_STREETS,
+    formatAddress: (s, n) => `Calle ${s} ${n}`,
+    companies: ES_COMPANIES,
+    companySuffixHint: /S\.L\.U?\.?$/,
+  },
+  {
+    id: 'fr',
+    firstMale: FR_FIRST_MALE,
+    firstFemale: FR_FIRST_FEMALE,
+    surnames: FR_SURNAMES,
+    chars: /[\u0153\u0152]/,
+    addressHint: /\b(?:rue|avenue|boulevard|impasse)\b/i,
+    streets: FR_STREETS,
+    formatAddress: (s, n) => `${n} rue ${s}`,
+    companies: FR_COMPANIES,
+    companySuffixHint: /SARL|S\.\u00e0 r\.l\.|SAS$/,
+  },
+  {
+    id: 'it',
+    firstMale: IT_FIRST_MALE,
+    firstFemale: IT_FIRST_FEMALE,
+    surnames: IT_SURNAMES,
+    aEndsFemale: true,
+    addressHint: /\b(?:via|viale|piazza|corso)\b/i,
+    streets: IT_STREETS,
+    formatAddress: (s, n) => `Via ${s} ${n}`,
+    companies: IT_COMPANIES,
+    companySuffixHint: /S\.r\.l\.|S\.p\.A\./,
+  },
+  {
+    id: 'pt',
+    firstMale: PT_FIRST_MALE,
+    firstFemale: PT_FIRST_FEMALE,
+    surnames: PT_SURNAMES,
+    chars: /[\u00e3\u00f5\u00c3\u00d5]/,
+    aEndsFemale: true,
+    addressHint: /\b(?:rua|travessa|pra\u00e7a|largo)\b/i,
+    streets: PT_STREETS,
+    formatAddress: (s, n) => `Rua ${s} ${n}`,
+    companies: PT_COMPANIES,
+    companySuffixHint: /Lda\.?$/,
+  },
+  {
+    id: 'nl',
+    firstMale: NL_FIRST_MALE,
+    firstFemale: NL_FIRST_FEMALE,
+    surnames: NL_SURNAMES,
+    addressHint: /straat\b|\blaan\b|\bgracht\b|\bplein\b/i,
+    streets: NL_STREETS,
+    formatAddress: (s, n) => `${s}straat ${n}`,
+    companies: NL_COMPANIES,
+    companySuffixHint: /B\.V\.|N\.V\./,
+  },
+  {
+    id: 'sv',
+    firstMale: SV_FIRST_MALE,
+    firstFemale: SV_FIRST_FEMALE,
+    surnames: SV_SURNAMES,
+    aEndsFemale: true,
+    addressHint: /(?:v\u00e4gen|gatan)\b/i,
+    streets: SV_STREETS,
+    formatAddress: (s, n) => `${s}v\u00e4gen ${n}`,
+    companies: SV_COMPANIES,
+    companySuffixHint: /\bAB$/,
+  },
+  {
+    id: 'no',
+    firstMale: NO_FIRST_MALE,
+    firstFemale: NO_FIRST_FEMALE,
+    surnames: NO_SURNAMES,
+    addressHint: /(?:veien|gata)\b/i,
+    streets: NO_STREETS,
+    formatAddress: (s, n) => `${s}veien ${n}`,
+    companies: NO_COMPANIES,
+    companySuffixHint: /\bASA$|\bAS$/,
+  },
+  {
+    id: 'da',
+    firstMale: DA_FIRST_MALE,
+    firstFemale: DA_FIRST_FEMALE,
+    surnames: DA_SURNAMES,
+    addressHint: /(?:vej|gade)\b/i,
+    streets: DA_STREETS,
+    formatAddress: (s, n) => `${s}vej ${n}`,
+    companies: DA_COMPANIES,
+    companySuffixHint: /A\/S$|ApS$/,
+  },
+  {
+    id: 'fi',
+    firstMale: FI_FIRST_MALE,
+    firstFemale: FI_FIRST_FEMALE,
+    surnames: FI_SURNAMES,
+    addressHint: /(?:katu|kuja)\b/i,
+    streets: FI_STREETS,
+    formatAddress: (s, n) => `${s}katu ${n}`,
+    companies: FI_COMPANIES,
+    companySuffixHint: /\bOyj?$/,
+  },
+  {
+    id: 'ja',
+    firstMale: JA_GIVEN_MALE,
+    firstFemale: JA_GIVEN_FEMALE,
+    surnames: JA_SURNAMES,
+    // Kana is decisively Japanese; kanji-only names resolve via the
+    // surname-prefix scoring below (2-char JA prefixes outscore 1-char
+    // ZH ones) or the script fallback.
+    chars: /[\u3040-\u30ff]/,
+    surnamePrefixes: JA_SURNAMES,
+    scriptFallback: /[\u3040-\u30ff]/,
+    addressHint: /\u4e01\u76ee|\u756a\u5730/,
+    streets: JA_STREETS,
+    formatAddress: (s, n) => `${s}\u753a${n}\u4e01\u76ee`,
+    companies: JA_COMPANIES,
+    companySuffixHint: /\u682a\u5f0f\u4f1a\u793e/,
+    formatPerson: (original, rand) => {
+      const sep = original.includes('\u3000') ? '\u3000' : original.includes(' ') ? ' ' : '';
+      const female = rand() < 0.5;
+      const given = pick(rand, female ? JA_GIVEN_FEMALE : JA_GIVEN_MALE);
+      return `${pick(rand, JA_SURNAMES)}${sep}${given}`;
+    },
+  },
+  {
+    id: 'zh',
+    firstMale: ZH_GIVEN_MALE,
+    firstFemale: ZH_GIVEN_FEMALE,
+    surnames: ZH_SURNAMES,
+    surnamePrefixes: ZH_SURNAMES,
+    scriptFallback: /[\u4e00-\u9fff]/,
+    addressHint: /[\u4e00-\u9fff]+\u8def|\u53f7$/,
+    streets: ZH_STREETS,
+    formatAddress: (s, n) => `${s}${n}\u53f7`,
+    companies: ZH_COMPANIES,
+    companySuffixHint: /\u6709\u9650\u516c\u53f8/,
+    formatPerson: (original, rand) => {
+      const female = rand() < 0.5;
+      const rest = original.replace(/\s/g, '').length - 1;
+      const pool = female ? ZH_GIVEN_FEMALE : ZH_GIVEN_MALE;
+      const sized = pool.filter((g) => g.length === Math.max(1, Math.min(2, rest)));
+      return `${pick(rand, ZH_SURNAMES)}${pick(rand, sized.length > 0 ? sized : pool)}`;
+    },
+  },
+  {
+    id: 'en',
+    firstMale: EN_FIRST_MALE,
+    firstFemale: EN_FIRST_FEMALE,
+    surnames: EN_SURNAMES,
+    streets: EN_STREETS,
+    formatAddress: (s, n) => `${n} ${s} Street`,
+    companies: EN_COMPANIES,
+  },
+] as const;
+
+const EN_PACK = LOCALE_PACKS[LOCALE_PACKS.length - 1];
+
+/** Folded lowercase name sets per pack, built once. */
+const packNameSets = new Map<
+  string,
+  { female: Set<string>; male: Set<string>; all: Set<string>; surnames: Set<string> }
+>();
+for (const pack of LOCALE_PACKS) {
+  const female = new Set(pack.firstFemale.map((n) => foldDiacritics(n).toLowerCase()));
+  const male = new Set(pack.firstMale.map((n) => foldDiacritics(n).toLowerCase()));
+  const surnames = new Set(
+    pack.surnames.flatMap((n) => foldDiacritics(n).toLowerCase().split(/\s+/)),
+  );
+  packNameSets.set(pack.id, { female, male, all: new Set([...female, ...male]), surnames });
+}
+
+/**
+ * Locale detection precedence: distinctive characters (script, or
+ * diacritics unique enough to decide), then given-name pool membership,
+ * then surname endings; EN is the fallback. Pack order in LOCALE_PACKS
+ * is the tie-breaker for names shared between locales (Anna stays
+ * Polish here, matching the pre-T073 behavior).
+ */
+function detectPersonPack(value: string): LocalePack {
+  for (const pack of LOCALE_PACKS) {
+    if (pack.chars?.test(value)) return pack;
   }
-  return 'en';
+  // Names are shared between languages (Marie is French AND Czech), so
+  // membership is SCORED per token across given-name and surname pools
+  // plus characteristic surname endings; the best total wins and ties
+  // keep the earlier pack (Anna stays Polish, pre-T073 behavior).
+  const folded = value
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .map((t) => foldDiacritics(t));
+  let best: LocalePack | null = null;
+  let bestScore = 0;
+  for (const pack of LOCALE_PACKS) {
+    const names = packNameSets.get(pack.id);
+    if (!names) continue;
+    let score = 0;
+    for (const t of folded) {
+      if (names.all.has(t) || names.surnames.has(t)) score += 1;
+      else if (pack.surnameEndings?.test(t)) score += 1;
+    }
+    // CJK surname-first prefixes; longer prefixes score higher so a
+    // 2-char Japanese surname outranks a 1-char Chinese one.
+    if (pack.surnamePrefixes) {
+      for (const prefix of pack.surnamePrefixes) {
+        if (value.startsWith(prefix)) {
+          score += prefix.length * 2;
+          break;
+        }
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = pack;
+    }
+  }
+  if (best) return best;
+  for (const pack of LOCALE_PACKS) {
+    if (pack.scriptFallback?.test(value)) return pack;
+  }
+  return EN_PACK;
 }
 
 type CapsPattern = 'upper' | 'lower' | 'title';
@@ -253,41 +974,36 @@ function sameShapeDigits(value: string, rand: Rand): string {
 
 // ── PERSON ─────────────────────────────────────────────────
 
-type Gender = 'f' | 'm';
-
-function detectGender(value: string, locale: Locale, rand: Rand): Gender {
+/**
+ * Gender from the given name (pack pools first, then this pack's female
+ * surname endings, then the Slavic/Romance -a heuristic where it holds).
+ */
+function detectGender(value: string, pack: LocalePack, rand: Rand): Gender {
   const tokens = value.split(/\s+/);
-  const first = foldDiacritics(tokens[0] ?? '').toLowerCase();
-  if (locale === 'pl') {
-    if (PL_FEMALE_FOLDED.has(first)) return 'f';
-    if (PL_MALE_FOLDED.has(first)) return 'm';
-    const last = foldDiacritics(tokens[tokens.length - 1] ?? '').toLowerCase();
-    if (/(?:ska|cka|dzka)$/.test(last)) return 'f';
-    if (/(?:ski|cki|dzki)$/.test(last)) return 'm';
-    // Polish female given names end in -a almost without exception.
+  const rawFirst = tokens[0] ?? '';
+  const first = foldDiacritics(rawFirst).toLowerCase();
+  const names = packNameSets.get(pack.id);
+  if (names) {
+    if (names.female.has(first)) return 'f';
+    if (names.male.has(first)) return 'm';
+  }
+  const rawLast = tokens[tokens.length - 1] ?? '';
+  if (pack.femaleSurnameEndings?.test(rawLast.toLowerCase())) return 'f';
+  if (pack.maleSurnameEndings?.test(rawLast.toLowerCase())) return 'm';
+  if (pack.aEndsFemale) {
     if (first.endsWith('a')) return 'f';
     if (first.length > 1) return 'm';
-  } else {
-    if (EN_FEMALE_LOWER.has(first)) return 'f';
-    if (EN_MALE_LOWER.has(first)) return 'm';
   }
   return rand() < 0.5 ? 'f' : 'm';
 }
 
-function surnameFor(locale: Locale, gender: Gender, rand: Rand): string {
-  if (locale === 'pl') {
-    const base = pick(rand, PL_SURNAMES);
-    return gender === 'f' ? feminizePlSurname(base) : base;
-  }
-  return pick(rand, EN_SURNAMES);
+function surnameFor(pack: LocalePack, gender: Gender, rand: Rand): string {
+  const base = pick(rand, pack.surnames);
+  return gender === 'f' && pack.feminizeSurname ? pack.feminizeSurname(base) : base;
 }
 
-function firstNameFor(locale: Locale, gender: Gender, rand: Rand): string {
-  const pool =
-    locale === 'pl'
-      ? gender === 'f' ? PL_FIRST_FEMALE : PL_FIRST_MALE
-      : gender === 'f' ? EN_FIRST_FEMALE : EN_FIRST_MALE;
-  return pick(rand, pool);
+function firstNameFor(pack: LocalePack, gender: Gender, rand: Rand): string {
+  return pick(rand, gender === 'f' ? pack.firstFemale : pack.firstMale);
 }
 
 /**
@@ -298,8 +1014,9 @@ function firstNameFor(locale: Locale, gender: Gender, rand: Rand): string {
 function generatePerson(original: string, rand: Rand): string {
   const tokens = original.trim().split(/\s+/);
   if (tokens.length === 0 || original.trim() === '') return sameShape(original, rand);
-  const locale = detectPersonLocale(original);
-  const gender = detectGender(original, locale, rand);
+  const pack = detectPersonPack(original);
+  if (pack.formatPerson) return pack.formatPerson(original, rand);
+  const gender = detectGender(original, pack, rand);
 
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
@@ -307,12 +1024,12 @@ function generatePerson(original: string, rand: Rand): string {
     const isLast = i === tokens.length - 1;
     let word: string;
     if (tokens.length === 1 || !isLast) {
-      word = firstNameFor(locale, gender, rand);
+      word = firstNameFor(pack, gender, rand);
     } else if (tokens[i].includes('-')) {
       const parts = tokens[i].split('-');
-      word = parts.map(() => surnameFor(locale, gender, rand)).join('-');
+      word = parts.map(() => surnameFor(pack, gender, rand)).join('-');
     } else {
-      word = surnameFor(locale, gender, rand);
+      word = surnameFor(pack, gender, rand);
     }
     out.push(caps === 'title' ? word : applyCaps(word, caps));
   }
@@ -366,13 +1083,17 @@ function generateEmail(original: string, ctx: SurrogateContext, rand: Rand): str
   const sep = ['.', '_', '-'].find((s) => localBase.includes(s)) ?? '';
 
   const person = findMatchingPerson(localBase, ctx.entries);
-  let nameTokens: string[];
+  let nameTokens: string[] | null = null;
   if (person) {
-    nameTokens = foldDiacritics(person.replacement).toLowerCase().split(/[\s-]+/);
-  } else {
+    const folded = foldDiacritics(person.replacement).toLowerCase().split(/[\s-]+/);
+    // T073: a non-Latin surrogate name (Cyrillic) cannot form a sane
+    // ASCII local part; fall through to the unrelated EN identity then.
+    if (folded.every((t) => /^[a-z0-9]+$/.test(t))) nameTokens = folded;
+  }
+  if (!nameTokens) {
     // No in-session person to mirror: deterministic unrelated identity.
     nameTokens = [
-      foldDiacritics(firstNameFor('en', rand() < 0.5 ? 'f' : 'm', rand)).toLowerCase(),
+      foldDiacritics(firstNameFor(EN_PACK, rand() < 0.5 ? 'f' : 'm', rand)).toLowerCase(),
       foldDiacritics(pick(rand, EN_SURNAMES)).toLowerCase(),
     ];
   }
@@ -415,8 +1136,63 @@ const PL_MONTHS_NOM = [
   'styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec',
   'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień',
 ] as const;
+// T073 month names; genitive forms where dates inflect (cs, uk).
+const DE_MONTHS = [
+  'januar', 'februar', 'm\u00e4rz', 'april', 'mai', 'juni',
+  'juli', 'august', 'september', 'oktober', 'november', 'dezember',
+] as const;
+const FR_MONTHS = [
+  'janvier', 'f\u00e9vrier', 'mars', 'avril', 'mai', 'juin',
+  'juillet', 'ao\u00fbt', 'septembre', 'octobre', 'novembre', 'd\u00e9cembre',
+] as const;
+const ES_MONTHS = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+] as const;
+const IT_MONTHS = [
+  'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+  'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre',
+] as const;
+const CS_MONTHS_GEN = [
+  'ledna', '\u00fanora', 'b\u0159ezna', 'dubna', 'kv\u011btna', '\u010dervna',
+  '\u010dervence', 'srpna', 'z\u00e1\u0159\u00ed', '\u0159\u00edjna', 'listopadu', 'prosince',
+] as const;
+const UK_MONTHS_GEN = [
+  '\u0441\u0456\u0447\u043d\u044f', '\u043b\u044e\u0442\u043e\u0433\u043e', '\u0431\u0435\u0440\u0435\u0437\u043d\u044f', '\u043a\u0432\u0456\u0442\u043d\u044f', '\u0442\u0440\u0430\u0432\u043d\u044f', '\u0447\u0435\u0440\u0432\u043d\u044f',
+  '\u043b\u0438\u043f\u043d\u044f', '\u0441\u0435\u0440\u043f\u043d\u044f', '\u0432\u0435\u0440\u0435\u0441\u043d\u044f', '\u0436\u043e\u0432\u0442\u043d\u044f', '\u043b\u0438\u0441\u0442\u043e\u043f\u0430\u0434\u0430', '\u0433\u0440\u0443\u0434\u043d\u044f',
+] as const;
+
+const NL_MONTHS = [
+  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+] as const;
+const PT_MONTHS = [
+  'janeiro', 'fevereiro', 'mar\u00e7o', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+] as const;
+
+const SV_MONTHS = [
+  'januari', 'februari', 'mars', 'april', 'maj', 'juni',
+  'juli', 'augusti', 'september', 'oktober', 'november', 'december',
+] as const;
+const NO_MONTHS = [
+  'januar', 'februar', 'mars', 'april', 'mai', 'juni',
+  'juli', 'august', 'september', 'oktober', 'november', 'desember',
+] as const;
+const DA_MONTHS = [
+  'januar', 'februar', 'marts', 'april', 'maj', 'juni',
+  'juli', 'august', 'september', 'oktober', 'november', 'december',
+] as const;
+/** Finnish dates use the partitive (15. maaliskuuta 2024). */
+const FI_MONTHS_PART = [
+  'tammikuuta', 'helmikuuta', 'maaliskuuta', 'huhtikuuta', 'toukokuuta', 'kes\u00e4kuuta',
+  'hein\u00e4kuuta', 'elokuuta', 'syyskuuta', 'lokakuuta', 'marraskuuta', 'joulukuuta',
+] as const;
+
 const MONTH_LISTS: ReadonlyArray<readonly string[]> = [
   EN_MONTHS, EN_MONTHS_ABBR, PL_MONTHS_GEN, PL_MONTHS_NOM,
+  DE_MONTHS, FR_MONTHS, ES_MONTHS, IT_MONTHS, CS_MONTHS_GEN, UK_MONTHS_GEN,
+  NL_MONTHS, PT_MONTHS, SV_MONTHS, NO_MONTHS, DA_MONTHS, FI_MONTHS_PART,
 ];
 
 function lookupMonth(token: string): { month: number; list: readonly string[] } | null {
@@ -440,6 +1216,14 @@ interface ParsedDate {
 }
 
 function parseDate(value: string): ParsedDate | null {
+  // CJK date (2024\u5e743\u670815\u65e5), shared by ja and zh.
+  const cjk = /^(\d{4})\u5e74(\d{1,2})\u6708(\d{1,2})\u65e5$/.exec(value);
+  if (cjk) {
+    return {
+      y: +cjk[1], m: +cjk[2], d: +cjk[3],
+      rebuild: (y, mo, d) => `${y}\u5e74${mo}\u6708${d}\u65e5`,
+    };
+  }
   let m = /^(\d{4})([./-])(\d{1,2})\2(\d{1,2})$/.exec(value);
   if (m) {
     const [, ys, sep, ms, ds] = m;
@@ -628,20 +1412,156 @@ function generatePesel(rand: Rand): string {
   return `${body}${peselChecksum(body)}`;
 }
 
+/** UK NINO display shape: 2 prefix letters, 6 digits, suffix A-D. */
+const NINO_SHAPE = /^[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]$/;
+
+/** UK NHS display shape: 10 digits, optionally grouped 3-3-4. */
+const NHS_SHAPE = /^\d{3}\s?\d{3}\s?\d{4}$/;
+
+const NHS_WEIGHTS = [10, 9, 8, 7, 6, 5, 4, 3, 2] as const;
+
+/**
+ * Mod-11-valid 10-digit NHS number in the 999 range, which NHS Digital
+ * reserves for test data and never issues to patients (T100) - the NHS
+ * counterpart of the 1800s PESEL marker. Bodies whose check digit
+ * computes to 10 have no valid final digit; redraw the serial then.
+ */
+function generateNhsNumber(rand: Rand): string {
+  for (;;) {
+    let body = '999';
+    for (let i = 0; i < 6; i++) body += randDigit(rand);
+    let sum = 0;
+    for (let i = 0; i < 9; i++) sum += Number(body[i]) * NHS_WEIGHTS[i];
+    const check = 11 - (sum % 11);
+    if (check === 10) continue;
+    return body + String(check === 11 ? 0 : check);
+  }
+}
+
+/**
+ * UK NINO stand-in (T100): NINOs carry no checksum, so the safety marker
+ * is the QQ prefix - Q is never used in real prefixes, and HMRC's own
+ * forms use QQ 12 34 56 C as the documentation example (the NINO
+ * equivalent of an RFC 2606 reserved domain). Digits are substituted,
+ * the suffix stays in the real A-D range, and the original's spacing
+ * and letter case are preserved.
+ */
+function generateNino(original: string, rand: Rand): string {
+  const suffix = 'ABCD'[randInt(rand, 0, 3)];
+  let letterIdx = 0;
+  return original.replace(/[A-Za-z0-9]/g, (ch) => {
+    if (ch >= '0' && ch <= '9') return randDigit(rand);
+    letterIdx++;
+    const repl = letterIdx <= 2 ? 'Q' : suffix;
+    return ch === ch.toLowerCase() ? repl.toLowerCase() : repl;
+  });
+}
+
+/** US EIN display shape: 2-7 hyphenated. */
+const US_EIN_SHAPE = /^\d{2}-\d{7}$/;
+
+/**
+ * EIN campus prefixes the IRS has never assigned - the exact complement
+ * of the valid-prefix classes in rules/us.json (regex:us:ein), so a
+ * stand-in built on one can never be a real employer's EIN.
+ */
+const EIN_UNASSIGNED_PREFIXES = [
+  '07', '08', '09', '17', '18', '19', '28', '29',
+  '49', '69', '70', '78', '79', '89', '96', '97',
+] as const;
+
+/**
+ * US SSN-shaped stand-in (T101): 9 digits mapped positionally onto the
+ * original's layout. The area is forced into 900-999, which the SSA has
+ * never allocated (and the post-2011 randomization scheme explicitly
+ * excludes), so the value can never be a real SSN. That alone is not
+ * enough: ITINs live exactly in the 9xx area, so the group is drawn from
+ * 01-49 - outside every valid ITIN group range (50-65, 70-88, 90-92,
+ * 94-99) - making the stand-in provably neither an SSN nor an ITIN.
+ */
+function generateSsnStandIn(original: string, rand: Rand): string {
+  const area = String(randInt(rand, 900, 999));
+  const group = pad(randInt(rand, 1, 49), 2);
+  const serial = pad(randInt(rand, 1, 9999), 4);
+  const digits = `${area}${group}${serial}`;
+  let i = 0;
+  return original.replace(/\d/g, () => digits[i++]);
+}
+
+/** US EIN stand-in (T101): a never-assigned campus prefix + 7 digits. */
+function generateEinStandIn(original: string, rand: Rand): string {
+  let digits = pick(rand, EIN_UNASSIGNED_PREFIXES);
+  for (let i = 0; i < 7; i++) digits += randDigit(rand);
+  let i = 0;
+  return original.replace(/\d/g, () => digits[i++]);
+}
+
 function generateNationalId(original: string, rand: Rand): string {
   const digits = original.replace(/\D/g, '');
   if (digits.length === 11 && /^\d{11}$/.test(original.trim())) {
     return generatePesel(rand);
   }
+  const trimmed = original.trim();
+  if (NINO_SHAPE.test(trimmed)) {
+    return generateNino(original, rand);
+  }
+  if (digits.length === 10 && NHS_SHAPE.test(trimmed)) {
+    const nhs = generateNhsNumber(rand);
+    let i = 0;
+    return original.replace(/\d/g, () => nhs[i++]);
+  }
+  if (US_EIN_SHAPE.test(trimmed)) {
+    return generateEinStandIn(original, rand);
+  }
   if (digits.length === 9) {
-    // US SSN shape: force a 900-999 area, which the SSA never allocates.
-    let seen = 0;
-    return original.replace(/\d/g, () => {
-      seen++;
-      return seen === 1 ? '9' : randDigit(rand);
-    });
+    // US SSN shape (hyphenated or bare 9 digits): never-issued area AND
+    // never-valid ITIN group.
+    return generateSsnStandIn(original, rand);
   }
   return sameShapeDigits(original, rand);
+}
+
+// ── US ABA routing numbers (OTHER entity type) ─────────────
+
+/** 3-7-1 weighted mod-10 sum of a 9-digit ABA routing number. */
+function abaChecksumOk(digits: string): boolean {
+  const n = digits.split('').map(Number);
+  const sum = 3 * (n[0] + n[3] + n[6]) + 7 * (n[1] + n[4] + n[7]) + (n[2] + n[5] + n[8]);
+  return sum % 10 === 0;
+}
+
+/**
+ * US ABA routing stand-in (T101): checksum-valid so shape-checking
+ * consumers keep accepting it, but with the 99 leading pair - the ABA
+ * assigns only 00-12, 21-32, 61-72, and 80, so a 99xxxxxxx number can
+ * never be a real institution's routing number (the checksummed
+ * counterpart of the NHS 999 test range and the NINO QQ prefix).
+ */
+function generateRoutingStandIn(original: string, rand: Rand): string {
+  let body = '99';
+  for (let i = 0; i < 6; i++) body += randDigit(rand);
+  const n = body.split('').map(Number);
+  // The 9th digit has weight 1 in the 3-7-1 scheme: choose it to zero
+  // the sum mod 10, so a valid check digit always exists.
+  const partial = 3 * (n[0] + n[3] + n[6]) + 7 * (n[1] + n[4] + n[7]) + (n[2] + n[5]);
+  const digits = body + String((10 - (partial % 10)) % 10);
+  let i = 0;
+  return original.replace(/\d/g, () => digits[i++]);
+}
+
+/**
+ * OTHER is a grab-bag type; the only shape given special treatment is a
+ * checksum-valid 9-digit ABA routing number (regex:us:routing emits
+ * OTHER). Everything else keeps the generic same-shape substitution,
+ * which would otherwise break the routing checksum - or worse, randomly
+ * land on a real institution's number.
+ */
+function generateOther(original: string, rand: Rand): string {
+  const trimmed = original.trim();
+  if (/^\d{9}$/.test(trimmed) && abaChecksumOk(trimmed)) {
+    return generateRoutingStandIn(original, rand);
+  }
+  return sameShape(original, rand);
 }
 
 // ── CREDIT_CARD ────────────────────────────────────────────
@@ -687,20 +1607,57 @@ function generateIp(original: string, rand: Rand): string {
 
 // ── ADDRESS / COMPANY (pool-based, kept simple) ────────────
 
+/**
+ * Locale from the address keyword first (rue/calle/via/stra\u00dfe/\u0432\u0443\u043b...),
+ * then distinctive characters; EN format is the fallback (T073).
+ */
+function detectAddressPack(original: string): LocalePack {
+  for (const pack of LOCALE_PACKS) {
+    if (pack.addressHint?.test(original)) return pack;
+  }
+  for (const pack of LOCALE_PACKS) {
+    if (pack.chars?.test(original)) return pack;
+  }
+  for (const pack of LOCALE_PACKS) {
+    if (pack.scriptFallback?.test(original)) return pack;
+  }
+  return EN_PACK;
+}
+
 function generateAddress(original: string, rand: Rand): string {
-  const isPl = PL_CHARS_RE.test(original) || /\b(?:ul|al|os|pl)\.\s/i.test(original);
+  const pack = detectAddressPack(original);
   const n = randInt(rand, 1, 120);
-  if (isPl) return `ul. ${pick(rand, PL_STREETS)} ${n}`;
-  return `${n} ${pick(rand, EN_STREETS)} Street`;
+  const streets = pack.streets ?? EN_PACK.streets!;
+  const format = pack.formatAddress ?? EN_PACK.formatAddress!;
+  return format(pick(rand, streets), n);
 }
 
 function generateCompany(original: string, rand: Rand): string {
-  const suffix = COMPANY_SUFFIXES.find((s) => original.trim().endsWith(s));
-  const isPl =
-    PL_CHARS_RE.test(original) ||
-    (suffix !== undefined && /z o\.o\.|S\.A\.|sp\. ?j\./i.test(suffix));
-  const base = isPl ? pick(rand, PL_COMPANIES) : pick(rand, EN_COMPANIES);
-  return suffix ? `${base} ${suffix}` : base;
+  const trimmed = original.trim();
+  // Latin suffixes must follow a space ('SAAB' must not shed an 'AB');
+  // CJK suffixes attach directly (\u4f8b: \u2026\u6709\u9650\u516c\u53f8).
+  const suffix = COMPANY_SUFFIXES.find((s) =>
+    /^[\x00-\x7f]+$/.test(s) ? trimmed.endsWith(` ${s}`) : trimmed.endsWith(s),
+  );
+  // Legal form decides the locale first (GmbH is German wherever it
+  // appears), then distinctive characters; EN pool is the fallback.
+  let pack: LocalePack | null = null;
+  if (suffix !== undefined) {
+    pack = LOCALE_PACKS.find((p) => p.companySuffixHint?.test(suffix)) ?? null;
+  }
+  if (!pack) pack = LOCALE_PACKS.find((p) => p.chars?.test(original)) ?? null;
+  const base = pick(rand, pack?.companies ?? EN_PACK.companies!);
+  if (!suffix) return base;
+  const spaced = trimmed.endsWith(` ${suffix}`);
+  return spaced ? `${base} ${suffix}` : `${base}${suffix}`;
+}
+
+/**
+ * Test/diagnostic probe (T073): which locale pack a PERSON value would
+ * use. Not part of the anonymization data path.
+ */
+export function detectSurrogateLocale(value: string): string {
+  return detectPersonPack(value).id;
 }
 
 // ── Public API ─────────────────────────────────────────────
@@ -729,6 +1686,7 @@ export function generateSurrogate(
     case 'ADDRESS': return generateAddress(original, rand);
     case 'COMPANY': return generateCompany(original, rand);
     case 'CURRENCY': return sameShapeDigits(original, rand);
+    case 'OTHER': return generateOther(original, rand);
     default: return sameShape(original, rand);
   }
 }

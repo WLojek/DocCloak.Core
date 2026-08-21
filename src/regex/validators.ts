@@ -57,13 +57,18 @@ function ipOctets(ip: string): boolean {
   });
 }
 
-/** UK National Insurance Number structural rules (prefix letter exclusions). */
+/**
+ * UK National Insurance Number structural rules (HMRC prefix spec):
+ * first letter is never D, F, I, Q, U, V; second letter is never
+ * D, F, I, O, Q, U, V; the prefixes BG, GB, NK, KN, TN, NT, ZZ are
+ * never allocated. T100 fixed the second-letter class, which was
+ * missing V (the Python twin in DocCloak.Cli validators.py still has
+ * the pre-fix class until the packs are re-vendored there).
+ */
 function nino(match: string): boolean {
   const clean = match.replace(/\s/g, '').toUpperCase();
-  // NINO cannot start with D, F, I, Q, U, V; second letter cannot be D, F, I, O, Q, U, V
   if (/^[DFIQUV]/.test(clean)) return false;
-  if (/^.[DFIOQU]/.test(clean)) return false;
-  // Cannot be BG, GB, NK, KN, TN, NT, ZZ prefix
+  if (/^.[DFIOQUV]/.test(clean)) return false;
   if (/^(?:BG|GB|NK|KN|TN|NT|ZZ)/.test(clean)) return false;
   return true;
 }
@@ -79,6 +84,26 @@ function nhs(match: string): boolean {
   if (checkDigit === 11) return parseInt(digits[9], 10) === 0;
   if (checkDigit === 10) return false; // invalid
   return checkDigit === parseInt(digits[9], 10);
+}
+
+/**
+ * UK driving licence driver number (T100, best-effort): after stripping
+ * spaces the 16-char code carries a 6-digit encoded date of birth at
+ * positions 6-11 (decade digit, month 01-12 or 51-62 for women, day
+ * 01-31, year-in-decade digit). There is no public checksum for the
+ * final check characters, so only the date block is validated.
+ */
+function ukDrivingLicence(match: string): boolean {
+  const clean = match.replace(/\s/g, '').toUpperCase();
+  if (clean.length !== 16) return false;
+  const dob = clean.slice(5, 11);
+  if (!/^\d{6}$/.test(dob)) return false;
+  const rawMonth = parseInt(dob.slice(1, 3), 10);
+  const month = rawMonth > 50 ? rawMonth - 50 : rawMonth;
+  if (month < 1 || month > 12) return false;
+  const day = parseInt(dob.slice(3, 5), 10);
+  if (day < 1 || day > 31) return false;
+  return true;
 }
 
 /** Polish PESEL weighted checksum. */
@@ -445,6 +470,61 @@ function pps(match: string): boolean {
 }
 
 /**
+ * Shannon entropy of a string in bits per character. Exported for tests
+ * and threshold tuning; the secrets-tier validators below gate the
+ * generic candidate rules on it (detect-secrets / Prompt Armour
+ * precedent). Named patterns (AKIA..., ghp_...) need no entropy gate.
+ */
+export function shannonEntropy(value: string): number {
+  if (value.length === 0) return 0;
+  const counts = new Map<string, number>();
+  for (const ch of value) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let entropy = 0;
+  for (const count of counts.values()) {
+    const p = count / value.length;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/**
+ * Generic "keyword = value" secret assignment. The rule includes the
+ * keyword and separator in the match (lookbehind is banned for new
+ * rules), so extract the value: everything after the first ':' or '=',
+ * with quotes/whitespace and base64 '=' padding stripped. Gate it on
+ * Shannon entropy: pure-hex values pass at >= 3.0 bits/char (random hex
+ * tops out at 4.0), anything else needs >= 4.0. Pure-digit values are
+ * rejected outright (IDs and phone numbers, not credentials).
+ * Thresholds tuned in tests/regex/secrets.test.ts.
+ */
+function secretAssignment(match: string): boolean {
+  const sep = match.search(/[:=]/);
+  if (sep === -1) return false;
+  const value = match.slice(sep + 1).replace(/^[>\s"']+/, '').replace(/=+$/, '');
+  if (value.length < 16) return false;
+  if (/^\d+$/.test(value)) return false;
+  if (/^[0-9a-f]+$/i.test(value)) return shannonEntropy(value) >= 3.0;
+  return shannonEntropy(value) >= 4.0;
+}
+
+/**
+ * Bare high-entropy token gate for the generic base64/alphanumeric
+ * candidate rule. Requires the shape of machine-generated key material:
+ * 40-256 chars after stripping '=' padding (longer runs are data blobs
+ * like base64 images, not credentials), a mix of lowercase, uppercase,
+ * and digits (rejects git SHAs and UUIDs, which are single-case hex),
+ * and Shannon entropy >= 4.5 bits/char (rejects identifiers and prose;
+ * random 40+ char base64 sits near 4.8). Thresholds tuned in
+ * tests/regex/secrets.test.ts.
+ */
+function highEntropyToken(match: string): boolean {
+  const value = match.replace(/=+$/, '');
+  if (value.length < 40 || value.length > 256) return false;
+  if (!/[a-z]/.test(value) || !/[A-Z]/.test(value) || !/\d/.test(value)) return false;
+  return shannonEntropy(value) >= 4.5;
+}
+
+/**
  * The registry. Keys are the names allowed in the `validate` field of
  * rules/*.json; loader.ts throws at module init on any unknown name.
  */
@@ -459,6 +539,7 @@ export const VALIDATORS: Readonly<Record<string, RuleValidator>> = {
   dni,
   fodselsnummer,
   hetu,
+  highEntropyToken,
   ibanMod97,
   ipOctets,
   luhn,
@@ -475,6 +556,8 @@ export const VALIDATORS: Readonly<Record<string, RuleValidator>> = {
   pps,
   regon,
   samordningsnummer,
+  secretAssignment,
   steuerId,
   svnr,
+  ukDrivingLicence,
 };

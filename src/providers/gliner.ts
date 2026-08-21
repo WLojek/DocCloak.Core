@@ -10,11 +10,25 @@
 import * as ort from 'onnxruntime-web';
 import type { DetectedEntity, EntityType, DetectionProvider, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
-import type { ModelLoaderEnv } from '../model-loader.ts';
-import { fetchModelBlob, retryAsync } from '../model-loader.ts';
+import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
+import { evictModelFromCache, fetchModelBlob, retryAsync } from '../model-loader.ts';
 
 // ── Model config ──────────────────────────────────────────
-const DEFAULT_MODEL_URL = 'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx';
+// Supply-chain pinning (T116): the model is fetched from an immutable
+// commit revision, never from mutable resolve/main, and the downloaded
+// blob is verified against a pinned SHA-256. A model update is a
+// deliberate act: bump GLINER_MODEL_REVISION and GLINER_MODEL_SHA256
+// together in a reviewed commit and update
+// documentation/model-provenance.md.
+// Revision: main of knowledgator/gliner-pii-edge-v1.0 as of its last
+// modification 2026-03-26; pinned and hashed 2026-08-10.
+export const GLINER_MODEL_REVISION = '9b7f39b0a2da971a5beea78d35f1539d4009c891';
+/** SHA-256 of onnx/model_quint8.onnx (45,820,894 bytes) at GLINER_MODEL_REVISION. */
+export const GLINER_MODEL_SHA256 = '988acb03456b26e2d9f2521016d820310c2ed64deb4a846297d3289f0c2eb7e4';
+export const GLINER_MODEL_URL = `https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/${GLINER_MODEL_REVISION}/onnx/model_quint8.onnx`;
+const DEFAULT_MODEL_URL = GLINER_MODEL_URL;
+/** Pre-pinning download URL; its cache entry is evicted best-effort on load. */
+const LEGACY_MODEL_URL = 'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx';
 const DEFAULT_TOKENIZER_HF = 'knowledgator/gliner-pii-edge-v1.0';
 const DEFAULT_MODEL_NAME = 'GLiNER PII Edge';
 const CUSTOM_LABELS_STORAGE_KEY = 'doccloak-custom-labels';
@@ -107,9 +121,19 @@ export class GlinerProvider implements DetectionProvider {
   private progressCallback: ProgressCallback | null = null;
   private threshold = DEFAULT_THRESHOLD;
   private customLabels: string[] = [];
+  private verification: ModelVerification | null = null;
 
   constructor(env: CoreEnv) {
     this.env = env;
+  }
+
+  /**
+   * SHA-256 verification result of the served model blob (null until the
+   * model has been verified against the pinned hash). Surfaced so the
+   * model-status UI can show the positive "Model verified" state.
+   */
+  getVerification(): ModelVerification | null {
+    return this.verification;
   }
 
   isLoaded(): boolean {
@@ -193,9 +217,19 @@ export class GlinerProvider implements DetectionProvider {
         persistStorage: this.env.persistStorage,
       };
 
+      // Old cache entry from the pre-pinning resolve/main URL - drop it so
+      // a 45 MB stale copy does not linger against the origin quota.
+      void evictModelFromCache(loaderEnv, LEGACY_MODEL_URL);
+
       // Load tokenizer and model in parallel (skip tokenizer if already loaded from a prior session)
       const tasks: Promise<unknown>[] = [
-        fetchModelBlob(loaderEnv, DEFAULT_MODEL_URL, (downloaded, total) => this.progressCallback?.(downloaded, total)),
+        fetchModelBlob(loaderEnv, DEFAULT_MODEL_URL, (downloaded, total) => this.progressCallback?.(downloaded, total), {
+          sha256: GLINER_MODEL_SHA256,
+          onVerified: (verification) => {
+            this.verification = verification;
+            console.info(`[DocCloak] Model verified: ${this._name} SHA-256 ${verification.sha256.slice(0, 12)}... matches the published hash (see documentation/model-provenance.md)`);
+          },
+        }),
       ];
       if (!this.tokenizer) {
         tasks.push(
@@ -259,7 +293,7 @@ export class GlinerProvider implements DetectionProvider {
     onProgress?.(0);
 
     if (words.length <= chunkSize) {
-      // Single chunk — no splitting needed
+      // Single chunk - no splitting needed
       const spans = await this.inferChunk(words, starts, ends, text, promptTokens, activeLabels);
       allSpans.push(...spans);
       onProgress?.(1);

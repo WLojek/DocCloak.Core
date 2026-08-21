@@ -1,0 +1,80 @@
+{
+  "tier": "regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "pupa_new",
+  "documents": 664,
+  "goldUnits": 1688,
+  "excludedPresidioArtifacts": 36,
+  "unlocatableUnits": 59,
+  "evaluatedUnits": 1593,
+  "predictions": 8892,
+  "recall": {
+    "unitStrict": 0.07470182046453233,
+    "unitStrictHits": 119,
+    "unitLenient": 0.17074701820464533
+  },
+  "precision": {
+    "overall": 0.058816914080071975,
+    "hits": 523,
+    "total": 8892,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 368,
+        "total": 7433,
+        "ratio": 0.04950894658953316
+      },
+      "COMPANY": {
+        "hits": 72,
+        "total": 657,
+        "ratio": 0.1095890410958904
+      },
+      "CURRENCY": {
+        "hits": 0,
+        "total": 317,
+        "ratio": 0
+      },
+      "DATE": {
+        "hits": 20,
+        "total": 177,
+        "ratio": 0.11299435028248588
+      },
+      "PHONE": {
+        "hits": 14,
+        "total": 141,
+        "ratio": 0.09929078014184398
+      },
+      "SSN": {
+        "hits": 28,
+        "total": 114,
+        "ratio": 0.24561403508771928
+      },
+      "IP_ADDRESS": {
+        "hits": 11,
+        "total": 21,
+        "ratio": 0.5238095238095238
+      },
+      "SECRET": {
+        "hits": 2,
+        "total": 9,
+        "ratio": 0.2222222222222222
+      },
+      "CREDIT_CARD": {
+        "hits": 1,
+        "total": 9,
+        "ratio": 0.1111111111111111
+      },
+      "OTHER": {
+        "hits": 0,
+        "total": 7,
+        "ratio": 0
+      },
+      "EMAIL": {
+        "hits": 7,
+        "total": 7,
+        "ratio": 1
+      }
+    }
+  },
+  "f1Strict": 0.06581444275776231
+}

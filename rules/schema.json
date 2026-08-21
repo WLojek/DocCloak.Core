@@ -41,6 +41,8 @@
             "IBAN",
             "ADDRESS",
             "COMPANY",
+            "SECRET",
+            "API_KEY",
             "OTHER"
           ]
         },

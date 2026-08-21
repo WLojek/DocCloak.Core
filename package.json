@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./restore-tokens": "./src/restore-tokens.ts",
     "./dom": "./src/dom/index.ts",
     "./worker-protocol": "./src/worker-protocol.ts"
   },
@@ -48,6 +49,8 @@
     "postpack": "node scripts/package-exports.mjs src",
     "rules:gen": "node scripts/generate-rules-module.mjs",
     "rules:check": "node scripts/generate-rules-module.mjs --check",
+    "bench": "node --experimental-strip-types eval/run.mts",
+    "bench:data": "node eval/download.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

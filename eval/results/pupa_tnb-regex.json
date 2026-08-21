@@ -1,0 +1,65 @@
+{
+  "tier": "regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "pupa_tnb",
+  "documents": 237,
+  "goldUnits": 644,
+  "excludedPresidioArtifacts": 13,
+  "unlocatableUnits": 44,
+  "evaluatedUnits": 587,
+  "predictions": 3782,
+  "recall": {
+    "unitStrict": 0.06473594548551959,
+    "unitStrictHits": 38,
+    "unitLenient": 0.22146507666098808
+  },
+  "precision": {
+    "overall": 0.08540454785827604,
+    "hits": 323,
+    "total": 3782,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 209,
+        "total": 3385,
+        "ratio": 0.06174298375184638
+      },
+      "COMPANY": {
+        "hits": 99,
+        "total": 261,
+        "ratio": 0.3793103448275862
+      },
+      "CURRENCY": {
+        "hits": 0,
+        "total": 55,
+        "ratio": 0
+      },
+      "DATE": {
+        "hits": 0,
+        "total": 46,
+        "ratio": 0
+      },
+      "PHONE": {
+        "hits": 12,
+        "total": 26,
+        "ratio": 0.46153846153846156
+      },
+      "SSN": {
+        "hits": 1,
+        "total": 6,
+        "ratio": 0.16666666666666666
+      },
+      "EMAIL": {
+        "hits": 1,
+        "total": 2,
+        "ratio": 0.5
+      },
+      "OTHER": {
+        "hits": 1,
+        "total": 1,
+        "ratio": 1
+      }
+    }
+  },
+  "f1Strict": 0.0736476087328279
+}
