@@ -36,9 +36,20 @@ export function installNodeBlobUrlShim(): void {
   const origRevoke = URL.revokeObjectURL?.bind(URL);
   URL.createObjectURL = ((obj: Blob) => {
     const path = blobFilePaths.get(obj);
-    if (path) return path;
+    // ort 1.29 (webgpu entry) fetch()es the model URL instead of fs-reading
+    // it, so hand out a file:// URL and teach fetch to serve it below.
+    if (path) return pathToFileURL(path).href;
     return origCreate ? origCreate(obj as never) : `blob:unsupported`;
   }) as typeof URL.createObjectURL;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (u.startsWith('file://')) {
+      const buf = readFileSync(fileURLToPath(u));
+      return new Response(new Uint8Array(buf), { status: 200, headers: { 'Content-Length': String(buf.length) } });
+    }
+    return realFetch(input as never, init);
+  }) as typeof fetch;
   URL.revokeObjectURL = ((url: string) => {
     if (url.startsWith('blob:') && origRevoke) origRevoke(url);
     // File paths: nothing to revoke; the disk cache owns the file.

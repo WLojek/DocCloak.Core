@@ -74,17 +74,20 @@ class FakeLabelProvider extends FakeProvider {
 
 interface Fakes {
   gliner: FakeLabelProvider;
+  glinerBase: FakeLabelProvider;
   bardsai: FakeProvider;
   options: EngineOptions;
 }
 
 function makeFakes(): Fakes {
   const gliner = new FakeLabelProvider(0.35);
+  const glinerBase = new FakeLabelProvider(0.35);
   const bardsai = new FakeProvider(0.5);
   return {
     gliner,
+    glinerBase,
     bardsai,
-    options: { providers: { gliner: () => gliner, bardsai: () => bardsai } },
+    options: { providers: { gliner: () => gliner, 'gliner-base': () => glinerBase, bardsai: () => bardsai } },
   };
 }
 
@@ -110,7 +113,7 @@ async function seededKV(entries: Record<string, string>): Promise<KVStore> {
 // ── Heuristic ──────────────────────────────────────────────
 
 describe('pickDefaultProvider', () => {
-  it('defaults to bardsai without hardware hints', () => {
+  it('defaults to bardsai without hardware hints (T127)', () => {
     expect(pickDefaultProvider()).toBe('bardsai');
     expect(pickDefaultProvider({})).toBe('bardsai');
   });
@@ -124,7 +127,7 @@ describe('pickDefaultProvider', () => {
     expect(pickDefaultProvider({ deviceMemoryGB: 2 })).toBe('gliner');
   });
 
-  it('picks bardsai on desktop-class hardware', () => {
+  it('picks bardsai on desktop-class hardware (T127 benchmark decision)', () => {
     expect(pickDefaultProvider({ isMobile: false, deviceMemoryGB: 16 })).toBe('bardsai');
   });
 });
@@ -132,6 +135,7 @@ describe('pickDefaultProvider', () => {
 describe('threshold helpers', () => {
   it('has the per-provider defaults', () => {
     expect(defaultThresholdFor('gliner')).toBe(0.35);
+    expect(defaultThresholdFor('gliner-base')).toBe(0.35);
     expect(defaultThresholdFor('bardsai')).toBe(0.5);
   });
 
@@ -199,6 +203,15 @@ describe('createEngine settings', () => {
       regexRegion: 'all',
       customLabels: [],
     });
+  });
+
+  it('keeps a saved bardsai choice valid (legacy provider, T122)', async () => {
+    const kv = await seededKV({ [ENGINE_SETTINGS_KEYS.provider]: 'bardsai' });
+    const engine = createEngine(makeEnv({ kv }), undefined, makeFakes().options);
+    await engine.ready;
+    const s = engine.getSettings();
+    expect(s.providerId).toBe('bardsai');
+    expect(s.threshold).toBe(0.5);
   });
 
   it('lets explicit initial settings win over persisted values', async () => {
@@ -403,7 +416,17 @@ describe('detect', () => {
 // ── Registry catalog ───────────────────────────────────────
 
 describe('PROVIDERS catalog', () => {
-  it('lists both built-in providers with stable ids', () => {
-    expect(PROVIDERS.map((p) => p.id)).toEqual(['gliner', 'bardsai']);
+  it('lists the built-in providers with stable ids', () => {
+    expect(PROVIDERS.map((p) => p.id)).toEqual(['gliner', 'gliner-base', 'bardsai']);
+  });
+
+  it('describes bardsai as the multilingual default and gliner-base as the English/dates alternative (T127)', () => {
+    const bardsai = PROVIDERS.find((p) => p.id === 'bardsai')!;
+    expect(bardsai.label).toBe('BardS.ai EU PII');
+    expect(bardsai.description.toLowerCase()).toContain('multilingual');
+    const base = PROVIDERS.find((p) => p.id === 'gliner-base')!;
+    expect(base.label).toBe('GLiNER PII Base');
+    expect(base.description).toContain('English');
+    expect(base.description).toContain('197 MB');
   });
 });

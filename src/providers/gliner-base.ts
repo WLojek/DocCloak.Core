@@ -1,5 +1,14 @@
 /**
- * GLiNER PII Small provider.
+ * GLiNER PII Base provider (T122).
+ *
+ * knowledgator/gliner-pii-base-v1.0: deberta-v3-small backbone, zero-shot
+ * custom labels, span_mode "markerV0". Unlike the token_level small/edge
+ * models (gliner.ts), the ONNX graph takes span enumeration inputs
+ * (span_idx + span_mask) and emits span-level logits shaped
+ * [batch, num_words, max_width, num_classes] - one score per candidate
+ * (start word, width) pair per label. Verified against the pinned model in
+ * Node WASM: inputs [input_ids, attention_mask, words_mask, text_lengths,
+ * span_idx (int64), span_mask (bool)], output [logits].
  *
  * Environment-agnostic: wasm paths, custom-label persistence (KV), model
  * bytes (blob cache + fetch) and the tokenizer all arrive through the
@@ -11,122 +20,125 @@
 // wasm fallback, asyncify binary). The bare entry resolves the deprecated JSEP
 // bundle whose wasm exceeds Cloudflare Pages' 25 MiB per-file limit.
 import * as ort from 'onnxruntime-web/webgpu';
-import type { DetectedEntity, EntityType, DetectionProvider, ProgressCallback } from '../types.ts';
+import type { DetectedEntity, DetectionProvider, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
 import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
-import { evictModelFromCache, fetchModelBlob, retryAsync } from '../model-loader.ts';
+import { fetchModelBlob, retryAsync } from '../model-loader.ts';
+import {
+  DEFAULT_PII_LABELS,
+  greedySelect,
+  mapLabelToEntityType,
+  sigmoid,
+  splitWords,
+  type RawSpan,
+} from './gliner.ts';
 
 // ── Model config ──────────────────────────────────────────
 // Supply-chain pinning (T116): the model is fetched from an immutable
 // commit revision, never from mutable resolve/main, and the downloaded
 // blob is verified against a pinned SHA-256. A model update is a
-// deliberate act: bump GLINER_MODEL_REVISION and GLINER_MODEL_SHA256
-// together in a reviewed commit and update
+// deliberate act: bump GLINER_BASE_MODEL_REVISION and
+// GLINER_BASE_MODEL_SHA256 together in a reviewed commit and update
 // documentation/model-provenance.md.
-// Revision: main of knowledgator/gliner-pii-small-v1.0; pinned and
-// hashed 2026-08-26 (T121 swap from gliner-pii-edge-v1.0, +1.3 F1
-// drop-in per documentation/model-research-2026-08.md).
-export const GLINER_MODEL_REVISION = 'd21aad5b4a7ec82b3d0970fd1ac74a12c087d85e';
-/** SHA-256 of onnx/model_quint8.onnx (82,680,500 bytes) at GLINER_MODEL_REVISION. */
-export const GLINER_MODEL_SHA256 = '891589426ee96f2748b16439f44fad8c3f97e198e002a6637e58dee989500216';
-export const GLINER_MODEL_URL = `https://huggingface.co/knowledgator/gliner-pii-small-v1.0/resolve/${GLINER_MODEL_REVISION}/onnx/model_quint8.onnx`;
-const DEFAULT_MODEL_URL = GLINER_MODEL_URL;
-/**
- * Superseded download URLs; their cache entries are evicted best-effort on
- * load so stale ~46 MB copies do not linger against the origin quota:
- * the pre-pinning edge resolve/main URL and the pinned edge URL replaced
- * by gliner-pii-small-v1.0 (T121).
- */
-const LEGACY_MODEL_URLS = [
-  'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx',
-  'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/9b7f39b0a2da971a5beea78d35f1539d4009c891/onnx/model_quint8.onnx',
-];
-const DEFAULT_TOKENIZER_HF = 'knowledgator/gliner-pii-small-v1.0';
-const DEFAULT_MODEL_NAME = 'GLiNER PII Small';
+// Revision: main of knowledgator/gliner-pii-base-v1.0; pinned and hashed
+// 2026-08-26 (T122).
+export const GLINER_BASE_MODEL_REVISION = '61726e0ad791dcab3e29339bbec3ad42ded65641';
+/** SHA-256 of onnx/model_quint8.onnx (196,757,174 bytes) at GLINER_BASE_MODEL_REVISION. */
+export const GLINER_BASE_MODEL_SHA256 = '0514c8fd86d0513ce5351a3267f132b57d5bcd8f99a90d43cde1228092881d19';
+export const GLINER_BASE_MODEL_URL = `https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/onnx/model_quint8.onnx`;
+const DEFAULT_MODEL_URL = GLINER_BASE_MODEL_URL;
+const DEFAULT_TOKENIZER_HF = 'knowledgator/gliner-pii-base-v1.0';
+const DEFAULT_MODEL_NAME = 'GLiNER PII Base';
 const CUSTOM_LABELS_STORAGE_KEY = 'doccloak-custom-labels';
 
-const CLS_TOKEN_ID = 50281;
-const SEP_TOKEN_ID = 50282;
-const ENT_TOKEN_ID = 50368;
-const SEP_PROMPT_TOKEN_ID = 50369; // <<SEP>> (prompt separator, not [SEP])
+// Special token ids of the deberta-v3-small vocab (vocab_size 128003).
+// Verified against the repo's tokenizer_config.json at the pinned
+// revision - these differ from the ettin ids used by gliner.ts.
+const CLS_TOKEN_ID = 1;       // [CLS]
+const SEP_TOKEN_ID = 2;       // [SEP]
+const ENT_TOKEN_ID = 128001;  // <<ENT>> (class_token_index in gliner_config.json)
+const SEP_PROMPT_TOKEN_ID = 128002; // <<SEP>> (prompt separator, not [SEP])
+
+/** max_width from the repo's gliner_config.json: spans cover 1..12 words. */
+export const GLINER_BASE_MAX_WIDTH = 12;
 const DEFAULT_THRESHOLD = 0.35;
 const MAX_WORDS_PER_CHUNK = 150;
 const CHUNK_OVERLAP = 40;
 
+// ── Span enumeration (markerV0) ───────────────────────────
+
+export interface SpanIndices {
+  /** Flattened (start, end) word pairs, shape [1, numSpans, 2]. */
+  spanIdx: BigInt64Array;
+  /** 1 for valid spans (end < textLength), 0 for padding, shape [1, numSpans]. */
+  spanMask: Uint8Array;
+  numSpans: number;
+}
+
 /**
- * Built-in zero-shot label set, shared with the GLiNER PII Base provider
- * (gliner-base.ts) - the models are from the same zero-shot family, so the
- * same prompt labels work for both.
+ * Enumerate all candidate word spans exactly like the python GLiNER
+ * SpanProcessor: start-major, width-minor - for every start word i, the
+ * pairs (i, i+0) .. (i, i+maxWidth-1). Spans that would run past the end
+ * of the text are masked out and their indices zeroed (mirroring
+ * span_idx * span_mask in the python collate).
  */
-export const DEFAULT_PII_LABELS = [
-  'person name',
-  'calendar date',
-  'email address', 'phone number', 'ip address',
-  'street address', 'city', 'zip code',
-  'bank account number', 'credit card number', 'iban',
-  'social security number', 'tax id', 'national id number',
-  'passport number', 'driver license number',
-  'money amount',
-  'company name',
-];
-
-// ── Label → EntityType mapping ────────────────────────────
-/** Shared with gliner-base.ts (same label set, same mapping). */
-export function mapLabelToEntityType(label: string): EntityType {
-  const l = label.toLowerCase();
-  if (l === 'person name') return 'PERSON';
-  if (l === 'email address') return 'EMAIL';
-  if (l === 'phone number') return 'PHONE';
-  if (['social security number', 'national id number', 'tax id', 'passport number', 'driver license number'].includes(l)) return 'SSN';
-  if (l === 'credit card number') return 'CREDIT_CARD';
-  if (l === 'calendar date') return 'DATE';
-  if (l === 'money amount') return 'CURRENCY';
-  if (l === 'ip address') return 'IP_ADDRESS';
-  if (['iban', 'bank account number'].includes(l)) return 'IBAN';
-  if (['street address', 'city', 'zip code'].includes(l)) return 'ADDRESS';
-  if (l === 'company name') return 'COMPANY';
-  return 'OTHER';
-}
-
-// ── Word splitter ─────────────────────────────────────────
-// Mirrors GLiNER's WhitespaceTokenSplitter (words, plus standalone
-// punctuation); shared with gliner-base.ts (same words_splitter_type).
-const WORD_PATTERN = /[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*|\S/gu;
-
-export function splitWords(text: string): { words: string[]; starts: number[]; ends: number[] } {
-  const words: string[] = [];
-  const starts: number[] = [];
-  const ends: number[] = [];
-  let match: RegExpExecArray | null;
-  WORD_PATTERN.lastIndex = 0;
-  while ((match = WORD_PATTERN.exec(text)) !== null) {
-    words.push(match[0]);
-    starts.push(match.index);
-    ends.push(WORD_PATTERN.lastIndex);
+export function buildSpanIndices(textLength: number, maxWidth: number = GLINER_BASE_MAX_WIDTH): SpanIndices {
+  const numSpans = textLength * maxWidth;
+  const spanIdx = new BigInt64Array(numSpans * 2);
+  const spanMask = new Uint8Array(numSpans);
+  for (let start = 0; start < textLength; start++) {
+    for (let width = 0; width < maxWidth; width++) {
+      const flat = start * maxWidth + width;
+      const end = start + width;
+      if (end < textLength) {
+        spanIdx[flat * 2] = BigInt(start);
+        spanIdx[flat * 2 + 1] = BigInt(end);
+        spanMask[flat] = 1;
+      }
+      // invalid spans stay (0, 0) with mask 0
+    }
   }
-  return { words, starts, ends };
+  return { spanIdx, spanMask, numSpans };
 }
 
-// ── Sigmoid ───────────────────────────────────────────────
-export function sigmoid(x: number): number {
-  return 1 / (1 + Math.exp(-x));
-}
-
-// ── Greedy non-overlapping span selection ─────────────────
-export type RawSpan = [string, number, number, string, number]; // [text, start, end, label, score]
-
-export function greedySelect(spans: RawSpan[]): RawSpan[] {
-  const sorted = spans.slice().sort((a, b) => b[4] - a[4]);
-  const selected: RawSpan[] = [];
-  for (const span of sorted) {
-    const overlaps = selected.some(s => span[1] < s[2] && span[2] > s[1]);
-    if (!overlaps) selected.push(span);
+/**
+ * Decode markerV0 span logits (shape [1, numWords, maxWidth, numClasses])
+ * into raw character spans: sigmoid per (start, width, class) cell,
+ * threshold, then map word indices to character offsets. Non-overlap
+ * selection (greedySelect) happens at the caller across chunks.
+ */
+export function decodeSpanLogits(
+  logits: Float32Array,
+  dims: readonly number[],
+  textLength: number,
+  labels: string[],
+  threshold: number,
+  charStarts: number[],
+  charEnds: number[],
+  fullText: string,
+): RawSpan[] {
+  const maxWidth = dims[2];
+  const numClasses = dims[3];
+  const spans: RawSpan[] = [];
+  for (let start = 0; start < textLength; start++) {
+    for (let width = 0; width < maxWidth; width++) {
+      const end = start + width;
+      if (end >= textLength) break;
+      const base = (start * maxWidth + width) * numClasses;
+      for (let cls = 0; cls < numClasses && cls < labels.length; cls++) {
+        const prob = sigmoid(logits[base + cls]);
+        if (prob < threshold) continue;
+        const charStart = charStarts[start];
+        const charEnd = charEnds[end];
+        spans.push([fullText.slice(charStart, charEnd), charStart, charEnd, labels[cls], prob]);
+      }
+    }
   }
-  return selected.sort((a, b) => a[1] - b[1]);
+  return spans;
 }
 
 // ── Provider ──────────────────────────────────────────────
-export class GlinerProvider implements DetectionProvider {
+export class GlinerBaseProvider implements DetectionProvider {
   private _name = DEFAULT_MODEL_NAME;
   get name(): string { return this._name; }
 
@@ -176,16 +188,12 @@ export class GlinerProvider implements DetectionProvider {
     return this.threshold;
   }
 
-  /**
-   * Get the combined list of all active labels (built-in + custom).
-   */
+  /** Get the combined list of all active labels (built-in + custom). */
   private getActiveLabels(): string[] {
     return [...DEFAULT_PII_LABELS, ...this.customLabels];
   }
 
-  /**
-   * Get user-defined custom labels.
-   */
+  /** Get user-defined custom labels. */
   getCustomLabels(): string[] {
     return [...this.customLabels];
   }
@@ -202,9 +210,7 @@ export class GlinerProvider implements DetectionProvider {
     } catch { /* KV backend unavailable (e.g. storage-less Web Worker) */ }
   }
 
-  /**
-   * Restore custom labels from the injected KV store on startup.
-   */
+  /** Restore custom labels from the injected KV store on startup. */
   async restoreCustomLabels(): Promise<void> {
     try {
       const saved = await this.env.kv.get(CUSTOM_LABELS_STORAGE_KEY);
@@ -237,17 +243,13 @@ export class GlinerProvider implements DetectionProvider {
         persistStorage: this.env.persistStorage,
       };
 
-      // Old cache entries from superseded URLs (pre-pinning resolve/main
-      // and the retired edge pin) - drop them so stale copies do not
-      // linger against the origin quota.
-      for (const legacyUrl of LEGACY_MODEL_URLS) {
-        void evictModelFromCache(loaderEnv, legacyUrl);
-      }
+      // Cache note (T122): the BardS.ai blob is deliberately NOT evicted -
+      // bardsai stays selectable as a legacy provider.
 
       // Load tokenizer and model in parallel (skip tokenizer if already loaded from a prior session)
       const tasks: Promise<unknown>[] = [
         fetchModelBlob(loaderEnv, DEFAULT_MODEL_URL, (downloaded, total) => this.progressCallback?.(downloaded, total), {
-          sha256: GLINER_MODEL_SHA256,
+          sha256: GLINER_BASE_MODEL_SHA256,
           onVerified: (verification) => {
             this.verification = verification;
             console.info(`[DocCloak] Model verified: ${this._name} SHA-256 ${verification.sha256.slice(0, 12)}... matches the published hash (see documentation/model-provenance.md)`);
@@ -358,7 +360,7 @@ export class GlinerProvider implements DetectionProvider {
         start,
         end,
         confidence: score,
-        detector: `gliner:${label}`,
+        detector: `gliner-base:${label}`,
       }));
   }
 
@@ -407,58 +409,35 @@ export class GlinerProvider implements DetectionProvider {
 
     const seqLen = inputIds.length;
     const textLength = words.length;
-    const numEntities = labels.length;
 
-    const idToClass: Record<number, string> = {};
-    labels.forEach((label, i) => { idToClass[i + 1] = label; });
+    const { spanIdx, spanMask, numSpans } = buildSpanIndices(textLength);
 
     const feeds: Record<string, ort.Tensor> = {
       input_ids: new ort.Tensor('int64', BigInt64Array.from(inputIds.map(BigInt)), [1, seqLen]),
       attention_mask: new ort.Tensor('int64', BigInt64Array.from(attentionMask.map(BigInt)), [1, seqLen]),
       words_mask: new ort.Tensor('int64', BigInt64Array.from(wordsMask.map(BigInt)), [1, seqLen]),
       text_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(textLength)]), [1, 1]),
+      span_idx: new ort.Tensor('int64', spanIdx, [1, numSpans, 2]),
+      span_mask: new ort.Tensor('bool', spanMask, [1, numSpans]),
     };
 
     const results = await this.session.run(feeds);
 
     const outputName = this.session.outputNames[0] || 'logits';
-    const logits = results[outputName].data as Float32Array;
+    const output = results[outputName];
+    const logits = output.data as Float32Array;
 
-    // Token-based: logits shape [1, num_words, num_entities, 3] (start/end/inside)
-    const rawSpans: RawSpan[] = [];
-    const selectedStarts: Array<[number, number]> = [];
-    const selectedEnds: Array<[number, number]> = [];
-    const insideScores: number[][] = Array.from({ length: textLength }, () => Array(numEntities).fill(0));
-
-    for (let token = 0; token < textLength; token++) {
-      for (let entity = 0; entity < numEntities; entity++) {
-        const base = (token * numEntities + entity) * 3;
-        const startProb = sigmoid(logits[base]);
-        const endProb = sigmoid(logits[base + 1]);
-        const insideProb = sigmoid(logits[base + 2]);
-
-        if (startProb >= this.threshold) selectedStarts.push([token, entity]);
-        if (endProb >= this.threshold) selectedEnds.push([token, entity]);
-        insideScores[token][entity] = insideProb;
-      }
-    }
-
-    for (const [startTok, startCls] of selectedStarts) {
-      for (const [endTok, endCls] of selectedEnds) {
-        if (endTok < startTok || startCls !== endCls) continue;
-
-        const inside = insideScores.slice(startTok, endTok + 1).map(s => s[startCls]);
-        if (inside.some(s => s < this.threshold)) continue;
-
-        const score = inside.reduce((a, b) => a + b, 0) / inside.length;
-        const charStart = charStarts[startTok];
-        const charEnd = charEnds[endTok];
-        const spanText = fullText.slice(charStart, charEnd);
-        rawSpans.push([spanText, charStart, charEnd, idToClass[startCls + 1], score]);
-      }
-    }
-
-    return rawSpans;
+    // markerV0: logits shape [1, num_words, max_width, num_classes]
+    return decodeSpanLogits(
+      logits,
+      output.dims,
+      textLength,
+      labels,
+      this.threshold,
+      charStarts,
+      charEnds,
+      fullText,
+    );
   }
 
 }

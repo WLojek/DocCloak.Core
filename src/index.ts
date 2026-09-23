@@ -44,6 +44,19 @@ export type { SurrogateContext } from './surrogates.ts';
 export { GlinerProvider, GLINER_MODEL_URL, GLINER_MODEL_REVISION, GLINER_MODEL_SHA256 } from './providers/gliner.ts';
 // end T007
 
+// T122: gliner base provider (markerV0 span mode)
+export {
+  GlinerBaseProvider,
+  GLINER_BASE_MODEL_URL,
+  GLINER_BASE_MODEL_REVISION,
+  GLINER_BASE_MODEL_SHA256,
+  GLINER_BASE_MAX_WIDTH,
+  buildSpanIndices,
+  decodeSpanLogits,
+} from './providers/gliner-base.ts';
+export type { SpanIndices } from './providers/gliner-base.ts';
+// end T122
+
 // T008: bardsai provider
 export { BardsaiProvider, BARDSAI_MODEL_URL, BARDSAI_MODEL_REVISION, BARDSAI_MODEL_SHA256 } from './providers/bardsai.ts';
 // end T008

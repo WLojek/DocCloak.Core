@@ -1,0 +1,1823 @@
+{
+  "provider": "gliner-base",
+  "meta": {
+    "model": "GLiNER PII Base",
+    "threshold": 0.35,
+    "generated": "2026-08-26",
+    "limit": null,
+    "langs": [
+      "en",
+      "pl",
+      "de",
+      "fr",
+      "es",
+      "pt",
+      "sv",
+      "no",
+      "it",
+      "nl",
+      "cs",
+      "ro",
+      "el",
+      "uk"
+    ]
+  },
+  "overall": {
+    "docs": 112,
+    "goldSpans": 1007,
+    "predictions": 808,
+    "recallStrict": 0.7825223435948362,
+    "recallLenient": 0.8232373386295928,
+    "typeAwareStrict": 0.7428003972194638,
+    "precision": 0.9665841584158416,
+    "f1": 0.8648686630067645,
+    "byType": {
+      "ADDRESS": {
+        "hits": 153,
+        "total": 235,
+        "ratio": 0.6510638297872341
+      },
+      "PERSON": {
+        "hits": 143,
+        "total": 179,
+        "ratio": 0.7988826815642458
+      },
+      "DATE": {
+        "hits": 104,
+        "total": 143,
+        "ratio": 0.7272727272727273
+      },
+      "PHONE": {
+        "hits": 87,
+        "total": 93,
+        "ratio": 0.9354838709677419
+      },
+      "CURRENCY": {
+        "hits": 70,
+        "total": 78,
+        "ratio": 0.8974358974358975
+      },
+      "EMAIL": {
+        "hits": 66,
+        "total": 73,
+        "ratio": 0.9041095890410958
+      },
+      "COMPANY": {
+        "hits": 46,
+        "total": 68,
+        "ratio": 0.6764705882352942
+      },
+      "SSN": {
+        "hits": 52,
+        "total": 56,
+        "ratio": 0.9285714285714286
+      },
+      "IBAN": {
+        "hits": 23,
+        "total": 37,
+        "ratio": 0.6216216216216216
+      },
+      "IP_ADDRESS": {
+        "hits": 24,
+        "total": 24,
+        "ratio": 1
+      },
+      "CREDIT_CARD": {
+        "hits": 20,
+        "total": 21,
+        "ratio": 0.9523809523809523
+      }
+    },
+    "latency": {
+      "meanMs": 761,
+      "p95Ms": 902
+    },
+    "samples": {
+      "misses": [
+        {
+          "docId": "en-02",
+          "text": "Okafor",
+          "type": "PERSON",
+          "coverage": 0
+        },
+        {
+          "docId": "en-03",
+          "text": "12/03/1985",
+          "type": "DATE",
+          "coverage": 0
+        },
+        {
+          "docId": "en-03",
+          "text": "Bhattacharya",
+          "type": "PERSON",
+          "coverage": 0
+        },
+        {
+          "docId": "en-04",
+          "text": "03/22/1958",
+          "type": "DATE",
+          "coverage": 0
+        },
+        {
+          "docId": "en-05",
+          "text": "Eleanor Vance",
+          "type": "PERSON",
+          "coverage": 0
+        }
+      ],
+      "falsePositives": [
+        {
+          "docId": "en-01",
+          "text": "May",
+          "predType": "DATE",
+          "confidence": 0.436
+        },
+        {
+          "docId": "en-05",
+          "text": "2026-0417",
+          "predType": "SSN",
+          "confidence": 0.404
+        },
+        {
+          "docId": "en-07",
+          "text": "09/28",
+          "predType": "DATE",
+          "confidence": 0.502
+        },
+        {
+          "docId": "pl-01",
+          "text": "Szanowna Pani",
+          "predType": "COMPANY",
+          "confidence": 0.37
+        },
+        {
+          "docId": "pl-07",
+          "text": "Kelner",
+          "predType": "PERSON",
+          "confidence": 0.53
+        }
+      ]
+    }
+  },
+  "languages": {
+    "en": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 68,
+      "recallStrict": 0.9054054054054054,
+      "recallLenient": 0.918918918918919,
+      "typeAwareStrict": 0.8783783783783784,
+      "precision": 0.9558823529411765,
+      "f1": 0.9299594277172752,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 14,
+          "ratio": 0.7857142857142857
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 0,
+          "total": 1,
+          "ratio": 0
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 651,
+        "p95Ms": 751
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "en-02",
+            "text": "Okafor",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "en-03",
+            "text": "12/03/1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "en-03",
+            "text": "Bhattacharya",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "en-04",
+            "text": "03/22/1958",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "en-05",
+            "text": "Eleanor Vance",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "en-01",
+            "text": "May",
+            "predType": "DATE",
+            "confidence": 0.436
+          },
+          {
+            "docId": "en-05",
+            "text": "2026-0417",
+            "predType": "SSN",
+            "confidence": 0.404
+          },
+          {
+            "docId": "en-07",
+            "text": "09/28",
+            "predType": "DATE",
+            "confidence": 0.502
+          }
+        ]
+      }
+    },
+    "pl": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 61,
+      "recallStrict": 0.7567567567567568,
+      "recallLenient": 0.8243243243243243,
+      "typeAwareStrict": 0.7027027027027027,
+      "precision": 0.9672131147540983,
+      "f1": 0.8491390388075045,
+      "byType": {
+        "ADDRESS": {
+          "hits": 11,
+          "total": 18,
+          "ratio": 0.6111111111111112
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 3,
+          "ratio": 0.3333333333333333
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 787,
+        "p95Ms": 876
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pl-01",
+            "text": "Nordex Logistyka Sp. z o.o.",
+            "type": "COMPANY",
+            "coverage": 0.593
+          },
+          {
+            "docId": "pl-02",
+            "text": "3 200 zł",
+            "type": "CURRENCY",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-02",
+            "text": "ul. Długa 14/3",
+            "type": "ADDRESS",
+            "coverage": 0.286
+          },
+          {
+            "docId": "pl-03",
+            "text": "12.03.1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-03",
+            "text": "ul. Słoneczna 8",
+            "type": "ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pl-01",
+            "text": "Szanowna Pani",
+            "predType": "COMPANY",
+            "confidence": 0.37
+          },
+          {
+            "docId": "pl-07",
+            "text": "Kelner",
+            "predType": "PERSON",
+            "confidence": 0.53
+          }
+        ]
+      }
+    },
+    "de": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 57,
+      "recallStrict": 0.8309859154929577,
+      "recallLenient": 0.8309859154929577,
+      "typeAwareStrict": 0.7887323943661971,
+      "precision": 0.9649122807017544,
+      "f1": 0.8929554210236653,
+      "byType": {
+        "ADDRESS": {
+          "hits": 10,
+          "total": 18,
+          "ratio": 0.5555555555555556
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 676,
+        "p95Ms": 796
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "de-01",
+            "text": "Kastanienallee 12",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "de-01",
+            "text": "10435",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "de-03",
+            "text": "12.03.1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "de-03",
+            "text": "Kretschmer",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "de-04",
+            "text": "22.07.1954",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "de-05",
+            "text": "2026-0311",
+            "predType": "SSN",
+            "confidence": 0.406
+          },
+          {
+            "docId": "de-07",
+            "text": "09/28",
+            "predType": "DATE",
+            "confidence": 0.669
+          }
+        ]
+      }
+    },
+    "fr": {
+      "docs": 8,
+      "goldSpans": 68,
+      "predictions": 51,
+      "recallStrict": 0.8088235294117647,
+      "recallLenient": 0.8088235294117647,
+      "typeAwareStrict": 0.8088235294117647,
+      "precision": 1,
+      "f1": 0.8943089430894309,
+      "byType": {
+        "ADDRESS": {
+          "hits": 13,
+          "total": 18,
+          "ratio": 0.7222222222222222
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 13,
+          "ratio": 0.8461538461538461
+        },
+        "DATE": {
+          "hits": 6,
+          "total": 11,
+          "ratio": 0.5454545454545454
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 769,
+        "p95Ms": 817
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "fr-02",
+            "text": "12/03/1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "22 juillet 1988",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "27 avenue des Tilleuls",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "75012",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-04",
+            "text": "3 novembre 1972",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": []
+      }
+    },
+    "es": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 51,
+      "recallStrict": 0.7714285714285715,
+      "recallLenient": 0.8,
+      "typeAwareStrict": 0.7428571428571429,
+      "precision": 0.9803921568627451,
+      "f1": 0.8634473936680525,
+      "byType": {
+        "ADDRESS": {
+          "hits": 12,
+          "total": 18,
+          "ratio": 0.6666666666666666
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 13,
+          "ratio": 0.7692307692307693
+        },
+        "DATE": {
+          "hits": 6,
+          "total": 11,
+          "ratio": 0.5454545454545454
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 775,
+        "p95Ms": 849
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "es-01",
+            "text": "García Fernández",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "es-02",
+            "text": "12/03/1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "es-02",
+            "text": "45678912L",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "es-02",
+            "text": "calle de los Olivos 14",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "es-02",
+            "text": "28012",
+            "type": "ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "es-05",
+            "text": "2026-0142",
+            "predType": "SSN",
+            "confidence": 0.354
+          }
+        ]
+      }
+    },
+    "pt": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 57,
+      "recallStrict": 0.8285714285714286,
+      "recallLenient": 0.8428571428571429,
+      "typeAwareStrict": 0.7714285714285715,
+      "precision": 0.9473684210526315,
+      "f1": 0.8839966130397968,
+      "byType": {
+        "ADDRESS": {
+          "hits": 17,
+          "total": 18,
+          "ratio": 0.9444444444444444
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 13,
+          "ratio": 0.7692307692307693
+        },
+        "DATE": {
+          "hits": 6,
+          "total": 11,
+          "ratio": 0.5454545454545454
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 2,
+          "total": 4,
+          "ratio": 0.5
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 805,
+        "p95Ms": 873
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pt-01",
+            "text": "Sousa Carvalho",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-02",
+            "text": "12/03/1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-02",
+            "text": "963 852 741",
+            "type": "PHONE",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "Cerâmicas do Mondego S.A.",
+            "type": "COMPANY",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "22 de julho de 1988",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pt-01",
+            "text": "Porto",
+            "predType": "ADDRESS",
+            "confidence": 0.551
+          },
+          {
+            "docId": "pt-02",
+            "text": "agosto",
+            "predType": "DATE",
+            "confidence": 0.362
+          },
+          {
+            "docId": "pt-05",
+            "text": "2026-0142",
+            "predType": "SSN",
+            "confidence": 0.384
+          }
+        ]
+      }
+    },
+    "sv": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 58,
+      "recallStrict": 0.8309859154929577,
+      "recallLenient": 0.8591549295774648,
+      "typeAwareStrict": 0.8169014084507042,
+      "precision": 0.9655172413793104,
+      "f1": 0.8932143822654772,
+      "byType": {
+        "ADDRESS": {
+          "hits": 12,
+          "total": 18,
+          "ratio": 0.6666666666666666
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 8,
+          "ratio": 0.875
+        },
+        "COMPANY": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 659,
+        "p95Ms": 769
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "sv-01",
+            "text": "070-123 45 67",
+            "type": "PHONE",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-01",
+            "text": "211 34",
+            "type": "ADDRESS",
+            "coverage": 0.5
+          },
+          {
+            "docId": "sv-03",
+            "text": "12 mars 1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-03",
+            "text": "Björkvägen 47",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-03",
+            "text": "582 46",
+            "type": "ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "sv-05",
+            "text": "2026-0311",
+            "predType": "SSN",
+            "confidence": 0.439
+          },
+          {
+            "docId": "sv-07",
+            "text": "09/28",
+            "predType": "DATE",
+            "confidence": 0.489
+          }
+        ]
+      }
+    },
+    "no": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 57,
+      "recallStrict": 0.8732394366197183,
+      "recallLenient": 0.9154929577464789,
+      "typeAwareStrict": 0.8450704225352113,
+      "precision": 0.9649122807017544,
+      "f1": 0.916789891114397,
+      "byType": {
+        "ADDRESS": {
+          "hits": 17,
+          "total": 18,
+          "ratio": 0.9444444444444444
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 5,
+          "total": 7,
+          "ratio": 0.7142857142857143
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "SSN": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 678,
+        "p95Ms": 783
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "no-02",
+            "text": "sindre.myklebust@fjellvind.no",
+            "type": "EMAIL",
+            "coverage": 0.759
+          },
+          {
+            "docId": "no-03",
+            "text": "12.05.1985",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "no-03",
+            "text": "Fossum",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "no-04",
+            "text": "22.07.1954",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "no-04",
+            "text": "Skandinavisk Helsekasse AS",
+            "type": "COMPANY",
+            "coverage": 0.5
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "no-05",
+            "text": "2026-0311",
+            "predType": "SSN",
+            "confidence": 0.378
+          },
+          {
+            "docId": "no-07",
+            "text": "09/28",
+            "predType": "DATE",
+            "confidence": 0.608
+          }
+        ]
+      }
+    },
+    "it": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 62,
+      "recallStrict": 0.8591549295774648,
+      "recallLenient": 0.8732394366197183,
+      "typeAwareStrict": 0.8450704225352113,
+      "precision": 0.967741935483871,
+      "f1": 0.910221337975628,
+      "byType": {
+        "PERSON": {
+          "hits": 11,
+          "total": 14,
+          "ratio": 0.7857142857142857
+        },
+        "ADDRESS": {
+          "hits": 9,
+          "total": 12,
+          "ratio": 0.75
+        },
+        "DATE": {
+          "hits": 7,
+          "total": 10,
+          "ratio": 0.7
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 796,
+        "p95Ms": 902
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "it-01",
+            "text": "Marchetti",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "it-03",
+            "text": "22 luglio 1991",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "it-03",
+            "text": "Malacrida",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "it-04",
+            "text": "9 novembre 1958",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "it-05",
+            "text": "Tipografia Bellucci S.n.c.",
+            "type": "COMPANY",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "it-07",
+            "text": "Ehi Betta",
+            "predType": "COMPANY",
+            "confidence": 0.393
+          },
+          {
+            "docId": "it-07",
+            "text": "Gaia",
+            "predType": "PERSON",
+            "confidence": 0.465
+          }
+        ]
+      }
+    },
+    "nl": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 58,
+      "recallStrict": 0.7887323943661971,
+      "recallLenient": 0.8028169014084507,
+      "typeAwareStrict": 0.7464788732394366,
+      "precision": 0.9827586206896551,
+      "f1": 0.8751199451679231,
+      "byType": {
+        "PERSON": {
+          "hits": 11,
+          "total": 14,
+          "ratio": 0.7857142857142857
+        },
+        "ADDRESS": {
+          "hits": 7,
+          "total": 12,
+          "ratio": 0.5833333333333334
+        },
+        "DATE": {
+          "hits": 8,
+          "total": 10,
+          "ratio": 0.8
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 1,
+          "total": 4,
+          "ratio": 0.25
+        },
+        "IBAN": {
+          "hits": 2,
+          "total": 4,
+          "ratio": 0.5
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 771,
+        "p95Ms": 922
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "nl-01",
+            "text": "Verhuisbedrijf Kikkert B.V.",
+            "type": "COMPANY",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-01",
+            "text": "Thijs Hoekveld",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-02",
+            "text": "NL18RABO0345771209",
+            "type": "IBAN",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-03",
+            "text": "1015 KH",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-03",
+            "text": "Bosmans",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "nl-05",
+            "text": "2026-0917",
+            "predType": "ADDRESS",
+            "confidence": 0.35
+          }
+        ]
+      }
+    },
+    "cs": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 52,
+      "recallStrict": 0.6486486486486487,
+      "recallLenient": 0.7027027027027027,
+      "typeAwareStrict": 0.5675675675675675,
+      "precision": 0.9423076923076923,
+      "f1": 0.7683763475988239,
+      "byType": {
+        "ADDRESS": {
+          "hits": 8,
+          "total": 19,
+          "ratio": 0.42105263157894735
+        },
+        "PERSON": {
+          "hits": 9,
+          "total": 12,
+          "ratio": 0.75
+        },
+        "DATE": {
+          "hits": 8,
+          "total": 10,
+          "ratio": 0.8
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 4,
+          "total": 6,
+          "ratio": 0.6666666666666666
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "COMPANY": {
+          "hits": 1,
+          "total": 4,
+          "ratio": 0.25
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 0,
+          "total": 3,
+          "ratio": 0
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 752,
+        "p95Ms": 857
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "cs-01",
+            "text": "Moravia Trans s.r.o.",
+            "type": "COMPANY",
+            "coverage": 0
+          },
+          {
+            "docId": "cs-01",
+            "text": "jiri.dvorak@moraviatrans.cz",
+            "type": "EMAIL",
+            "coverage": 0.815
+          },
+          {
+            "docId": "cs-01",
+            "text": "CZ65 0800 0000 1920 0014 5399",
+            "type": "IBAN",
+            "coverage": 0
+          },
+          {
+            "docId": "cs-02",
+            "text": "6 890 Kč",
+            "type": "CURRENCY",
+            "coverage": 0.625
+          },
+          {
+            "docId": "cs-03",
+            "text": "Bohemia Soft a.s.",
+            "type": "COMPANY",
+            "coverage": 0.706
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "cs-05",
+            "text": "2026-0117",
+            "predType": "SSN",
+            "confidence": 0.378
+          },
+          {
+            "docId": "cs-05",
+            "text": "14 dnů",
+            "predType": "ADDRESS",
+            "confidence": 0.42
+          },
+          {
+            "docId": "cs-08",
+            "text": "Velikonocích",
+            "predType": "ADDRESS",
+            "confidence": 0.461
+          }
+        ]
+      }
+    },
+    "ro": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 64,
+      "recallStrict": 0.8309859154929577,
+      "recallLenient": 0.8732394366197183,
+      "typeAwareStrict": 0.7887323943661971,
+      "precision": 0.96875,
+      "f1": 0.8945952555637076,
+      "byType": {
+        "PERSON": {
+          "hits": 12,
+          "total": 14,
+          "ratio": 0.8571428571428571
+        },
+        "ADDRESS": {
+          "hits": 6,
+          "total": 12,
+          "ratio": 0.5
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "PHONE": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "COMPANY": {
+          "hits": 2,
+          "total": 4,
+          "ratio": 0.5
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 778,
+        "p95Ms": 844
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "ro-01",
+            "text": "Dumitrache",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-02",
+            "text": "0264 592 118",
+            "type": "PHONE",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-02",
+            "text": "c.voiculet@posta-exemplu.ro",
+            "type": "EMAIL",
+            "coverage": 0.926
+          },
+          {
+            "docId": "ro-03",
+            "text": "strada Cireșilor nr. 14",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-03",
+            "text": "550012",
+            "type": "ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "ro-02",
+            "text": "44012",
+            "predType": "SSN",
+            "confidence": 0.395
+          },
+          {
+            "docId": "ro-07",
+            "text": "Olt",
+            "predType": "ADDRESS",
+            "confidence": 0.443
+          }
+        ]
+      }
+    },
+    "el": {
+      "docs": 8,
+      "goldSpans": 76,
+      "predictions": 52,
+      "recallStrict": 0.5789473684210527,
+      "recallLenient": 0.6578947368421053,
+      "typeAwareStrict": 0.47368421052631576,
+      "precision": 0.9423076923076923,
+      "f1": 0.7172322022621423,
+      "byType": {
+        "ADDRESS": {
+          "hits": 4,
+          "total": 18,
+          "ratio": 0.2222222222222222
+        },
+        "PERSON": {
+          "hits": 6,
+          "total": 12,
+          "ratio": 0.5
+        },
+        "DATE": {
+          "hits": 9,
+          "total": 10,
+          "ratio": 0.9
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "SSN": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 4,
+          "total": 6,
+          "ratio": 0.6666666666666666
+        },
+        "EMAIL": {
+          "hits": 3,
+          "total": 5,
+          "ratio": 0.6
+        },
+        "COMPANY": {
+          "hits": 1,
+          "total": 4,
+          "ratio": 0.25
+        },
+        "IBAN": {
+          "hits": 0,
+          "total": 3,
+          "ratio": 0
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 919,
+        "p95Ms": 1028
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "el-01",
+            "text": "Νίκο Οικονόμου",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "el-01",
+            "text": "Θαλής Πληροφορική ΑΕ",
+            "type": "COMPANY",
+            "coverage": 0
+          },
+          {
+            "docId": "el-01",
+            "text": "n.oikonomou@thalis-it.gr",
+            "type": "EMAIL",
+            "coverage": 0.917
+          },
+          {
+            "docId": "el-01",
+            "text": "GR16 0110 1250 0000 0001 2300 695",
+            "type": "IBAN",
+            "coverage": 0
+          },
+          {
+            "docId": "el-01",
+            "text": "Μαρία Παπαδοπούλου",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "el-05",
+            "text": "2026-0117",
+            "predType": "ADDRESS",
+            "confidence": 0.356
+          },
+          {
+            "docId": "el-05",
+            "text": "14 ημερών",
+            "predType": "ADDRESS",
+            "confidence": 0.399
+          },
+          {
+            "docId": "el-06",
+            "text": "Ιούνιο",
+            "predType": "DATE",
+            "confidence": 0.395
+          }
+        ]
+      }
+    },
+    "uk": {
+      "docs": 8,
+      "goldSpans": 75,
+      "predictions": 60,
+      "recallStrict": 0.6666666666666666,
+      "recallLenient": 0.8266666666666667,
+      "typeAwareStrict": 0.6533333333333333,
+      "precision": 0.9833333333333333,
+      "f1": 0.7946127946127945,
+      "byType": {
+        "ADDRESS": {
+          "hits": 9,
+          "total": 18,
+          "ratio": 0.5
+        },
+        "PERSON": {
+          "hits": 8,
+          "total": 12,
+          "ratio": 0.6666666666666666
+        },
+        "DATE": {
+          "hits": 9,
+          "total": 10,
+          "ratio": 0.9
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 6,
+          "ratio": 0.6666666666666666
+        },
+        "EMAIL": {
+          "hits": 3,
+          "total": 5,
+          "ratio": 0.6
+        },
+        "COMPANY": {
+          "hits": 0,
+          "total": 4,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 0,
+          "total": 3,
+          "ratio": 0
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 838,
+        "p95Ms": 910
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "uk-01",
+            "text": "ТОВ «Дніпро Логістик»",
+            "type": "COMPANY",
+            "coverage": 0.714
+          },
+          {
+            "docId": "uk-01",
+            "text": "UA21 3223 1300 0002 6007 2335 6600 1",
+            "type": "IBAN",
+            "coverage": 0
+          },
+          {
+            "docId": "uk-02",
+            "text": "petro.kovalenko78@ukr.net",
+            "type": "EMAIL",
+            "coverage": 0.76
+          },
+          {
+            "docId": "uk-02",
+            "text": "3 лютого 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "uk-02",
+            "text": "вул. Шовковична 12",
+            "type": "ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "uk-05",
+            "text": "2026-02-117",
+            "predType": "SSN",
+            "confidence": 0.393
+          }
+        ]
+      }
+    }
+  }
+}

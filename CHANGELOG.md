@@ -4,6 +4,49 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-09-23
+
+### Added
+
+- **GLiNER PII Base provider (T122):** new `gliner-base` provider for
+  `knowledgator/gliner-pii-base-v1.0` (~197 MB quint8, Apache-2.0,
+  pinned revision + SHA-256). Span-level (`markerV0`) decoding with
+  zero-shot custom labels; strongest option for English and dates.
+  Exported as `GlinerBaseProvider` plus `GLINER_BASE_MODEL_URL` /
+  `_REVISION` / `_SHA256`, `buildSpanIndices` and `decodeSpanLogits`.
+  `ProviderId` now includes `'gliner-base'` and `createEngine` registers it.
+
+- **Office file redaction (T110):** `@doccloak/core/dom` gains
+  `readXlsx` / `writeAnonymizedXlsx` / `isExcelFile` and a
+  detection-driven `redactOfficeFile` / `analyzeOfficeFile` flow for
+  .docx and .xlsx that keeps placeholders consistent with a live
+  `AnonymizationSession`. `writeAnonymizedDocx` accepts an option to
+  accept tracked changes (deletions dropped, insertions unwrapped,
+  author/date change records removed). Defaults preserve the previous
+  output byte-for-byte.
+
+### Changed
+
+- **Light model swapped (T121):** the `gliner` provider now loads
+  `knowledgator/gliner-pii-small-v1.0` (~83 MB, same tokenizer family)
+  instead of `gliner-pii-edge-v1.0`. Cached copies of the old edge model
+  are evicted best-effort on load. Labels read "GLiNER PII Small".
+
+- **Provider descriptions (T127):** registry copy reflects the 2026-08
+  14-language benchmark. `pickDefaultProvider` is unchanged: `bardsai` on
+  capable devices, `gliner` on mobile / low-memory devices.
+
+- **ONNX Runtime 1.29.0:** providers import `onnxruntime-web/webgpu`
+  (native WebGPU EP with wasm fallback). Hosts that self-host the ORT
+  runtime files must now serve `ort-wasm-simd-threaded.asyncify.wasm`
+  and `.asyncify.mjs` instead of the plain / `.jsep` pair.
+
+### Fixed
+
+- **bardsai with transformers.js 4.x:** subtoken alignment no longer calls
+  the removed `tokenizer.model.convert_ids_to_tokens` (which made
+  detection throw on transformers.js 4); it uses `tokenizer.tokenize()`.
+
 ## [0.9.0] - 2026-08-21
 
 ### Added

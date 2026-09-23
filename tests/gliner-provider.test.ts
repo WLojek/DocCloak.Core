@@ -24,7 +24,7 @@ const ortMock = vi.hoisted(() => {
   };
 });
 
-vi.mock('onnxruntime-web', () => ortMock);
+vi.mock('onnxruntime-web/webgpu', () => ortMock);
 
 import { GlinerProvider, GLINER_MODEL_URL, GLINER_MODEL_REVISION, GLINER_MODEL_SHA256 } from '../src/providers/gliner.ts';
 import { verificationMarkerKey } from '../src/model-loader.ts';
@@ -125,7 +125,7 @@ describe('GlinerProvider load() via CoreEnv', () => {
 
     expect(provider.isLoaded()).toBe(true);
     expect(env.fetch).not.toHaveBeenCalled();
-    expect(env.loadTokenizer).toHaveBeenCalledWith('knowledgator/gliner-pii-edge-v1.0');
+    expect(env.loadTokenizer).toHaveBeenCalledWith('knowledgator/gliner-pii-small-v1.0');
     expect(ortMock.env.wasm.wasmPaths).toBe('/app/');
     expect(ortMock.env.wasm.numThreads).toBe(3);
     expect(ortMock.InferenceSession.create).toHaveBeenCalledWith('blob:test', {

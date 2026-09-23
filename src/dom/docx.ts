@@ -16,8 +16,10 @@ export type { ValueReplacement };
 
 /**
  * Represents a text node in the docx XML with its position in the flat text.
+ * Also reused by the xlsx module (T110): the same flat-text replacement
+ * machinery applies to any XML part whose text lives in leaf elements.
  */
-interface TextNodeMapping {
+export interface TextNodeMapping {
   /** The <w:t> element */
   element: Element;
   /** Start index in the flat text */
@@ -225,6 +227,81 @@ export async function readDocx(file: File): Promise<DocxExtraction> {
 }
 
 /**
+ * Options for writeAnonymizedDocx (T110). All default to off, preserving the
+ * historical output byte-for-byte for existing callers.
+ */
+export interface DocxWriteOptions {
+  /**
+   * Accept and remove tracked changes: deletions (w:del and friends) are
+   * dropped, insertions (w:ins, w:moveTo) are unwrapped into plain runs, and
+   * property-change records (w:rPrChange etc., which carry author and date
+   * fingerprints) are removed. Oregon SB 2025-205 flags revision metadata as
+   * identifying, so the file-redaction flow turns this on.
+   */
+  acceptTrackedChanges?: boolean;
+}
+
+/**
+ * Apply a list of flat-text replacements to mapped text nodes, handling
+ * replacements that span multiple elements. Ranges are normalized (sorted,
+ * overlaps clamped) and applied end-to-start so earlier positions stay valid.
+ * Shared by the docx and xlsx writers (T110).
+ */
+export function applyTextReplacements(
+  textNodes: TextNodeMapping[],
+  replacements: Array<{ start: number; end: number; replacement: string }>
+): void {
+  const sorted = normalizeReplacements(replacements);
+  for (const repl of [...sorted].reverse()) {
+    applyReplacement(textNodes, repl.start, repl.end, repl.replacement);
+  }
+}
+
+/**
+ * Tracked-change elements that are removed outright when accepting changes:
+ * deleted content, move sources, and every *PrChange record (each carries a
+ * w:author/w:date pair identifying the reviser).
+ */
+const TRACKED_REMOVE = new Set([
+  'del', 'moveFrom', 'delText', 'delInstrText',
+  'rPrChange', 'pPrChange', 'sectPrChange', 'tblPrChange', 'tblGridChange',
+  'tcPrChange', 'trPrChange', 'numberingChange',
+  'cellDel', 'cellIns', 'cellMerge',
+  'moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd',
+  'customXmlDelRangeStart', 'customXmlDelRangeEnd',
+  'customXmlInsRangeStart', 'customXmlInsRangeEnd',
+  'customXmlMoveFromRangeStart', 'customXmlMoveFromRangeEnd',
+  'customXmlMoveToRangeStart', 'customXmlMoveToRangeEnd',
+]);
+
+/** Tracked-change wrappers whose content is kept: the wrapper is unwrapped. */
+const TRACKED_UNWRAP = new Set(['ins', 'moveTo']);
+
+/**
+ * Accept all tracked changes in one content part: remove deletions and
+ * change records, unwrap insertions. Operates on the live DOM after text
+ * replacements have been applied, so redaction offsets are unaffected.
+ */
+function acceptTrackedChangesInPart(xmlDoc: Document): void {
+  // Snapshot first: live HTMLCollections reorder while elements are removed.
+  const all = xmlDoc.getElementsByTagName('*');
+  const snapshot: Element[] = [];
+  for (let i = 0; i < all.length; i++) snapshot.push(all[i]);
+
+  for (const el of snapshot) {
+    if (el.namespaceURI !== W_NS) continue;
+    if (TRACKED_REMOVE.has(el.localName)) {
+      el.parentNode?.removeChild(el);
+    } else if (TRACKED_UNWRAP.has(el.localName)) {
+      const parent = el.parentNode;
+      if (!parent) continue;
+      while (el.firstChild) parent.insertBefore(el.firstChild, el);
+      parent.removeChild(el);
+    }
+  }
+}
+
+/**
  * Apply text replacements to the docx XML, preserving all formatting.
  * Takes the original extraction and a list of replacements (sorted by position),
  * and modifies the XML in-place. Also scrubs document metadata and relationship
@@ -235,25 +312,20 @@ export async function readDocx(file: File): Promise<DocxExtraction> {
 export async function writeAnonymizedDocx(
   extraction: DocxExtraction,
   replacements: Array<{ start: number; end: number; replacement: string }>,
-  valueReplacements: ValueReplacement[] = []
+  valueReplacements: ValueReplacement[] = [],
+  options: DocxWriteOptions = {}
 ): Promise<Blob> {
-  const sorted = normalizeReplacements(replacements);
-
-  // For each text node, compute what its new text should be
-  // We need to handle replacements that may span multiple <w:t> elements
-
-  // Build a map of flat-text ranges that need replacement
-  // Process from end to start to preserve positions
-  const reverseSorted = [...sorted].reverse();
-
-  for (const repl of reverseSorted) {
-    applyReplacement(extraction.textNodes, repl.start, repl.end, repl.replacement);
-  }
+  // Apply flat-text replacements to the mapped text nodes (spanning runs when
+  // needed), from end to start so positions stay valid.
+  applyTextReplacements(extraction.textNodes, replacements);
 
   // Serialize all modified XML documents back to the zip
   const serializer = new XMLSerializer();
   for (const part of extraction.contentParts) {
     sanitizeContentPartAttributes(part.xmlDoc, valueReplacements);
+    if (options.acceptTrackedChanges) {
+      acceptTrackedChangesInPart(part.xmlDoc);
+    }
     const xmlStr = serializer.serializeToString(part.xmlDoc);
     extraction.zip.file(part.path, xmlStr);
   }

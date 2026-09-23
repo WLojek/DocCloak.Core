@@ -10,3 +10,6 @@
 
 export * from './docx.ts';
 export * from './ocr.ts';
+// T110: xlsx + detection-driven office file redaction
+export * from './xlsx.ts';
+export * from './office.ts';

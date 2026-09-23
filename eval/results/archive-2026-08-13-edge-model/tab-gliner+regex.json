@@ -1,0 +1,203 @@
+{
+  "tier": "gliner+regex",
+  "generated": "2026-08-13",
+  "limit": null,
+  "dataset": "TAB echr_test",
+  "documents": 127,
+  "annotatorReferences": 555,
+  "goldMentions": 20809,
+  "predictions": 14540,
+  "recall": {
+    "maskingStrict": {
+      "DATETIME": {
+        "hits": 7999,
+        "total": 9536,
+        "ratio": 0.8388213087248322
+      },
+      "PERSON": {
+        "hits": 3835,
+        "total": 4138,
+        "ratio": 0.9267762203963267
+      },
+      "ORG": {
+        "hits": 644,
+        "total": 1946,
+        "ratio": 0.33093525179856115
+      },
+      "CODE": {
+        "hits": 657,
+        "total": 1612,
+        "ratio": 0.4075682382133995
+      },
+      "LOC": {
+        "hits": 1158,
+        "total": 1459,
+        "ratio": 0.7936943111720356
+      },
+      "DEM": {
+        "hits": 152,
+        "total": 917,
+        "ratio": 0.16575790621592149
+      },
+      "QUANTITY": {
+        "hits": 164,
+        "total": 664,
+        "ratio": 0.2469879518072289
+      },
+      "MISC": {
+        "hits": 104,
+        "total": 537,
+        "ratio": 0.19366852886405958
+      }
+    },
+    "maskingLenient": {
+      "DATETIME": {
+        "hits": 8949,
+        "total": 9536,
+        "ratio": 0.9384437919463087
+      },
+      "PERSON": {
+        "hits": 4007,
+        "total": 4138,
+        "ratio": 0.9683421942967617
+      },
+      "ORG": {
+        "hits": 1379,
+        "total": 1946,
+        "ratio": 0.7086330935251799
+      },
+      "CODE": {
+        "hits": 1534,
+        "total": 1612,
+        "ratio": 0.9516129032258065
+      },
+      "LOC": {
+        "hits": 1362,
+        "total": 1459,
+        "ratio": 0.9335161069225497
+      },
+      "DEM": {
+        "hits": 205,
+        "total": 917,
+        "ratio": 0.22355507088331517
+      },
+      "QUANTITY": {
+        "hits": 348,
+        "total": 664,
+        "ratio": 0.5240963855421686
+      },
+      "MISC": {
+        "hits": 246,
+        "total": 537,
+        "ratio": 0.4581005586592179
+      }
+    },
+    "typeAwareStrict": {
+      "DATETIME": {
+        "hits": 7153,
+        "total": 9536,
+        "ratio": 0.7501048657718121
+      },
+      "PERSON": {
+        "hits": 3599,
+        "total": 4138,
+        "ratio": 0.8697438376027066
+      },
+      "ORG": {
+        "hits": 346,
+        "total": 1946,
+        "ratio": 0.1778006166495375
+      },
+      "CODE": {
+        "hits": 1,
+        "total": 1612,
+        "ratio": 0.0006203473945409429
+      },
+      "LOC": {
+        "hits": 1147,
+        "total": 1459,
+        "ratio": 0.7861549006168609
+      },
+      "DEM": {
+        "hits": 0,
+        "total": 917,
+        "ratio": 0
+      },
+      "QUANTITY": {
+        "hits": 135,
+        "total": 664,
+        "ratio": 0.2033132530120482
+      },
+      "MISC": {
+        "hits": 0,
+        "total": 537,
+        "ratio": 0
+      }
+    },
+    "byIdentifierType": {
+      "QUASI": {
+        "hits": 13480,
+        "total": 19197,
+        "ratio": 0.7021930509975517
+      },
+      "DIRECT": {
+        "hits": 1233,
+        "total": 1612,
+        "ratio": 0.7648883374689827
+      }
+    },
+    "overallMaskingStrict": 0.707049834206353,
+    "overallMaskingLenient": 0.8664520159546351,
+    "overallAttemptedMaskingStrict": 0.7646995880370232
+  },
+  "precision": {
+    "masking": 0.3817056396148556,
+    "maskingHits": 5550,
+    "total": 14540,
+    "overMaskingShare": 0.10371389270976616,
+    "spuriousShare": 0.5145804676753782,
+    "byPredictedType": {
+      "ADDRESS": {
+        "hits": 1876,
+        "total": 8710,
+        "ratio": 0.2153846153846154
+      },
+      "PERSON": {
+        "hits": 1009,
+        "total": 2580,
+        "ratio": 0.39108527131782944
+      },
+      "DATE": {
+        "hits": 2159,
+        "total": 2223,
+        "ratio": 0.9712100764732343
+      },
+      "COMPANY": {
+        "hits": 217,
+        "total": 560,
+        "ratio": 0.3875
+      },
+      "PHONE": {
+        "hits": 173,
+        "total": 174,
+        "ratio": 0.9942528735632183
+      },
+      "SSN": {
+        "hits": 20,
+        "total": 172,
+        "ratio": 0.11627906976744186
+      },
+      "CURRENCY": {
+        "hits": 76,
+        "total": 80,
+        "ratio": 0.95
+      },
+      "IBAN": {
+        "hits": 20,
+        "total": 41,
+        "ratio": 0.4878048780487805
+      }
+    }
+  },
+  "f1MaskingStrict": 0.4957677195561601
+}

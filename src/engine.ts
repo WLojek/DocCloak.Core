@@ -18,12 +18,13 @@ import type { CoreEnv, HardwareHints } from './env.ts';
 import type { DetectedEntity, DetectionProvider } from './types.ts';
 import { detectWithRegex, detectEntities } from './pipeline.ts';
 import { GlinerProvider } from './providers/gliner.ts';
+import { GlinerBaseProvider } from './providers/gliner-base.ts';
 import { BardsaiProvider } from './providers/bardsai.ts';
 import { REGEX_REGIONS, type RegexRegionId } from './regex/index.ts';
 
 // ── Provider registry ──────────────────────────────────────
 
-export type ProviderId = 'gliner' | 'bardsai';
+export type ProviderId = 'gliner' | 'gliner-base' | 'bardsai';
 
 export interface ProviderEntry {
   id: ProviderId;
@@ -35,13 +36,18 @@ export interface ProviderEntry {
 export const PROVIDERS: ProviderEntry[] = [
   {
     id: 'gliner',
-    label: 'GLiNER PII Edge',
-    description: 'Lightweight, multi-language, supports custom labels (~65 MB)',
+    label: 'GLiNER PII Small',
+    description: 'Lightweight, multi-language, supports custom labels (~83 MB)',
+  },
+  {
+    id: 'gliner-base',
+    label: 'GLiNER PII Base',
+    description: 'May be better for English and dates, supports custom labels (~197 MB)',
   },
   {
     id: 'bardsai',
     label: 'BardS.ai EU PII',
-    description: '24 EU languages, 35 PII types, high accuracy (~279 MB)',
+    description: 'Best multilingual accuracy, 24+ EU languages, 35 PII types (~279 MB)',
   },
 ];
 
@@ -109,14 +115,21 @@ export function clampThreshold(value: number): number {
 
 /**
  * Default-model heuristic for devices without a saved provider choice.
- * The BardS.ai model (~279 MB download, ~500+ MB peak RAM while loading)
- * routinely gets the tab killed on mobile browsers, so constrained devices
- * default to the lightweight GLiNER model (~65 MB). Hosts feed the hints
- * (userAgent/deviceMemory sniffing stays host-side).
+ * Large models (~200-500+ MB peak RAM while loading) routinely get the tab
+ * killed on mobile browsers, so constrained devices default to the
+ * lightweight GLiNER Small model (~83 MB). Desktop-class devices default
+ * to GLiNER PII Base (~197 MB, higher accuracy, zero-shot custom labels;
+ * T122 - previously BardS.ai, which stays selectable as legacy). A saved
+ * provider choice always wins over this heuristic (existing behavior).
+ * Hosts feed the hints (userAgent/deviceMemory sniffing stays host-side).
  */
 export function pickDefaultProvider(hardware?: HardwareHints): ProviderId {
   if (hardware?.isMobile) return 'gliner';
   if (typeof hardware?.deviceMemoryGB === 'number' && hardware.deviceMemoryGB <= 4) return 'gliner';
+  // T127: the 2026-08 benchmark (documentation/model-comparison-2026-08.md)
+  // showed bardsai is the strongest and most uniform across languages, so it
+  // is the capable-device default again; gliner-base stays selectable as the
+  // English/dates/custom-labels alternative.
   return 'bardsai';
 }
 
@@ -146,6 +159,7 @@ export function createEngine(
 ): DocCloakEngine {
   const factories: Record<ProviderId, ProviderFactory> = {
     gliner: (e) => new GlinerProvider(e),
+    'gliner-base': (e) => new GlinerBaseProvider(e),
     bardsai: (e) => new BardsaiProvider(e),
     ...options?.providers,
   };

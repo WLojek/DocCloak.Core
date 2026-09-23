@@ -7,7 +7,8 @@
  *   npm run bench -- --dataset pupa_new --tier gliner --limit 50
  *
  * Datasets: tab | pupa_tnb | pupa_new | all       (see eval/download.mjs)
- * Tiers:    regex | gliner | bardsai | gliner+regex | bardsai+regex | all
+ * Tiers:    regex | gliner | gliner-base | bardsai | gliner+regex |
+ *           gliner-base+regex | bardsai+regex | all
  *
  * Each tier reproduces exactly what the product does: the ML provider's
  * detect() output (product default threshold) and/or detectWithRegex(text,
@@ -37,16 +38,19 @@ const DATA = join(HERE, 'data');
 const CACHE = join(DATA, 'cache');
 const RESULTS = join(HERE, 'results');
 
-type Detector = 'regex' | 'gliner' | 'bardsai';
-type Tier = 'regex' | 'gliner' | 'bardsai' | 'gliner+regex' | 'bardsai+regex';
-const ALL_TIERS: Tier[] = ['regex', 'gliner', 'bardsai', 'gliner+regex', 'bardsai+regex'];
+type Detector = 'regex' | 'gliner' | 'gliner-base' | 'bardsai';
+type Tier = 'regex' | 'gliner' | 'gliner-base' | 'bardsai' | 'gliner+regex' | 'gliner-base+regex' | 'bardsai+regex';
+const ALL_TIERS: Tier[] = ['regex', 'gliner', 'gliner-base', 'bardsai', 'gliner+regex', 'gliner-base+regex', 'bardsai+regex'];
 type DatasetId = 'tab' | 'pupa_tnb' | 'pupa_new';
 const ALL_DATASETS: DatasetId[] = ['tab', 'pupa_tnb', 'pupa_new'];
 
 /** ML detector a tier uses (null = rules only) + whether the regex tier is on. */
 function tierParts(tier: Tier): { ml: Exclude<Detector, 'regex'> | null; regex: boolean } {
   return {
-    ml: tier.startsWith('gliner') ? 'gliner' : tier.startsWith('bardsai') ? 'bardsai' : null,
+    ml: tier.startsWith('gliner-base') ? 'gliner-base'
+      : tier.startsWith('gliner') ? 'gliner'
+      : tier.startsWith('bardsai') ? 'bardsai'
+      : null,
     regex: tier === 'regex' || tier.endsWith('+regex'),
   };
 }
@@ -76,14 +80,13 @@ const env = createNodeEvalEnv();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const providers: Record<string, any> = {};
 
-async function getProvider(id: 'gliner' | 'bardsai') {
+async function getProvider(id: 'gliner' | 'gliner-base' | 'bardsai') {
   if (!providers[id]) {
-    const mod = id === 'gliner'
-      ? await import('../src/providers/gliner.ts')
-      : await import('../src/providers/bardsai.ts');
     const Ctor = id === 'gliner'
-      ? (mod as typeof import('../src/providers/gliner.ts')).GlinerProvider
-      : (mod as typeof import('../src/providers/bardsai.ts')).BardsaiProvider;
+      ? (await import('../src/providers/gliner.ts')).GlinerProvider
+      : id === 'gliner-base'
+        ? (await import('../src/providers/gliner-base.ts')).GlinerBaseProvider
+        : (await import('../src/providers/bardsai.ts')).BardsaiProvider;
     const p = new Ctor(env);
     let lastPct = -1;
     p.onProgress((d: number, t: number) => {

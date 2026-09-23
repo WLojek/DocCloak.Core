@@ -11,7 +11,10 @@
  * import.meta, caches, navigator or @huggingface/transformers directly.
  */
 
-import * as ort from 'onnxruntime-web';
+// ort 1.29: the /webgpu entry is the non-deprecated build (native WebGPU EP +
+// wasm fallback, asyncify binary). The bare entry resolves the deprecated JSEP
+// bundle whose wasm exceeds Cloudflare Pages' 25 MiB per-file limit.
+import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
 import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
@@ -256,13 +259,11 @@ export class BardsaiProvider implements DetectionProvider {
 
     if (words.length === 0) return [];
 
-    // Tokenize full text once to count subtokens per word via ▁ prefix
+    // Tokenize full text once to count subtokens per word via ▁ prefix.
+    // transformers.js 4.x removed tokenizer.model.convert_ids_to_tokens;
+    // tokenize() returns the same SentencePiece token strings directly.
     onProgress?.(0);
-    const fullEncoded = await this.tokenizer(words.map((w) => w.word).join(' '), {
-      add_special_tokens: false,
-    });
-    const tokenIds = Array.from(fullEncoded.input_ids.data as BigInt64Array);
-    const tokenStrings: string[] = this.tokenizer.model.convert_ids_to_tokens(tokenIds.map(Number));
+    const tokenStrings: string[] = this.tokenizer.tokenize(words.map((w) => w.word).join(' '));
 
     // Count subtokens per word: ▁ prefix marks word boundaries (SentencePiece)
     const subtokenCounts: number[] = [];
@@ -349,17 +350,15 @@ export class BardsaiProvider implements DetectionProvider {
     const seqLen = encoded.input_ids.dims[1];
 
     // Build word→subtoken alignment via ▁ prefix (no per-word tokenization needed)
-    const chunkTokenIds = Array.from(inputIds);
-    const chunkTokenStrings: string[] = this.tokenizer.model.convert_ids_to_tokens(
-      chunkTokenIds.map(Number),
-    );
+    // transformers.js 4.x removed tokenizer.model.convert_ids_to_tokens;
+    // tokenize() returns the token strings without specials, so positions are
+    // offset by 1 for the leading <s> in the encoded sequence and the seqLen
+    // guard stops at the truncation boundary.
+    const chunkTokenStrings: string[] = this.tokenizer.tokenize(chunkText);
     const wordSubtokenStart: number[] = [];
-    // Skip <s> at position 0; first real token at position 1
-    for (let t = 1; t < seqLen - 1; t++) {
-      const tok = chunkTokenStrings[t];
-      if (!tok || tok === '</s>') break;
-      if (tok.startsWith('\u2581')) {
-        wordSubtokenStart.push(t);
+    for (let i = 0; i < chunkTokenStrings.length && i + 1 < seqLen - 1; i++) {
+      if (chunkTokenStrings[i].startsWith('\u2581')) {
+        wordSubtokenStart.push(i + 1);
       }
     }
 
