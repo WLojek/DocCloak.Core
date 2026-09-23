@@ -51,9 +51,9 @@ describe('AnonymizationSession.importEntries (T106)', () => {
     session.importEntries([
       { original: 'John Smith', replacement: '[PERSON_1]', entityType: 'PERSON' },
     ]);
-    expect(session.anonymize('John', 'PERSON')).toBe('[PERSON_1]');
-    // The longest variant stays canonical for restore.
-    expect(session.deanonymize('Dear [PERSON_1],')).toBe('Dear John Smith,');
+    // T171: the variant joins the imported group with its own token.
+    expect(session.anonymize('John', 'PERSON')).toBe('[PERSON_1_FIRST]');
+    expect(session.deanonymize('Dear [PERSON_1], hi [PERSON_1_FIRST]')).toBe('Dear John Smith, hi John');
   });
 
   it('keeps the longest original canonical regardless of entry order', () => {

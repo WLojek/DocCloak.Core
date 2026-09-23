@@ -4,6 +4,47 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-09-23
+
+### Changed
+
+- **Variant-faithful restore (T171):** person variants still share one
+  identity, but every distinct variant now gets its own token, so
+  `deanonymize` writes back exactly what was there instead of the longest
+  known form. In labeled mode the token keeps the group's number and adds
+  a positional suffix: `[PERSON_2]` for "John Smith", `[PERSON_2_LAST]`
+  for "Smith", `[PERSON_2_FIRST]` for "John", `_MIDDLE` / `_SHORT` /
+  `_FULL` / `_ALT` for the other shapes, with a counter on collisions
+  (`[PERSON_2_LAST_2]` for "smith"). In surrogate mode a variant that is a
+  strict part of the canonical name takes the matching words of the
+  surrogate with the variant's casing ("Smith" -> "Nowak", "smith" ->
+  "nowak"); fuller forms and reshaped surrogates fall back to the group
+  surrogate as before. Blanked mode is unchanged. The tolerant restore
+  pass resolves mangled variant tokens like any other.
+- **PERSON pre-pass in `anonymizeText`:** people are mapped before other
+  entities, fullest name first and then in reading order, so a variant
+  group always forms around the full name and several people are numbered
+  in the order they appear (`[PERSON_1]` is now the first person in the
+  text; other entity types keep their historical numbering order).
+- **`renameLabel` returns the applied `[oldLabel, newLabel]` pairs** (was
+  `void`). Renaming a group's base token re-derives its variant tokens
+  (`[PERSON_1]` -> `[CLIENT]` takes `[PERSON_1_LAST]` to `[CLIENT_LAST]`);
+  renaming a variant token renames only that token and detaches it from
+  the group.
+- `deserialize` / `importEntries` re-link variant tokens to their base and
+  keep legacy many-to-one maps restoring the longest variant.
+
+### Fixed
+
+- **Office value scrubbing applies longer values first and sees URL-encoded
+  forms:** hyperlink targets, field instructions and formula literals in
+  .docx / .xlsx exports are scrubbed with the longest sensitive value first,
+  so a name variant listed before the full name ("Kowalski" before
+  "Jan Kowalski") no longer leaves "Jan" behind. External relationship
+  targets also match the percent-encoded form of each value, so
+  "Jan%20Kowalski" in a link is removed as a whole. `.docx` and `.xlsx`
+  writers now share one `replaceSensitiveValues` implementation.
+
 ## [0.10.0] - 2026-09-23
 
 ### Added

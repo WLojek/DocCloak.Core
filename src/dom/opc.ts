@@ -38,6 +38,12 @@ export function blankElementsByLocalName(doc: Document, names: Set<string>): voi
 /**
  * Replace every occurrence of each sensitive value (case-insensitive) in a
  * string. A replacer function keeps '$' sequences in values/placeholders inert.
+ *
+ * Longer values are applied first so a name variant ("Kowalski") can never
+ * pre-empt the fuller form it is part of ("Jan Kowalski") and leave the rest
+ * of it behind. When the input is a URL (urlEncode), the percent-encoded form
+ * of each value is matched too, so "Jan%20Kowalski" in a hyperlink target is
+ * scrubbed as a whole.
  */
 export function replaceSensitiveValues(
   input: string,
@@ -45,11 +51,18 @@ export function replaceSensitiveValues(
   urlEncode: boolean
 ): string {
   let result = input;
-  for (const { value, replacement } of valueReplacements) {
-    if (!value) continue;
-    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const ordered = [...valueReplacements]
+    .filter(({ value }) => value)
+    .sort((a, b) => b.value.length - a.value.length);
+  for (const { value, replacement } of ordered) {
+    const forms = [value];
+    if (urlEncode) {
+      const encoded = encodeURIComponent(value);
+      if (encoded !== value) forms.push(encoded);
+    }
+    const pattern = forms.map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
     const substitute = urlEncode ? encodeURIComponent(replacement) : replacement;
-    result = result.replace(new RegExp(escaped, 'gi'), () => substitute);
+    result = result.replace(new RegExp(pattern, 'gi'), () => substitute);
   }
   return result;
 }

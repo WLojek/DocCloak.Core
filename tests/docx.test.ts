@@ -76,6 +76,7 @@ function buildDocx(): JSZip {
   zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="${REL}">
   <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="mailto:jane@acme.com" TargetMode="External"/>
+  <Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://crm.example/Jan%20Kowalski" TargetMode="External"/>
   <Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate" Target="file:///C:/Users/realuser/Templates/secret.dotm" TargetMode="External"/>
 </Relationships>`);
   zip.file('word/settings.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -225,6 +226,22 @@ describe('writeAnonymizedDocx', () => {
     expect(rels).not.toContain('jane@acme.com');
     expect(rels).not.toContain('attachedTemplate');
     expect(rels).not.toContain('realuser');
+  });
+
+  it('scrubs a full name from an encoded hyperlink target even when its variant is listed first', async () => {
+    const extraction = await readDocx(await zipToFile(buildDocx()));
+    // Mirrors the web app: value pairs arrive in detection order, so the
+    // shorter variant can precede the full name it is part of.
+    const valueReplacements = [
+      { value: 'Kowalski', replacement: '[PERSON_1_LAST]' },
+      { value: 'Jan Kowalski', replacement: '[PERSON_1]' },
+    ];
+    const blob = await writeAnonymizedDocx(extraction, [], valueReplacements);
+    const outZip = await JSZip.loadAsync(await blobToArrayBuffer(blob));
+    const rels = await outZip.file('word/_rels/document.xml.rels')!.async('string');
+    expect(rels).not.toContain('Jan');
+    expect(rels).not.toMatch(/Kowalski/i);
+    expect(rels).toContain('https://crm.example/%5BPERSON_1%5D');
   });
 
   it('removes mail merge sources, rsids and the thumbnail', async () => {

@@ -53,6 +53,58 @@ function isPersonVariant(a: string, b: string): boolean {
 }
 
 /**
+ * Variant suffix (T171): where a person variant sits inside the reference
+ * name. A single token at the reference's first/last position is a first
+ * name / surname; a single token elsewhere is a middle name; several tokens
+ * are a shortened form; a variant with MORE tokens than the reference is the
+ * fuller form. Suffixes are stable uppercase ASCII so the resulting token
+ * ([PERSON_2_LAST]) stays inside the tolerant-restore candidate shape.
+ */
+function variantSuffix(variant: string, reference: string): string {
+  const vt = personTokens(variant);
+  const rt = personTokens(reference);
+  if (vt.length > rt.length) return 'FULL';
+  if (vt.length === rt.length) return 'ALT';
+  if (vt.length === 1) {
+    const idx = rt.indexOf(vt[0]);
+    if (idx === 0) return 'FIRST';
+    if (idx === rt.length - 1) return 'LAST';
+    return 'MIDDLE';
+  }
+  return 'SHORT';
+}
+
+/** Whether every person token of `a` occurs in `b`. */
+function isTokenSubset(a: string, b: string): boolean {
+  const tb = personTokens(b);
+  const ta = personTokens(a);
+  return ta.length > 0 && ta.every((t) => tb.includes(t));
+}
+
+/**
+ * A variant token derived from its base token: the suffix goes inside the
+ * closing bracket ("[PERSON_2]" -> "[PERSON_2_LAST]"); a renamed label
+ * without brackets gets a plain underscore suffix.
+ */
+function withVariantSuffix(base: string, suffix: string): string {
+  return base.endsWith(']') ? `${base.slice(0, -1)}_${suffix}]` : `${base}_${suffix}`;
+}
+
+/** Variant token shape, for re-linking deserialized maps (T171). */
+const VARIANT_TOKEN_RE = /^(\[.+?)_(FIRST|LAST|MIDDLE|SHORT|FULL|ALT)(?:_(\d+))?\]$/;
+
+/**
+ * Apply the case pattern of `sample` to `word` (T171 surrogate variants):
+ * an all-lowercase "smith" maps to "nowak", an all-uppercase "SMITH" to
+ * "NOWAK"; anything else keeps the surrogate's own casing.
+ */
+function matchCase(word: string, sample: string): string {
+  if (sample === sample.toLowerCase() && sample !== sample.toUpperCase()) return word.toLowerCase();
+  if (sample === sample.toUpperCase() && sample !== sample.toLowerCase()) return word.toUpperCase();
+  return word;
+}
+
+/**
  * Typed placeholder token, e.g. "[PERSON_1]" or "[CREDIT_CARD_2]".
  * EntityType ids are stable uppercase ASCII ([A-Z_]), so generated tokens
  * always match the candidate pattern `\[[A-Z_]+_\d+\]`.
@@ -73,6 +125,11 @@ export class AnonymizationSession {
   private reverseMap = new Map<string, string>();
   private entityTypeMap = new Map<string, EntityType>();
   private typeCounters = new Map<string, number>();
+  /**
+   * Variant token -> its group's base token and suffix (T171), so renaming
+   * the base re-derives its variants and deserialized maps re-link.
+   */
+  private variantOf = new Map<string, { base: string; suffix: string }>();
   private mode: ReplacementMode;
   /** Surrogate-mode salt (T043); constant for the session's lifetime. */
   private salt: string;
@@ -155,23 +212,31 @@ export class AnonymizationSession {
       return this.forwardMap.get(original)!;
     }
     // T057 person-variant unification: "John Smith", "John" and "Smith"
-    // in one session are the same person and share one replacement (in
-    // every mode - the variant simply reuses the matched value's
-    // placeholder/surrogate). The reverse map keeps the LONGEST variant,
-    // so restore always yields the fullest known form.
+    // in one session are the same person and share one identity. T171
+    // makes restore exact: every distinct variant gets its OWN token that
+    // keeps the group's number ([PERSON_2] / [PERSON_2_LAST]) or, in
+    // surrogate mode, the matching part of the group's surrogate ("Nowak"
+    // for "Smith" when "John Smith" became "Adam Nowak"), so the reverse map
+    // stays one-to-one and restore writes back exactly what was there.
     if (entityType === 'PERSON') {
       const match = this.findPersonVariant(original);
       if (match) {
-        const placeholder = this.forwardMap.get(match)!;
-        this.forwardMap.set(original, placeholder);
+        const token = this.mode === 'blanked'
+          ? '________'
+          : this.mode === 'surrogate'
+            ? this.variantSurrogate(original, match)
+            : this.variantPlaceholder(original, match);
+        this.forwardMap.set(original, token);
         this.entityTypeMap.set(original, entityType);
         if (this.mode !== 'blanked') {
-          const canonical = this.reverseMap.get(placeholder);
+          // Token-mapping can legitimately fall back to reusing the group's
+          // surrogate; then the longest original stays canonical (T057).
+          const canonical = this.reverseMap.get(token);
           if (canonical === undefined || original.length > canonical.length) {
-            this.reverseMap.set(placeholder, original);
+            this.reverseMap.set(token, original);
           }
         }
-        return placeholder;
+        return token;
       }
     }
     const placeholder = this.mode === 'blanked'
@@ -187,6 +252,66 @@ export class AnonymizationSession {
     }
     this.entityTypeMap.set(original, entityType);
     return placeholder;
+  }
+
+  /**
+   * The group a mapped value belongs to (T171): its base token and the
+   * canonical original that token restores to.
+   */
+  private variantGroup(match: string): { base: string; canonical: string } {
+    const matchedToken = this.forwardMap.get(match)!;
+    const base = this.variantOf.get(matchedToken)?.base ?? matchedToken;
+    return { base, canonical: this.reverseMap.get(base) ?? match };
+  }
+
+  /**
+   * Labeled-mode variant token (T171): the group's base token plus a
+   * positional suffix, computed against the group's canonical name when
+   * the variant is part of it, else against the value it matched. Distinct
+   * originals never share a token: a suffix already in use gets a counter
+   * ("Smith" -> [PERSON_2_LAST], "smith" -> [PERSON_2_LAST_2]).
+   */
+  private variantPlaceholder(original: string, match: string): string {
+    const { base, canonical } = this.variantGroup(match);
+    const reference = isTokenSubset(original, canonical) ? canonical : match;
+    const suffix = variantSuffix(original, reference);
+    let token = withVariantSuffix(base, suffix);
+    for (let n = 2; this.reverseMap.has(token); n++) {
+      token = withVariantSuffix(base, `${suffix}_${n}`);
+    }
+    this.variantOf.set(token, { base, suffix });
+    return token;
+  }
+
+  /**
+   * Surrogate-mode variant (T171): when the variant is a strict part of the
+   * group's canonical name and the surrogate has the same word count, take
+   * the surrogate words at the same positions with the variant's casing.
+   * Anything else (fuller forms, reshaped surrogates, a collision with an
+   * existing value) falls back to the group's surrogate as before.
+   */
+  private variantSurrogate(original: string, match: string): string {
+    const { base, canonical } = this.variantGroup(match);
+    const canonicalWords = canonical.split(/\s+/).filter(Boolean);
+    const surrogateWords = base.split(/\s+/).filter(Boolean);
+    const canonicalTokens = personTokens(canonical);
+    const variantWords = original.split(/\s+/).filter(Boolean);
+    const variantTokens = personTokens(original);
+    const shapesAlign = canonicalWords.length === surrogateWords.length
+      && canonicalTokens.length === canonicalWords.length
+      && variantTokens.length === variantWords.length
+      && variantTokens.length < canonicalTokens.length
+      && variantTokens.every((t) => canonicalTokens.includes(t));
+    if (!shapesAlign) return base;
+    const mapped = variantWords
+      .map((word, i) => matchCase(surrogateWords[canonicalTokens.indexOf(variantTokens[i])], word))
+      .join(' ');
+    const taken = mapped === original
+      || this.forwardMap.has(mapped)
+      || (this.reverseMap.has(mapped) && this.reverseMap.get(mapped) !== original);
+    if (taken) return base;
+    this.variantOf.set(mapped, { base, suffix: '' });
+    return mapped;
   }
 
   deanonymize(text: string): string {
@@ -237,16 +362,20 @@ export class AnonymizationSession {
   }
 
   anonymizeText(text: string, entities: DetectedEntity[]): string {
-    // Surrogate mode (T043): map PERSON entities first, in reading order,
-    // so an email appearing before/after its owner in the text can derive
-    // its local part from the person's surrogate (jan.kowalski maps to
-    // adam.nowak style). anonymize() is idempotent per value, so the
-    // replacement pass below reuses these mappings. Labeled mode keeps its
-    // historical end-to-start issuing order (placeholder numbering).
-    if (this.mode === 'surrogate') {
-      for (const entity of [...entities].sort((a, b) => a.start - b.start)) {
-        if (entity.type === 'PERSON') this.anonymize(entity.value, entity.type);
-      }
+    // PERSON pre-pass: map people before anything else so that (T171) each
+    // variant group forms around its FULLEST name - "John Smith" is the
+    // base and "Smith" / "smith" hang off it, whatever order they appear in
+    // - and so that (T043) an email appearing before/after its owner can
+    // derive its local part from the person's surrogate (jan.kowalski maps
+    // to adam.nowak style). Fullest name first, then reading order.
+    // anonymize() is idempotent per value, so the replacement pass below
+    // reuses these mappings; other types keep the historical end-to-start
+    // issuing order (placeholder numbering).
+    if (this.mode !== 'blanked') {
+      const people = entities
+        .filter((e) => e.type === 'PERSON')
+        .sort((a, b) => personTokens(b.value).length - personTokens(a.value).length || a.start - b.start);
+      for (const entity of people) this.anonymize(entity.value, entity.type);
     }
     // Sort entities by position (end to start) to preserve indices during replacement
     const sorted = [...entities].sort((a, b) => b.start - a.start);
@@ -275,17 +404,47 @@ export class AnonymizationSession {
     return this.forwardMap.get(original);
   }
 
-  renameLabel(original: string, newLabel: string): void {
+  /**
+   * Rename the label of a mapped value. Renaming a group's base token
+   * (T171) re-derives every variant token from the new label
+   * ([PERSON_1] -> [CLIENT] takes [PERSON_1_LAST] to [CLIENT_LAST]);
+   * renaming a variant token renames only that token and detaches it from
+   * the group, so a later base rename does not overwrite the user's choice.
+   * Returns every [oldLabel, newLabel] pair applied, so hosts can update
+   * already-rendered text without re-anonymizing.
+   */
+  renameLabel(original: string, newLabel: string): Array<[string, string]> {
     const oldLabel = this.forwardMap.get(original);
-    if (!oldLabel) return;
-    // T057: variants share one label; renaming any of them renames the
-    // whole group, and the canonical restore value carries over.
-    const canonical = this.reverseMap.get(oldLabel) ?? original;
-    for (const [orig, label] of this.forwardMap) {
-      if (label === oldLabel) this.forwardMap.set(orig, newLabel);
+    if (!oldLabel || oldLabel === newLabel) return [];
+    const pairs: Array<[string, string]> = [];
+    const rename = (from: string, to: string) => {
+      // Every original sharing the label (legacy many-to-one maps) moves
+      // with it, and the canonical restore value carries over.
+      const canonical = this.reverseMap.get(from);
+      for (const [orig, label] of this.forwardMap) {
+        if (label === from) this.forwardMap.set(orig, to);
+      }
+      this.reverseMap.delete(from);
+      if (canonical !== undefined) this.reverseMap.set(to, canonical);
+      pairs.push([from, to]);
+    };
+    if (this.variantOf.has(oldLabel)) {
+      this.variantOf.delete(oldLabel);
+      rename(oldLabel, newLabel);
+      return pairs;
     }
-    this.reverseMap.delete(oldLabel);
-    this.reverseMap.set(newLabel, canonical);
+    rename(oldLabel, newLabel);
+    for (const [token, info] of [...this.variantOf]) {
+      if (info.base !== oldLabel) continue;
+      let next = withVariantSuffix(newLabel, info.suffix);
+      for (let n = 2; this.reverseMap.has(next) || next === newLabel; n++) {
+        next = withVariantSuffix(newLabel, `${info.suffix}_${n}`);
+      }
+      this.variantOf.delete(token);
+      this.variantOf.set(next, { base: newLabel, suffix: info.suffix });
+      rename(token, next);
+    }
+    return pairs;
   }
 
   /**
@@ -369,11 +528,22 @@ export class AnonymizationSession {
         }
       }
       this.entityTypeMap.set(entry.original, entry.entityType);
+      // T171 variant tokens ([PERSON_1_LAST], [PERSON_1_LAST_2]) carry no
+      // counter of their own; they re-link to their base below.
+      if (VARIANT_TOKEN_RE.test(entry.replacement)) continue;
       const match = TYPED_PLACEHOLDER_RE.exec(entry.replacement);
       if (match) {
         const [, type, num] = match;
         const current = this.typeCounters.get(type) ?? 0;
         this.typeCounters.set(type, Math.max(current, Number(num)));
+      }
+    }
+    for (const entry of entries) {
+      const variant = VARIANT_TOKEN_RE.exec(entry.replacement);
+      if (!variant) continue;
+      const base = `${variant[1]}]`;
+      if (this.reverseMap.has(base)) {
+        this.variantOf.set(entry.replacement, { base, suffix: variant[2] });
       }
     }
   }
@@ -428,5 +598,6 @@ export class AnonymizationSession {
     this.reverseMap.clear();
     this.entityTypeMap.clear();
     this.typeCounters.clear();
+    this.variantOf.clear();
   }
 }

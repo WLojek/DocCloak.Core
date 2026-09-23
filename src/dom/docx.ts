@@ -10,6 +10,7 @@
 import JSZip from 'jszip';
 import { normalizeReplacements } from '../docx.ts';
 import type { ValueReplacement } from '../docx.ts';
+import { replaceSensitiveValues } from './opc.ts';
 
 export { normalizeReplacements };
 export type { ValueReplacement };
@@ -353,7 +354,7 @@ function sanitizeContentPartAttributes(xmlDoc: Document, valueReplacements: Valu
       } else if (attr.localName === 'initials') {
         attr.value = 'R';
       } else if (attr.localName === 'instr') {
-        attr.value = replaceValues(attr.value, valueReplacements, false);
+        attr.value = replaceSensitiveValues(attr.value, valueReplacements, false);
       }
     }
     if (el.localName === 'docPr' || el.localName === 'cNvPr') {
@@ -362,21 +363,6 @@ function sanitizeContentPartAttributes(xmlDoc: Document, valueReplacements: Valu
       if (el.hasAttribute('name')) el.setAttribute('name', 'Object');
     }
   }
-}
-
-/**
- * Replace every occurrence of each sensitive value (case-insensitive) in a string.
- * Uses a replacer function so '$' sequences in values or placeholders are inert.
- */
-function replaceValues(input: string, valueReplacements: ValueReplacement[], urlEncode: boolean): string {
-  let result = input;
-  for (const { value, replacement } of valueReplacements) {
-    if (!value) continue;
-    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const substitute = urlEncode ? encodeURIComponent(replacement) : replacement;
-    result = result.replace(new RegExp(escaped, 'gi'), () => substitute);
-  }
-  return result;
 }
 
 /**
@@ -482,7 +468,7 @@ async function sanitizeDocxMetadata(zip: JSZip, valueReplacements: ValueReplacem
       }
       if (rel.getAttribute('TargetMode') === 'External') {
         const target = rel.getAttribute('Target') ?? '';
-        const scrubbed = replaceValues(target, valueReplacements, true);
+        const scrubbed = replaceSensitiveValues(target, valueReplacements, true);
         if (scrubbed !== target) rel.setAttribute('Target', scrubbed);
       }
     }

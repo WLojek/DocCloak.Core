@@ -120,8 +120,10 @@ describe('AnonymizationSession', () => {
       find('2024-06-15', 'DATE'),
     ];
     const redacted = session.anonymizeText(text, entities);
+    // T171: people are numbered in reading order (PERSON pre-pass); other
+    // types keep the historical end-to-start issuing order.
     expect(redacted).toBe(
-      '[PERSON_2] and [PERSON_1] met on [DATE_2]. ' +
+      '[PERSON_1] and [PERSON_2] met on [DATE_2]. ' +
         'Write to [EMAIL_2] or [EMAIL_1] before [DATE_1].'
     );
     expect(session.deanonymize(redacted)).toBe(text);
