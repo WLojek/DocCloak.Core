@@ -1,6 +1,6 @@
 {
   "name": "@doccloak/core",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Environment-agnostic document anonymization engine for the DocCloak ecosystem.",
   "license": "Apache-2.0",
   "author": "Witold Lojek",

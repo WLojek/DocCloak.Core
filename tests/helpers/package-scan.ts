@@ -167,8 +167,19 @@ export async function findTraces(input: PackageInput, needles: string[]): Promis
  * Throw when any needle survives anywhere in the package: every zip entry or
  * CFB stream (UTF-8, latin1, UTF-16LE), nested containers, and the raw bytes.
  */
-export async function assertNoTrace(input: PackageInput, needles: string[]): Promise<void> {
-  const traces = await findTraces(input, needles);
+export interface NoTraceOptions {
+  /**
+   * Parts the writer copies verbatim under informed consent (T177: embedded
+   * objects, macros, OLE ObjectPool streams). A trace inside such a part,
+   * or inside a container nested in it (`part!inner`), is not a failure;
+   * the suite asserts separately that the part was reported to the user.
+   */
+  exclude?: (part: string) => boolean;
+}
+
+export async function assertNoTrace(input: PackageInput, needles: string[], options: NoTraceOptions = {}): Promise<void> {
+  const all = await findTraces(input, needles);
+  const traces = options.exclude ? all.filter((t) => !options.exclude!(t.part)) : all;
   if (traces.length === 0) return;
   const lines = traces.map((t) => `  ${JSON.stringify(t.needle)} in ${JSON.stringify(t.part)} as ${t.encoding}`);
   throw new Error(`assertNoTrace: ${traces.length} trace(s) of the original survived:\n${lines.join('\n')}`);

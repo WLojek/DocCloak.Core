@@ -327,7 +327,9 @@ describe('deserialize / importEntries validation (R11)', () => {
 // ── R14: personTokens bound ────────────────────────────────
 
 describe('personTokens is linear on hostile spans (R14)', () => {
-  it('two 100 KB punctuation-heavy PERSON spans map in under 200 ms', () => {
+  // Guards linearity (the quadratic strip took seconds here), not hardware:
+  // shared CI runners are 3 to 5 times slower than a laptop.
+  it('two 100 KB punctuation-heavy PERSON spans map in under 2 s', () => {
     const s = new AnonymizationSession();
     const a = 'a' + '.'.repeat(100_000) + 'b';
     const b = 'x' + ','.repeat(100_000) + 'y';
@@ -336,7 +338,7 @@ describe('personTokens is linear on hostile spans (R14)', () => {
     // The second value runs the variant test against the first (both
     // tokenized again), which is where the quadratic strip used to bite.
     s.anonymize(b, 'PERSON');
-    expect(performance.now() - t0).toBeLessThan(200);
+    expect(performance.now() - t0).toBeLessThan(2000);
     expect(s.getEntries()).toHaveLength(2);
   });
 

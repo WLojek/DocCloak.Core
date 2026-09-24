@@ -4,6 +4,33 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.12.1] - 2026-09-24
+
+First run of the real-file corpus job (LibreOffice-generated docx, doc and
+xlsx) on CI after 0.12.0 was published. One reader/writer gap and three test
+expectations came out of it; no published API changed.
+
+### Fixed
+
+- **xlsx: identifiers stored as numbers (T176, minimal).** A PESEL, phone or
+  account number typed into a cell is a numeric `<v>`. Numbers of seven or
+  more digits are now part of the extracted text, and a replaced numeric cell
+  is written as an inline string cell without its formula, so Excel opens
+  the workbook without repair. Shorter numbers (amounts, counts, date
+  serials) are left alone.
+
+### Tests
+
+- Corpus assertions distinguish consented parts (OLE ObjectPool and Macros
+  storages in .doc reported by `inspectDoc`; embedded parts in docx/xlsx
+  reported by the readers) from the rest of the package, and account for
+  occurrences inside tracked deletions that `acceptTrackedChanges` drops.
+- A .doc whose PII sits only in frames or text boxes re-parses clean but
+  placeholder-free (the legacy writer overwrites those stories in place);
+  the suite checks for surviving needles instead of a placeholder count.
+- Timing tests guard linearity with budgets that tolerate shared CI runners.
+- Part-name inventory refreshed from the LibreOffice corpus.
+
 ## [0.12.0] - 2026-09-24
 
 Security remediation release (audit `SECURITY_REPORT-2026-09.md`, plan

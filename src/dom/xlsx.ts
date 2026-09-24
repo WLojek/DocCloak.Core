@@ -124,6 +124,42 @@ function sharedStringUnits(xmlDoc: Document): StringUnit[] {
   return units;
 }
 
+/** A cell number that can be an identifier: an integer of seven or more digits. */
+const NUMERIC_IDENTIFIER = /^[+-]?\d{7,}$/;
+/** What SpreadsheetML accepts as a numeric <v>. */
+const NUMERIC_VALUE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * After replacement, a numeric cell whose <v> no longer holds a number
+ * (it now carries a placeholder) would make Excel repair the workbook. Turn
+ * it into an inline string cell and drop its formula, which would otherwise
+ * recompute the original number (T176).
+ */
+function normalizeReplacedNumericCells(xmlDoc: Document): void {
+  for (const cell of elementsByLocalName(xmlDoc, OOXML_NS.ss, 'c')) {
+    const type = cell.getAttribute('t');
+    if (type !== null && type !== 'n') continue;
+    let v: Element | null = null;
+    let f: Element | null = null;
+    for (let c = 0; c < cell.children.length; c++) {
+      const child = cell.children[c];
+      if (isSpreadsheetEl(child, 'v')) v = child;
+      else if (isSpreadsheetEl(child, 'f')) f = child;
+    }
+    if (!v) continue;
+    const text = v.textContent ?? '';
+    if (text.length === 0 || NUMERIC_VALUE.test(text)) continue;
+    cell.setAttribute('t', 'inlineStr');
+    if (f) cell.removeChild(f);
+    const is = xmlDoc.createElementNS(cell.namespaceURI, 'is');
+    const t = xmlDoc.createElementNS(cell.namespaceURI, 't');
+    t.setAttribute('xml:space', 'preserve');
+    t.textContent = text;
+    is.appendChild(t);
+    cell.replaceChild(is, v);
+  }
+}
+
 const HEADER_FOOTER_NAMES = new Set([
   'oddHeader', 'oddFooter', 'evenHeader', 'evenFooter', 'firstHeader', 'firstFooter',
 ]);
@@ -148,6 +184,17 @@ function worksheetUnits(xmlDoc: Document): StringUnit[] {
         for (let c = 0; c < el.children.length; c++) {
           const child = el.children[c];
           if (isSpreadsheetEl(child, 'v')) units.push([child]);
+        }
+      } else if (type === null || type === 'n') {
+        // Numeric cells (T176): a PESEL, phone or account number typed into
+        // a cell is stored as a number. Values of at least seven digits are
+        // extracted so the detectors see them; a replaced cell is turned
+        // into an inline string on write (normalizeReplacedNumericCells).
+        // Shorter numbers (amounts, counts, dates as serials) are not
+        // identifiers and stay out of the text.
+        for (let c = 0; c < el.children.length; c++) {
+          const child = el.children[c];
+          if (isSpreadsheetEl(child, 'v') && NUMERIC_IDENTIFIER.test(child.textContent ?? '')) units.push([child]);
         }
       }
     } else if (HEADER_FOOTER_NAMES.has(el.localName)) {
@@ -430,6 +477,7 @@ export async function writeAnonymizedXlsxWithReport(
 
   const contentPaths = new Set<string>();
   for (const part of extraction.contentParts) {
+    if (/^xl\/worksheets\//.test(part.path)) normalizeReplacedNumericCells(part.xmlDoc);
     sanitizeXlsxPart(part.xmlDoc, valueReplacements);
     writeXmlPart(extraction.zip, part.path, part.xmlDoc);
     contentPaths.add(part.path);
