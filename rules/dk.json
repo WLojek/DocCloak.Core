@@ -31,7 +31,7 @@
     {
       "id": "regex:dk:postal-city",
       "entityType": "ADDRESS",
-      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
       "flags": "gu",
       "confidence": 0.8,
       "domains": [

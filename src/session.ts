@@ -1,6 +1,6 @@
 import type { EntityType, DetectedEntity, ReplacementEntry } from './types.ts';
 import { buildTolerantTokenIndex, resolveMangledToken } from './restore-tokens.ts';
-import { generateSessionSalt, generateUniqueSurrogate } from './surrogates.ts';
+import { generateSessionSalt, generateSurrogate } from './surrogates.ts';
 
 export * from './restore-tokens.ts';
 
@@ -23,6 +23,15 @@ export interface SessionOptions {
 }
 
 /**
+ * Edge punctuation stripped by personTokens. The run is BOUNDED (R14): an
+ * unbounded `[...]+$` backtracks from every position of a long punctuation
+ * run, which is quadratic on a hostile 100 KB span; {1,64} keeps it linear
+ * and 64 marks is more than any real name carries.
+ */
+const EDGE_PUNCTUATION_RE =
+  /^[.,;:!?()"'\u201E\u201C\u201D]{1,64}|[.,;:!?()"'\u201E\u201C\u201D]{1,64}$/g;
+
+/**
  * Person-variant tokenization (T057): lowercase word tokens with edge
  * punctuation stripped. EVERY token participates in the subset test -
  * dropping short ones would collapse "Person 1" into "Person 11".
@@ -31,7 +40,7 @@ function personTokens(value: string): string[] {
   return value
     .toLowerCase()
     .split(/\s+/)
-    .map((t) => t.replace(/^[.,;:!?()"'\u201E\u201C\u201D]+|[.,;:!?()"'\u201E\u201C\u201D]+$/g, ''))
+    .map((t) => t.replace(EDGE_PUNCTUATION_RE, ''))
     .filter((t) => t.length > 0);
 }
 
@@ -48,8 +57,23 @@ function isPersonVariant(a: string, b: string): boolean {
   const ta = personTokens(a);
   const tb = personTokens(b);
   if (ta.length === 0 || tb.length === 0) return false;
-  const [small, big] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  return small.every((t) => big.includes(t)) && small.some((t) => t.length >= 3);
+  const fits = (small: string[], big: string[]): boolean =>
+    small.every((t) => hasToken(big, t)) && small.some((t) => t.length >= 3);
+  if (ta.length < tb.length) return fits(ta, tb);
+  if (tb.length < ta.length) return fits(tb, ta);
+  // Equal counts: either side may carry the hyphen-extended surname.
+  return fits(ta, tb) || fits(tb, ta);
+}
+
+/**
+ * Whether `token` occurs among `tokens`, exactly or as one part of a
+ * hyphenated token: "nowak" is found in "Anna Nowak-Kowalska", so the
+ * double-surname form still counts as the same person once matching is
+ * restricted to group references (R5) and can no longer ride on a
+ * shorter variant. A hyphenated token itself only matches exactly.
+ */
+function hasToken(tokens: readonly string[], token: string): boolean {
+  return tokens.some((t) => t === token || (t.includes('-') && t.split('-').includes(token)));
 }
 
 /**
@@ -64,6 +88,11 @@ function variantSuffix(variant: string, reference: string): string {
   const vt = personTokens(variant);
   const rt = personTokens(reference);
   if (vt.length > rt.length) return 'FULL';
+  // Same token count but the reference fits inside a longer variant: a
+  // double surname extending the reference ("Nowak" -> "Nowak-Kowalska").
+  if (vt.length === rt.length && variant.length > reference.length && isTokenSubset(reference, variant)) {
+    return 'FULL';
+  }
   if (vt.length === rt.length) return 'ALT';
   if (vt.length === 1) {
     const idx = rt.indexOf(vt[0]);
@@ -78,7 +107,7 @@ function variantSuffix(variant: string, reference: string): string {
 function isTokenSubset(a: string, b: string): boolean {
   const tb = personTokens(b);
   const ta = personTokens(a);
-  return ta.length > 0 && ta.every((t) => tb.includes(t));
+  return ta.length > 0 && ta.every((t) => hasToken(tb, t));
 }
 
 /**
@@ -120,6 +149,104 @@ const TYPED_PLACEHOLDER_RE = /^\[([A-Z_]+)_(\d+)\]$/;
 const MANGLED_CANDIDATE_RE =
   /\[[^[\]\n]+\]|<<[^<>\n]+>>|(?<![\p{L}\p{N}_[<])[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d+(?![\p{L}\p{N}_])/gu;
 
+/**
+ * Literal typed placeholders already present in USER text (R9): a
+ * re-processed document or a template carrying "[PERSON_1]" must not
+ * collide with the placeholders this session issues.
+ */
+const LITERAL_PLACEHOLDER_RE = /\[([A-Z_]+)_(\d+)\]/g;
+
+/** Counter numbers beyond this many digits are ignored (never issued). */
+const MAX_COUNTER_DIGITS = 9;
+
+/** Upper bound for deserialize/importEntries (R11). */
+const MAX_IMPORT_ENTRIES = 10_000;
+
+/**
+ * Surrogate re-derivations tried before the numeric-suffix fallback (R3).
+ * Every attempt is a fresh deterministic draw from the locale pools; with
+ * 40 x 40 names per locale and gender, 24 draws leave a starved pool (a
+ * document naming most of a pool) as the only way to reach the fallback.
+ */
+const MAX_SURROGATE_ATTEMPTS = 24;
+
+/**
+ * Shortest document name token that the surrogate containment rule (R3)
+ * considers: a PERSON surrogate must not CONTAIN a document name of this
+ * length or more ("Johnson" for a document that names "John", "Marianna"
+ * for "Anna"). Same threshold as isPersonVariant's substantive token.
+ */
+const MIN_NAME_TOKEN_LENGTH = 3;
+
+/** A token made of letters only (names); digits, emails and codes are not indexed for containment. */
+const LETTERS_ONLY_RE = /^\p{L}+$/u;
+
+/** Input accepted by registerDocumentValues: plain values or anything carrying a `value`. */
+export type DocumentValueInput = string | { value: string };
+
+/** Only regex syntax characters are escaped: valid under the `u` flag. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Restore keys that are tokens rather than natural text: bracket
+ * placeholders (generated or renamed) and legacy angle tokens. They carry
+ * their own delimiters, so they match anywhere ("[PERSON_1]'s", glued
+ * "[PERSON_1][EMAIL_1]").
+ */
+const TOKEN_SHAPED_KEY_RE = /^(?:\[[^[\]\n]+\]|<<[^<>\n]+>>)$/;
+
+/**
+ * Edge characters that ask for a word boundary on their side of a natural
+ * key: digits and letters of space-delimited scripts (Latin, Cyrillic,
+ * Greek). CJK keys stay unguarded because those scripts write words
+ * without separators (王伟说 must restore 王伟).
+ */
+const BOUNDED_EDGE_RE = /^[\p{N}\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}]$/u;
+
+/**
+ * One alternation branch per restore key (R4). A natural key such as a
+ * surrogate name gets `(?<![\p{L}\p{N}])` only when it STARTS with a
+ * bounded-edge character and `(?![\p{L}\p{N}])` only when it ENDS with
+ * one, so "Bo" never fires inside "Bob" or "Boston" while "+48 601..."
+ * (starting with '+') and "$1,234" still match after any character.
+ */
+function restoreKeyPattern(key: string): string {
+  const body = escapeRegExp(key);
+  if (TOKEN_SHAPED_KEY_RE.test(key)) return body;
+  const chars = [...key];
+  const first = chars[0] ?? '';
+  const last = chars[chars.length - 1] ?? '';
+  const lead = BOUNDED_EDGE_RE.test(first) ? '(?<![\\p{L}\\p{N}])' : '';
+  const trail = BOUNDED_EDGE_RE.test(last) ? '(?![\\p{L}\\p{N}])' : '';
+  return `${lead}${body}${trail}`;
+}
+
+/**
+ * Shape check for one imported entry (R11): plain object, string fields,
+ * a non-blank replacement (an empty or whitespace key would match between
+ * every character and explode the restored text) and a non-empty original.
+ * Throws a descriptive Error naming the entry index.
+ */
+function validateImportEntry(entry: unknown, index: number): ReplacementEntry {
+  const where = `Invalid session map entry #${index}`;
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    throw new Error(`${where}: expected an object`);
+  }
+  const { original, replacement, entityType } = entry as Record<string, unknown>;
+  if (typeof original !== 'string' || original.length === 0) {
+    throw new Error(`${where}: "original" must be a non-empty string`);
+  }
+  if (typeof replacement !== 'string' || replacement.trim().length === 0) {
+    throw new Error(`${where}: "replacement" must be a non-blank string`);
+  }
+  if (typeof entityType !== 'string' || entityType.length === 0) {
+    throw new Error(`${where}: "entityType" must be a non-empty string`);
+  }
+  return { original, replacement, entityType: entityType as EntityType };
+}
+
 export class AnonymizationSession {
   private forwardMap = new Map<string, string>();
   private reverseMap = new Map<string, string>();
@@ -130,6 +257,34 @@ export class AnonymizationSession {
    * the base re-derives its variants and deserialized maps re-link.
    */
   private variantOf = new Map<string, { base: string; suffix: string }>();
+  /**
+   * Compiled exact-restore alternation (R4), rebuilt lazily; null after
+   * every reverse-map mutation (see invalidateRestore).
+   */
+  private restoreRe: RegExp | null = null;
+  /**
+   * Every value known to occur in the session's documents (R3), lowercased:
+   * whole entity values plus their person tokens (and hyphen parts). Fed by
+   * anonymizeText, anonymize, importEntries and registerDocumentValues;
+   * cumulative until clear(). A surrogate is never one of these. No
+   * capitalised-word heuristic: it would starve the pools in German and
+   * Polish prose (plan v2 section 9).
+   */
+  private documentValues = new Set<string>();
+  /**
+   * Letter-only document tokens of MIN_NAME_TOKEN_LENGTH or more, bucketed
+   * by their first MIN_NAME_TOKEN_LENGTH characters, for the containment
+   * rule in isDocumentValue: linear in the candidate's length instead of
+   * a scan over every document token.
+   */
+  private documentNameIndex = new Map<string, string[]>();
+  /**
+   * PERSON values that matched two or more mapped people equally well and
+   * therefore got a fresh identity instead of a guessed one (R5).
+   */
+  private ambiguousValues = new Set<string>();
+  /** Whether the most recent anonymize() call refused an ambiguous unification. */
+  private lastAmbiguousFlag = false;
   private mode: ReplacementMode;
   /** Surrogate-mode salt (T043); constant for the session's lifetime. */
   private salt: string;
@@ -177,40 +332,159 @@ export class AnonymizationSession {
    * deanonymize restores it via the same exact-literal lookup.
    */
   private nextSurrogate(original: string, entityType: EntityType): string {
-    return generateUniqueSurrogate(
-      original,
-      entityType,
-      { salt: this.salt, entries: this.getEntries() },
-      (candidate) => this.forwardMap.has(candidate) || this.reverseMap.has(candidate),
-    );
+    // R3: besides the maps, a candidate is refused when it is (or, for a
+    // PERSON, contains) a value the documents carry. That rule cannot be
+    // satisfied by generateUniqueSurrogate's digit suffix (it only changes
+    // the last token), so the session runs its own attempt loop and the
+    // suffix fallback keeps the exact checks only.
+    const ctx = { salt: this.salt, entries: this.getEntries() };
+    const exactlyTaken = (candidate: string): boolean =>
+      candidate === original
+      || this.forwardMap.has(candidate)
+      || this.reverseMap.has(candidate)
+      || this.documentValues.has(candidate.toLowerCase());
+    let candidate = '';
+    for (let attempt = 0; attempt < MAX_SURROGATE_ATTEMPTS; attempt++) {
+      candidate = generateSurrogate(original, entityType, ctx, attempt);
+      if (!exactlyTaken(candidate) && !this.containsDocumentName(candidate, entityType)) {
+        return candidate;
+      }
+    }
+    for (let n = 2; ; n++) {
+      const suffixed = `${candidate}${n}`;
+      if (!exactlyTaken(suffixed)) return suffixed;
+    }
   }
 
   /**
-   * The already-mapped PERSON value that best matches a new variant
-   * (T057): most shared tokens wins; ties keep the first-mapped value.
-   * Deterministic; returns null when nothing matches.
+   * Whether a PERSON surrogate candidate carries a document name (R3):
+   * any of its tokens is a document value, or contains one of at least
+   * MIN_NAME_TOKEN_LENGTH letters ("Johnson" with "John" in the document,
+   * "Nowakowski" with "Nowak"). Other types are covered by the exact
+   * whole-value check alone: their tokens ("+48", "ul.", "GmbH") recur in
+   * every surrogate of the same shape and would starve the pools.
    */
-  private findPersonVariant(value: string): string | null {
-    const tokens = personTokens(value);
-    if (tokens.length === 0) return null;
-    let best: string | null = null;
-    let bestShared = 0;
-    for (const [original] of this.forwardMap) {
-      if (this.entityTypeMap.get(original) !== 'PERSON') continue;
-      if (!isPersonVariant(value, original)) continue;
-      const shared = personTokens(original).filter((t) => tokens.includes(t)).length;
-      if (shared > bestShared) {
-        bestShared = shared;
-        best = original;
+  private containsDocumentName(candidate: string, entityType: EntityType): boolean {
+    if (entityType !== 'PERSON') return false;
+    for (const token of personTokens(candidate)) {
+      if (this.documentValues.has(token)) return true;
+      for (let i = 0; i + MIN_NAME_TOKEN_LENGTH <= token.length; i++) {
+        const bucket = this.documentNameIndex.get(token.slice(i, i + MIN_NAME_TOKEN_LENGTH));
+        if (bucket && bucket.some((name) => token.startsWith(name, i))) return true;
       }
     }
-    return best;
+    return false;
+  }
+
+  /** Record one document value: whole (lowercased), its tokens and hyphen parts. */
+  private addDocumentValue(value: string): void {
+    const whole = value.toLowerCase();
+    if (whole.length === 0) return;
+    this.documentValues.add(whole);
+    for (const token of personTokens(value)) {
+      const parts = token.includes('-') ? [token, ...token.split('-').filter(Boolean)] : [token];
+      for (const part of parts) {
+        this.documentValues.add(part);
+        if (part.length >= MIN_NAME_TOKEN_LENGTH && LETTERS_ONLY_RE.test(part)) {
+          const key = part.slice(0, MIN_NAME_TOKEN_LENGTH);
+          const bucket = this.documentNameIndex.get(key);
+          if (bucket === undefined) this.documentNameIndex.set(key, [part]);
+          else if (!bucket.includes(part)) bucket.push(part);
+        }
+      }
+    }
+  }
+
+  /**
+   * Declare values that occur in the session's documents (R3) so no later
+   * surrogate equals or, for people, contains one of them. anonymizeText
+   * registers its entities itself; hosts that call anonymize() value by
+   * value should register the whole entity list first, otherwise a person
+   * mapped early can still receive the name of a person mapped later.
+   * Accepts plain strings or objects with a `value` (DetectedEntity,
+   * ReplacementEntry-like `{ value }` shapes). Cumulative until clear().
+   */
+  registerDocumentValues(input: ReadonlyArray<DocumentValueInput>): void {
+    for (const item of input) {
+      const value = typeof item === 'string' ? item : item.value;
+      if (typeof value === 'string') this.addDocumentValue(value);
+    }
+  }
+
+  /**
+   * Whether the most recent anonymize() call met an ambiguous PERSON value
+   * (R5): a bare name that fits two or more mapped people equally well.
+   * Such a value is NOT unified; it gets its own number or surrogate. For
+   * anonymizeText, which maps many values, use getAmbiguousValues().
+   */
+  lastAmbiguous(): boolean {
+    return this.lastAmbiguousFlag;
+  }
+
+  /**
+   * Every PERSON value this session refused to unify because it matched
+   * two or more people equally well (R5), in mapping order. Cumulative
+   * until clear(); hosts can flag them for the user to resolve.
+   */
+  getAmbiguousValues(): string[] {
+    return [...this.ambiguousValues];
+  }
+
+  /**
+   * One reference name per person group (R5): the fullest mapped original
+   * of each group (most tokens; the first mapped on ties). Variants never
+   * act as match targets on their own, so "Anna" cannot pull "Anna
+   * Kowalska" into Anna Nowak's group, while a group whose fuller form
+   * arrived later ("John" then "John Smith") still matches "Smith".
+   */
+  private personReferences(): string[] {
+    const byGroup = new Map<string, { original: string; size: number }>();
+    for (const [original, token] of this.forwardMap) {
+      if (this.entityTypeMap.get(original) !== 'PERSON') continue;
+      const base = this.variantOf.get(token)?.base ?? token;
+      const size = personTokens(original).length;
+      const current = byGroup.get(base);
+      if (current === undefined || size > current.size) byGroup.set(base, { original, size });
+    }
+    return [...byGroup.values()].map((group) => group.original);
+  }
+
+  /**
+   * The mapped person that a new PERSON value is a variant of (T057):
+   * only group references are considered (see personReferences); most
+   * shared tokens wins. A tie between two or more people is AMBIGUOUS
+   * (R5): no guess is made, the value gets a fresh identity and the
+   * session records it (lastAmbiguous / getAmbiguousValues).
+   * Deterministic; match is null when nothing (or too much) matches.
+   */
+  private findPersonVariant(value: string): { match: string | null; ambiguous: boolean } {
+    const tokens = personTokens(value);
+    if (tokens.length === 0) return { match: null, ambiguous: false };
+    let best: string | null = null;
+    let bestShared = 0;
+    let tied = false;
+    for (const reference of this.personReferences()) {
+      if (!isPersonVariant(value, reference)) continue;
+      const shared = personTokens(reference).filter((t) => hasToken(tokens, t)).length;
+      if (shared > bestShared) {
+        bestShared = shared;
+        best = reference;
+        tied = false;
+      } else if (shared === bestShared) {
+        tied = true;
+      }
+    }
+    if (tied) return { match: null, ambiguous: true };
+    return { match: best, ambiguous: false };
   }
 
   anonymize(original: string, entityType: EntityType): string {
+    this.lastAmbiguousFlag = false;
     if (this.forwardMap.has(original)) {
       return this.forwardMap.get(original)!;
     }
+    // R3: the value itself is by definition a document value.
+    this.addDocumentValue(original);
     // T057 person-variant unification: "John Smith", "John" and "Smith"
     // in one session are the same person and share one identity. T171
     // makes restore exact: every distinct variant gets its OWN token that
@@ -218,24 +492,27 @@ export class AnonymizationSession {
     // surrogate mode, the matching part of the group's surrogate ("Nowak"
     // for "Smith" when "John Smith" became "Adam Nowak"), so the reverse map
     // stays one-to-one and restore writes back exactly what was there.
-    if (entityType === 'PERSON') {
-      const match = this.findPersonVariant(original);
+    // Blanked mode has no identities to share (every value is '________'),
+    // so it skips the lookup and never reports ambiguity.
+    if (entityType === 'PERSON' && this.mode !== 'blanked') {
+      const { match, ambiguous } = this.findPersonVariant(original);
+      if (ambiguous) {
+        this.lastAmbiguousFlag = true;
+        this.ambiguousValues.add(original);
+      }
       if (match) {
-        const token = this.mode === 'blanked'
-          ? '________'
-          : this.mode === 'surrogate'
-            ? this.variantSurrogate(original, match)
-            : this.variantPlaceholder(original, match);
+        const token = this.mode === 'surrogate'
+          ? this.variantSurrogate(original, match)
+          : this.variantPlaceholder(original, match);
         this.forwardMap.set(original, token);
         this.entityTypeMap.set(original, entityType);
-        if (this.mode !== 'blanked') {
-          // Token-mapping can legitimately fall back to reusing the group's
-          // surrogate; then the longest original stays canonical (T057).
-          const canonical = this.reverseMap.get(token);
-          if (canonical === undefined || original.length > canonical.length) {
-            this.reverseMap.set(token, original);
-          }
+        // Token-mapping can legitimately fall back to reusing the group's
+        // surrogate; then the longest original stays canonical (T057).
+        const canonical = this.reverseMap.get(token);
+        if (canonical === undefined || original.length > canonical.length) {
+          this.reverseMap.set(token, original);
         }
+        this.invalidateRestore();
         return token;
       }
     }
@@ -249,9 +526,32 @@ export class AnonymizationSession {
     // reversible, so keep them out of the restore map.
     if (this.mode !== 'blanked') {
       this.reverseMap.set(placeholder, original);
+      this.invalidateRestore();
     }
     this.entityTypeMap.set(original, entityType);
     return placeholder;
+  }
+
+  /** Drop the cached restore regex; called on every reverse-map change. */
+  private invalidateRestore(): void {
+    this.restoreRe = null;
+  }
+
+  /**
+   * The exact-restore regex (R4): ONE alternation of every reverse-map
+   * key, longest first so a longer key always wins at a given position
+   * ("[PERSON_11]" before "[PERSON_1]", "Adam Nowak" before "Adam"), each
+   * key escaped and guarded per restoreKeyPattern. Compiled once per map
+   * state and reused across replies. Null when nothing is restorable.
+   */
+  private restoreRegex(): RegExp | null {
+    if (this.restoreRe) return this.restoreRe;
+    if (this.reverseMap.size === 0) return null;
+    const keys = [...this.reverseMap.keys()].sort(
+      (a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0),
+    );
+    this.restoreRe = new RegExp(keys.map(restoreKeyPattern).join('|'), 'gu');
+    return this.restoreRe;
   }
 
   /**
@@ -315,14 +615,17 @@ export class AnonymizationSession {
   }
 
   deanonymize(text: string): string {
+    // R4: a SINGLE pass over the input. Every key is matched against the
+    // original reply only, never against text an earlier replacement just
+    // wrote, so a restored "Anna Kowalska" is never rewritten by a key
+    // "Anna" and prose that merely contains a key ("Bob" vs "Bo") is left
+    // alone by the boundaries in restoreKeyPattern. The replacer function
+    // keeps '$' sequences in the original value inert.
+    const re = this.restoreRegex();
     let result = text;
-    // Sort by placeholder length (longest first) to avoid partial replacements
-    const entries = [...this.reverseMap.entries()].sort(
-      (a, b) => b[0].length - a[0].length
-    );
-    for (const [placeholder, original] of entries) {
-      // Replacer function keeps '$' sequences in the original value inert
-      result = result.replaceAll(placeholder, () => original);
+    if (re) {
+      re.lastIndex = 0;
+      result = text.replace(re, (m) => this.reverseMap.get(m) ?? m);
     }
     // T098: exact-literal replacement above is the unchanged fast path;
     // tokens an LLM mangled (case, spacing, markdown, dropped brackets)
@@ -361,7 +664,29 @@ export class AnonymizationSession {
     return out + text.slice(last);
   }
 
+  /**
+   * R9: placeholders written LITERALLY in the user's text ("[PERSON_1]" in
+   * a template or a previously anonymized document) raise the per-type
+   * counter above them, so a freshly issued placeholder never restores to
+   * a value the text never carried under that token.
+   */
+  private reserveLiteralPlaceholders(text: string): void {
+    LITERAL_PLACEHOLDER_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = LITERAL_PLACEHOLDER_RE.exec(text)) !== null) {
+      const [, type, digits] = match;
+      if (digits.length > MAX_COUNTER_DIGITS) continue;
+      const current = this.typeCounters.get(type) ?? 0;
+      this.typeCounters.set(type, Math.max(current, Number(digits)));
+    }
+  }
+
   anonymizeText(text: string, entities: DetectedEntity[]): string {
+    this.reserveLiteralPlaceholders(text);
+    // R3: every entity value is a document value BEFORE the first surrogate
+    // is drawn, so "Jan Kowalski" can never become "Adam Nowak" when Adam
+    // Nowak is mapped a few entities later.
+    this.registerDocumentValues(entities);
     // PERSON pre-pass: map people before anything else so that (T171) each
     // variant group forms around its FULLEST name - "John Smith" is the
     // base and "Smith" / "smith" hang off it, whatever order they appear in
@@ -416,6 +741,10 @@ export class AnonymizationSession {
   renameLabel(original: string, newLabel: string): Array<[string, string]> {
     const oldLabel = this.forwardMap.get(original);
     if (!oldLabel || oldLabel === newLabel) return [];
+    // R6: a blank label would match between every character of a reply
+    // and a label another value already restores to would hijack it.
+    // Both are refused without touching the maps.
+    if (newLabel.trim() === '' || this.reverseMap.has(newLabel)) return [];
     const pairs: Array<[string, string]> = [];
     const rename = (from: string, to: string) => {
       // Every original sharing the label (legacy many-to-one maps) moves
@@ -426,6 +755,7 @@ export class AnonymizationSession {
       }
       this.reverseMap.delete(from);
       if (canonical !== undefined) this.reverseMap.set(to, canonical);
+      this.invalidateRestore();
       pairs.push([from, to]);
     };
     if (this.variantOf.has(oldLabel)) {
@@ -517,15 +847,31 @@ export class AnonymizationSession {
    * forward map but excluded from the reverse map, preserving their
    * irreversibility. Entries merge into whatever the session already
    * holds; call clear() first for a fresh seeded session.
+   *
+   * R11: the input is validated BEFORE anything is applied (an array of
+   * at most 10 000 well-formed entries, see validateImportEntry); a
+   * violation throws and leaves the session untouched.
    */
   importEntries(entries: ReplacementEntry[]): void {
-    for (const entry of entries) {
+    if (!Array.isArray(entries)) {
+      throw new Error('Invalid session map: expected an array of entries');
+    }
+    if (entries.length > MAX_IMPORT_ENTRIES) {
+      throw new Error(
+        `Invalid session map: too many entries (${entries.length} > ${MAX_IMPORT_ENTRIES})`,
+      );
+    }
+    const valid = entries.map((entry, i) => validateImportEntry(entry, i));
+    for (const entry of valid) {
+      // R3: imported originals came from a document of this matter.
+      this.addDocumentValue(entry.original);
       this.forwardMap.set(entry.original, entry.replacement);
       if (entry.replacement !== '________') {
         const canonical = this.reverseMap.get(entry.replacement);
         if (canonical === undefined || entry.original.length > canonical.length) {
           this.reverseMap.set(entry.replacement, entry.original);
         }
+        this.invalidateRestore();
       }
       this.entityTypeMap.set(entry.original, entry.entityType);
       // T171 variant tokens ([PERSON_1_LAST], [PERSON_1_LAST_2]) carry no
@@ -534,11 +880,12 @@ export class AnonymizationSession {
       const match = TYPED_PLACEHOLDER_RE.exec(entry.replacement);
       if (match) {
         const [, type, num] = match;
+        if (num.length > MAX_COUNTER_DIGITS) continue;
         const current = this.typeCounters.get(type) ?? 0;
         this.typeCounters.set(type, Math.max(current, Number(num)));
       }
     }
-    for (const entry of entries) {
+    for (const entry of valid) {
       const variant = VARIANT_TOKEN_RE.exec(entry.replacement);
       if (!variant) continue;
       const base = `${variant[1]}]`;
@@ -583,12 +930,24 @@ export class AnonymizationSession {
     } else {
       throw new Error('Invalid session map JSON: expected a top-level array');
     }
+    if (entries.length > MAX_IMPORT_ENTRIES) {
+      throw new Error(
+        `Invalid session map: too many entries (${entries.length} > ${MAX_IMPORT_ENTRIES})`,
+      );
+    }
+    // Wire entries are only re-keyed here (entity_type -> entityType);
+    // importEntries validates every field. A non-object entry (e.g. null)
+    // is passed through as-is so the validator names its index.
     session.importEntries(
-      entries.map((entry) => ({
-        original: entry.original,
-        replacement: entry.replacement,
-        entityType: entry.entity_type,
-      })),
+      entries.map((entry) =>
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+          ? {
+              original: entry.original,
+              replacement: entry.replacement,
+              entityType: entry.entity_type,
+            }
+          : (entry as unknown as ReplacementEntry),
+      ),
     );
     return session;
   }
@@ -599,5 +958,10 @@ export class AnonymizationSession {
     this.entityTypeMap.clear();
     this.typeCounters.clear();
     this.variantOf.clear();
+    this.documentValues.clear();
+    this.documentNameIndex.clear();
+    this.ambiguousValues.clear();
+    this.lastAmbiguousFlag = false;
+    this.invalidateRestore();
   }
 }

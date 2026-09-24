@@ -1,0 +1,72 @@
+{
+  "seed": "pl-html-cv",
+  "source": "pl-html-cv.html",
+  "language": "pl",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Tomasz Zieliński",
+    "os. Słoneczne 7 m. 21, 61-131 Poznań",
+    "(12) 345-67-89",
+    "tomasz.zielinski@poczta-testowa.pl",
+    "90112256787",
+    "Katarzyna Wiśniewska",
+    "Bartłomiej Sroka",
+    "b.sroka@kancelaria-sroka.pl",
+    "Małgorzata Kaczmarek",
+    "+48 22 555 01 99",
+    "Agnieszka Pawlak-Dudek"
+  ],
+  "where": [
+    "heading",
+    "meta",
+    "body",
+    "hyperlink-target",
+    "table",
+    "list",
+    "html-comment"
+  ],
+  "placements": {
+    "Tomasz Zieliński": [
+      "heading",
+      "meta"
+    ],
+    "os. Słoneczne 7 m. 21, 61-131 Poznań": [
+      "body"
+    ],
+    "(12) 345-67-89": [
+      "body"
+    ],
+    "tomasz.zielinski@poczta-testowa.pl": [
+      "hyperlink-target",
+      "body"
+    ],
+    "90112256787": [
+      "body"
+    ],
+    "Katarzyna Wiśniewska": [
+      "table"
+    ],
+    "Bartłomiej Sroka": [
+      "table"
+    ],
+    "b.sroka@kancelaria-sroka.pl": [
+      "table"
+    ],
+    "Małgorzata Kaczmarek": [
+      "list"
+    ],
+    "+48 22 555 01 99": [
+      "list"
+    ],
+    "Agnieszka Pawlak-Dudek": [
+      "html-comment"
+    ]
+  },
+  "optional": [
+    "Agnieszka Pawlak-Dudek"
+  ],
+  "notes": "HTML CV: heading, meta author/description/keywords, table, list, mailto link, HTML comment (optional: the importer may drop it)."
+}

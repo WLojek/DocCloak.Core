@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 import { readXlsx, writeAnonymizedXlsx, isExcelFile } from '../src/dom/xlsx.ts';
+import { assertNoTrace, writeOutput } from './helpers/package-scan.ts';
 
 const SS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -116,7 +117,8 @@ function findAll(haystack: string, needle: string): Array<{ start: number; end: 
   return result;
 }
 
-async function redactAll(): Promise<Map<string, string | Uint8Array>> {
+/** Redact every target, prove no trace of it survives (T173) and write the output for the LibreOffice job. */
+async function redactAll(testName: string): Promise<Map<string, string | Uint8Array>> {
   const extraction = await readXlsx(await zipToFile(buildXlsx()));
   const targets = ['John Smith', 'jane@acme.com', '90010112345', '123-45-6789', 'Maria Kowalska'];
   const replacements: Array<{ start: number; end: number; replacement: string }> = [];
@@ -129,6 +131,8 @@ async function redactAll(): Promise<Map<string, string | Uint8Array>> {
     }
   });
   const blob = await writeAnonymizedXlsx(extraction, replacements, valueReplacements);
+  await assertNoTrace(blob, targets);
+  await writeOutput(`${testName}.xlsx`, blob);
   const outZip = await JSZip.loadAsync(await blobToArrayBuffer(blob));
   const contents = new Map<string, string | Uint8Array>();
   for (const path of Object.keys(outZip.files)) {
@@ -177,7 +181,7 @@ describe('readXlsx', () => {
 
 describe('writeAnonymizedXlsx', () => {
   it('redacts shared strings, inline strings, formula caches, headers and comments', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-redacts-strings-formulas-headers-comments');
     const shared = out.get('xl/sharedStrings.xml') as string;
     expect(shared).not.toContain('John Smith');
     expect(shared).not.toContain('jane@acme.com');
@@ -191,7 +195,7 @@ describe('writeAnonymizedXlsx', () => {
   });
 
   it('keeps rich-text formatting and cell structure intact', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-keeps-rich-text-structure');
     const shared = out.get('xl/sharedStrings.xml') as string;
     expect(shared).toContain('<rPr>'); // bold run formatting survives
     expect(shared).toContain('Plain data'); // untouched entry survives
@@ -201,20 +205,20 @@ describe('writeAnonymizedXlsx', () => {
   });
 
   it('scrubs formula literals and hyperlink attributes by value', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-scrubs-formula-literals-hyperlinks');
     const sheet = out.get('xl/worksheets/sheet1.xml') as string;
     expect(sheet).not.toContain('123-45-6789'); // includes the <f> literal
     expect(sheet).not.toContain('jane@acme.com'); // display + tooltip attrs
   });
 
   it('scrubs external hyperlink relationship targets', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-scrubs-external-rel-targets');
     const rels = out.get('xl/worksheets/_rels/sheet1.xml.rels') as string;
     expect(rels).not.toContain('jane@acme.com');
   });
 
   it('scrubs comment authors and document properties', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-scrubs-authors-docprops');
     expect(out.get('xl/comments1.xml') as string).not.toContain('Bob Commenter');
     const core = out.get('docProps/core.xml') as string;
     expect(core).not.toContain('Real Author');
@@ -226,7 +230,7 @@ describe('writeAnonymizedXlsx', () => {
   });
 
   it('removes the absolute path, file sharing identity and thumbnail', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-removes-abspath-filesharing-thumbnail');
     const workbook = out.get('xl/workbook.xml') as string;
     expect(workbook).not.toContain('realuser');
     expect(workbook).not.toContain('absPath');
@@ -237,7 +241,7 @@ describe('writeAnonymizedXlsx', () => {
   });
 
   it('produces well-formed XML in every part', async () => {
-    const out = await redactAll();
+    const out = await redactAll('xlsx-well-formed-parts');
     const parser = new DOMParser();
     for (const [path, content] of out) {
       if (typeof content !== 'string') continue;

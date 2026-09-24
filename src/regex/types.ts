@@ -27,4 +27,10 @@ export interface RegexRule {
   falsePositiveNotes?: string;
   /** Optional validation function for post-match filtering (e.g., Luhn check, checksum) */
   validate?: (match: string) => boolean;
+  /**
+   * True when the rule must see the whole document (a match spans line
+   * breaks, e.g. PEM key blocks). Default false: detectWithRegex runs the
+   * rule on each line separately (T180, bounds ReDoS cost to line length).
+   */
+  multiline?: boolean;
 }

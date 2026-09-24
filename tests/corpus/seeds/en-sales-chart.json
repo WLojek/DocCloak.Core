@@ -1,0 +1,63 @@
+{
+  "seed": "en-sales-chart",
+  "source": "en-sales-chart.fods",
+  "language": "en",
+  "formats": [
+    "xlsx"
+  ],
+  "needles": [
+    "Eleanor Whitcombe",
+    "+44 20 7946 0123",
+    "Priya Raghunathan",
+    "priya.raghunathan@example-labs.io",
+    "Desmond Okonkwo-Hart",
+    "+44 7700 900123",
+    "Marcus Pemberton",
+    "m.pemberton@harbourview-example.com"
+  ],
+  "where": [
+    "cell",
+    "chart-category",
+    "comment",
+    "meta",
+    "footer",
+    "sheet-name",
+    "chart-title",
+    "comment-author"
+  ],
+  "placements": {
+    "Eleanor Whitcombe": [
+      "cell",
+      "chart-category",
+      "comment"
+    ],
+    "+44 20 7946 0123": [
+      "cell"
+    ],
+    "Priya Raghunathan": [
+      "cell",
+      "chart-category",
+      "meta"
+    ],
+    "priya.raghunathan@example-labs.io": [
+      "footer"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "cell",
+      "chart-category"
+    ],
+    "+44 7700 900123": [
+      "cell"
+    ],
+    "Marcus Pemberton": [
+      "sheet-name",
+      "chart-title",
+      "comment-author"
+    ],
+    "m.pemberton@harbourview-example.com": [
+      "cell"
+    ]
+  },
+  "optional": [],
+  "notes": "Spreadsheet with a bar chart whose categories are cell references to names, a second sheet named after a person, a cell comment."
+}

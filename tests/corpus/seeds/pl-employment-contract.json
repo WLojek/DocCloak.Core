@@ -1,0 +1,69 @@
+{
+  "seed": "pl-employment-contract",
+  "source": "pl-employment-contract.fodt",
+  "language": "pl",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Katarzyna Wiśniewska",
+    "85031412347",
+    "ul. Długa 12/4, 31-147 Kraków",
+    "PL96 1140 2004 0000 3002 7654 3210",
+    "k.wisniewska@przyklad-firma.pl",
+    "+48 601 234 567",
+    "Bartłomiej Sroka",
+    "+48 22 555 01 99"
+  ],
+  "where": [
+    "heading-adjacent-body",
+    "header",
+    "table",
+    "footnote",
+    "meta",
+    "body",
+    "comment",
+    "footer",
+    "comment-author"
+  ],
+  "placements": {
+    "Katarzyna Wiśniewska": [
+      "heading-adjacent-body",
+      "header",
+      "table",
+      "footnote",
+      "meta"
+    ],
+    "85031412347": [
+      "body",
+      "header"
+    ],
+    "ul. Długa 12/4, 31-147 Kraków": [
+      "body",
+      "table",
+      "comment"
+    ],
+    "PL96 1140 2004 0000 3002 7654 3210": [
+      "body"
+    ],
+    "k.wisniewska@przyklad-firma.pl": [
+      "footnote",
+      "table",
+      "meta"
+    ],
+    "+48 601 234 567": [
+      "table"
+    ],
+    "Bartłomiej Sroka": [
+      "footer",
+      "comment-author",
+      "meta"
+    ],
+    "+48 22 555 01 99": [
+      "footer"
+    ]
+  },
+  "optional": [],
+  "notes": "Polish contract: body, header, footer, footnote, table, comment (author and text), meta (creator, subject, keyword, user-defined)."
+}

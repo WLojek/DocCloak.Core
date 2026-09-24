@@ -1,0 +1,68 @@
+{
+  "seed": "de-mietvertrag",
+  "source": "de-mietvertrag.fodt",
+  "language": "de",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Hans-Jürgen Müller",
+    "Bergstraße 7, 10115 Berlin",
+    "DE89 3704 0044 0532 0130 00",
+    "+49 30 1234 5678",
+    "hj.mueller@beispiel-gmbh.de",
+    "Annelore Schäfer",
+    "Lindenallee 22, 80331 München",
+    "Friedrich Oberländer",
+    "DE44 5001 0517 5407 3249 31"
+  ],
+  "where": [
+    "body",
+    "header",
+    "footnote",
+    "table",
+    "meta",
+    "footer",
+    "comment-author",
+    "comment"
+  ],
+  "placements": {
+    "Hans-Jürgen Müller": [
+      "body",
+      "header",
+      "footnote",
+      "table",
+      "meta"
+    ],
+    "Bergstraße 7, 10115 Berlin": [
+      "body"
+    ],
+    "DE89 3704 0044 0532 0130 00": [
+      "body"
+    ],
+    "+49 30 1234 5678": [
+      "footnote"
+    ],
+    "hj.mueller@beispiel-gmbh.de": [
+      "table"
+    ],
+    "Annelore Schäfer": [
+      "footer",
+      "comment-author",
+      "meta"
+    ],
+    "Lindenallee 22, 80331 München": [
+      "footer"
+    ],
+    "Friedrich Oberländer": [
+      "table",
+      "comment"
+    ],
+    "DE44 5001 0517 5407 3249 31": [
+      "table"
+    ]
+  },
+  "optional": [],
+  "notes": "German lease: umlauts in names and addresses, footnote, comment, header, footer, table."
+}

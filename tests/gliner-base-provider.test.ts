@@ -5,8 +5,9 @@
  * enumeration order (start-major, width-minor, matching the python GLiNER
  * SpanProcessor), the span_mask semantics and the logits -> character-span
  * decode. Those are pure functions tested with synthetic fixtures here.
- * Env plumbing (pinned model URL, tokenizer id, wasm config) mirrors the
- * gliner/bardsai tests. onnxruntime-web is mocked; no network, no wasm.
+ * Env plumbing (pinned model URL, pinned tokenizer files via
+ * env.buildTokenizer, wasm config) mirrors the gliner/bardsai tests.
+ * onnxruntime-web is mocked; no network, no wasm.
  * Real-model inference is covered by the Node WASM verification gate.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -33,20 +34,40 @@ import {
   GLINER_BASE_MODEL_URL,
   GLINER_BASE_MODEL_REVISION,
   GLINER_BASE_MODEL_SHA256,
+  GLINER_BASE_TOKENIZER_FILES,
   GLINER_BASE_MAX_WIDTH,
   buildSpanIndices,
   decodeSpanLogits,
 } from '../src/providers/gliner-base.ts';
 import { splitWords, greedySelect } from '../src/providers/gliner.ts';
-import { verificationMarkerKey } from '../src/model-loader.ts';
+import { verificationMarkerKey, verificationMarkerValue } from '../src/model-loader.ts';
 import { memoryKV, memoryBlobCache } from '../src/env.ts';
 import type { BlobCache, CoreEnv } from '../src/env.ts';
 
 const MODEL_URL = GLINER_BASE_MODEL_URL;
+const [TOKENIZER_JSON, TOKENIZER_CONFIG] = GLINER_BASE_TOKENIZER_FILES;
+const FAKE_TOKENIZER_JSON = { model: { type: 'Unigram' } };
+const FAKE_TOKENIZER_CONFIG = { tokenizer_class: 'DebertaV2Tokenizer' };
+
+async function seedVerified(cache: BlobCache, url: string, sha256: string, blob: Blob): Promise<void> {
+  await cache.put(url, blob);
+  await cache.put(verificationMarkerKey(url, sha256), new Blob([verificationMarkerValue(sha256, blob.size)]));
+}
 
 async function seedVerifiedModel(cache: BlobCache, blob: Blob): Promise<void> {
-  await cache.put(MODEL_URL, blob);
-  await cache.put(verificationMarkerKey(MODEL_URL, GLINER_BASE_MODEL_SHA256), new Blob(['1']));
+  await seedVerified(cache, MODEL_URL, GLINER_BASE_MODEL_SHA256, blob);
+  await seedVerified(cache, TOKENIZER_JSON.url, TOKENIZER_JSON.sha256, new Blob([JSON.stringify(FAKE_TOKENIZER_JSON)]));
+  await seedVerified(cache, TOKENIZER_CONFIG.url, TOKENIZER_CONFIG.sha256, new Blob([JSON.stringify(FAKE_TOKENIZER_CONFIG)]));
+}
+
+function recordingFetch(respond: (url: string) => Response): { fetch: typeof fetch; urls: string[] } {
+  const urls: string[] = [];
+  const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    urls.push(url);
+    return respond(url);
+  });
+  return { fetch: fetchFn as unknown as typeof fetch, urls };
 }
 
 function makeEnv(overrides: Partial<CoreEnv> = {}): CoreEnv {
@@ -55,7 +76,7 @@ function makeEnv(overrides: Partial<CoreEnv> = {}): CoreEnv {
     modelCache: memoryBlobCache(),
     fetch: vi.fn(async () => { throw new TypeError('network disabled in tests'); }) as unknown as typeof fetch,
     wasm: { paths: '/base/' },
-    loadTokenizer: vi.fn(async () => ({ encode: (_: string) => [1, 5, 2] })),
+    buildTokenizer: vi.fn((_json: unknown, _config: unknown) => ({ encode: (_: string) => [1, 5, 2] })),
     ...overrides,
   };
 }
@@ -176,7 +197,7 @@ describe('decodeSpanLogits', () => {
 // ── Env plumbing / pinning ─────────────────────────────────
 
 describe('GlinerBaseProvider load() via CoreEnv', () => {
-  it('serves the model from the injected blob cache and loads the base tokenizer', async () => {
+  it('serves the model from the injected blob cache and builds the base tokenizer from the pinned files', async () => {
     const modelCache = memoryBlobCache();
     await seedVerifiedModel(modelCache, new Blob([new Uint8Array([1, 2, 3])]));
     const env = makeEnv({ modelCache, wasm: { paths: '/app/', numThreads: 2 } });
@@ -186,7 +207,7 @@ describe('GlinerBaseProvider load() via CoreEnv', () => {
 
     expect(provider.isLoaded()).toBe(true);
     expect(env.fetch).not.toHaveBeenCalled();
-    expect(env.loadTokenizer).toHaveBeenCalledWith('knowledgator/gliner-pii-base-v1.0');
+    expect(env.buildTokenizer).toHaveBeenCalledWith(FAKE_TOKENIZER_JSON, FAKE_TOKENIZER_CONFIG);
     expect(ortMock.env.wasm.wasmPaths).toBe('/app/');
     expect(ortMock.env.wasm.numThreads).toBe(2);
     expect(ortMock.InferenceSession.create).toHaveBeenCalledWith('blob:test', {
@@ -213,6 +234,29 @@ describe('GlinerBaseProvider load() via CoreEnv', () => {
     expect(MODEL_URL).not.toContain('resolve/main');
     expect(GLINER_BASE_MODEL_REVISION).toBe('61726e0ad791dcab3e29339bbec3ad42ded65641');
     expect(GLINER_BASE_MODEL_SHA256).toBe('0514c8fd86d0513ce5351a3267f132b57d5bcd8f99a90d43cde1228092881d19');
+  });
+
+  it('pins both tokenizer files to the model commit with a sha256 and size (provenance 2026-09-24)', () => {
+    expect(TOKENIZER_JSON.url).toBe(`https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/tokenizer.json`);
+    expect(TOKENIZER_JSON.sha256).toBe('ee028763434d18611c1c36356ea1d050e90a9fa94ede57fac48b39f85f818ad1');
+    expect(TOKENIZER_JSON.size).toBe(8_649_232);
+    expect(TOKENIZER_CONFIG.url).toBe(`https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/tokenizer_config.json`);
+    expect(TOKENIZER_CONFIG.sha256).toBe('3ec8a90d8758fbc56d50831990c3a3a65660f020c5b06534adf43b04091ffa9e');
+    expect(TOKENIZER_CONFIG.size).toBe(1_691);
+  });
+
+  it('cold start requests exactly the three pinned URLs; warm start requests none (T185)', async () => {
+    const cold = recordingFetch(() => new Response(null, { status: 404 }));
+    await expect(new GlinerBaseProvider(makeEnv({ fetch: cold.fetch })).load()).rejects.toThrow('404');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(new Set(cold.urls)).toEqual(new Set([MODEL_URL, TOKENIZER_JSON.url, TOKENIZER_CONFIG.url]));
+    expect(cold.urls).toHaveLength(3);
+
+    const modelCache = memoryBlobCache();
+    await seedVerifiedModel(modelCache, new Blob([new Uint8Array([1, 2, 3])]));
+    const warm = recordingFetch(() => new Response(null, { status: 404 }));
+    await new GlinerBaseProvider(makeEnv({ modelCache, fetch: warm.fetch })).load();
+    expect(warm.urls).toEqual([]);
   });
 
   it('does not evict the bardsai blob (legacy provider stays cached, T122)', async () => {

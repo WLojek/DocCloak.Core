@@ -50,7 +50,7 @@
     {
       "id": "regex:pt:postal",
       "entityType": "ADDRESS",
-      "pattern": "\\b\\d{4}-\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+      "pattern": "\\b\\d{4}-\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]*[\\p{L}](?![\\p{L}\\p{N}])",
       "flags": "gu",
       "confidence": 0.85,
       "domains": [

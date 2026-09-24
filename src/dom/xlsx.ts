@@ -15,27 +15,44 @@
  * - worksheet header/footer definitions
  * - legacy cell comments (xl/comments*.xml) and threaded comments
  *
- * Deliberately out of scope in phase 1 (documented for T-later): drawing/chart
- * text parts (xl/drawings, xl/charts), data connection definitions
- * (xl/connections.xml) and defined-name formulas. Metadata scrubbing follows
- * the docx module's policy via the shared OPC helpers.
+ * - drawing text boxes and chart titles / string caches (xl/drawings,
+ *   xl/charts) through the DrawingML units (T175)
+ *
+ * Deliberately out of scope (T176): sheet names, defined-name formulas, table
+ * column names, pivot caches; layer zero scrubs known values there. Data
+ * connections and external links are reported as unredactable (T177).
+ * Metadata scrubbing follows the docx module's policy via the shared OPC
+ * helpers.
  */
 
 import JSZip from 'jszip';
 import type { ValueReplacement } from '../docx.ts';
-import { applyTextReplacements } from './docx.ts';
+import { applyTextReplacements, assertUnredactableAllowed, unredactableWarnings } from './docx.ts';
 import type { TextNodeMapping } from './docx.ts';
+import { drawingUnits } from './drawingml.ts';
 import {
+  XLSX_DRAWING_TEXT_PARTS,
+  MAX_UNPACKED_BYTES,
+  assertUnpackedSize,
+  collectUnredactableParts,
+} from './package-policy.ts';
+import {
+  OOXML_NS,
+  isElementIn,
+  elementsByLocalName,
+  foreignNamespaces,
   readXmlPart,
   writeXmlPart,
   scrubDocPropsParts,
+  normalizeZipEntries,
   removePackageThumbnail,
   scrubExternalRelTargets,
   replaceSensitiveValues,
+  scrubPackageValues,
 } from './opc.ts';
 import { getFileExtension } from './docx.ts';
-
-const SS_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+import { UnsupportedDocumentError } from './errors.ts';
+import type { UnredactablePart } from './errors.ts';
 
 interface XlsxContentPart {
   path: string;
@@ -57,6 +74,17 @@ export interface XlsxExtraction {
   contentParts: XlsxContentPart[];
   /** All text node mappings across parts, in flat-text order */
   textNodes: TextNodeMapping[];
+  /** True when no text-bearing content was found (T172). */
+  empty: boolean;
+  /**
+   * Parts the writer cannot redact (embedded objects, macros, data
+   * connections, external links, printer settings, unknown parts), from the
+   * package policy (T177). The writer refuses to export them unless
+   * allowUnredactable is passed.
+   */
+  unredactable: UnredactablePart[];
+  /** Read-time notes (reserved; T172 reports none for xlsx). */
+  warnings: string[];
 }
 
 /**
@@ -68,8 +96,13 @@ export interface XlsxExtraction {
  */
 type StringUnit = Element[];
 
-function isSpreadsheetEl(el: Element, localName: string): boolean {
-  return el.namespaceURI === SS_NS && el.localName === localName;
+/** True for a SpreadsheetML element (transitional or strict namespace, T172). */
+export function isSpreadsheetEl(el: Element, localName: string): boolean {
+  return isElementIn(el, OOXML_NS.ss, localName);
+}
+
+function isSpreadsheetNs(el: Element): boolean {
+  return el.namespaceURI !== null && OOXML_NS.ss.has(el.namespaceURI);
 }
 
 /** Collect descendant <t> elements (spreadsheet namespace) in document order. */
@@ -85,9 +118,8 @@ function collectTextLeaves(root: Element): Element[] {
 /** String units in xl/sharedStrings.xml: one per <si>. */
 function sharedStringUnits(xmlDoc: Document): StringUnit[] {
   const units: StringUnit[] = [];
-  const sis = xmlDoc.getElementsByTagNameNS(SS_NS, 'si');
-  for (let i = 0; i < sis.length; i++) {
-    units.push(collectTextLeaves(sis[i]));
+  for (const si of elementsByLocalName(xmlDoc, OOXML_NS.ss, 'si')) {
+    units.push(collectTextLeaves(si));
   }
   return units;
 }
@@ -105,7 +137,7 @@ function worksheetUnits(xmlDoc: Document): StringUnit[] {
   const all = xmlDoc.getElementsByTagName('*');
   for (let i = 0; i < all.length; i++) {
     const el = all[i];
-    if (el.namespaceURI !== SS_NS) continue;
+    if (!isSpreadsheetNs(el)) continue;
     if (el.localName === 'c') {
       const type = el.getAttribute('t');
       if (type === 'inlineStr') {
@@ -134,9 +166,8 @@ function commentUnits(xmlDoc: Document): StringUnit[] {
   const units: StringUnit[] = [];
   const root = xmlDoc.documentElement;
   if (root.localName === 'comments') {
-    const texts = xmlDoc.getElementsByTagNameNS(SS_NS, 'text');
-    for (let i = 0; i < texts.length; i++) {
-      const leaves = collectTextLeaves(texts[i]);
+    for (const text of elementsByLocalName(xmlDoc, OOXML_NS.ss, 'text')) {
+      const leaves = collectTextLeaves(text);
       if (leaves.length > 0) units.push(leaves);
     }
   } else {
@@ -153,21 +184,34 @@ function commentUnits(xmlDoc: Document): StringUnit[] {
   return units;
 }
 
+/** Options for readXlsx (T177). */
+export interface XlsxReadOptions {
+  /**
+   * Limit on the sum of the declared uncompressed sizes of all zip entries
+   * (zip-bomb guard, L4); above it the reader throws
+   * UnsupportedDocumentError('too-large'). Defaults to MAX_UNPACKED_BYTES.
+   */
+  maxUnpackedBytes?: number;
+}
+
 /**
  * Read a .xlsx file and extract its text content with position mapping.
  */
-export async function readXlsx(file: File): Promise<XlsxExtraction> {
+export async function readXlsx(file: File, options: XlsxReadOptions = {}): Promise<XlsxExtraction> {
   const arrayBuffer = await file.arrayBuffer();
   const zip = await JSZip.loadAsync(arrayBuffer);
+  assertUnpackedSize(zip, options.maxUnpackedBytes ?? MAX_UNPACKED_BYTES);
 
   if (!zip.file('xl/workbook.xml')) {
     throw new Error('Invalid .xlsx file: missing xl/workbook.xml');
   }
 
   // Deterministic part order so load-time and export-time extractions produce
-  // identical offsets: sharedStrings, then worksheets, then comment parts.
+  // identical offsets: sharedStrings, then worksheets, then comment parts,
+  // then drawing text boxes and charts (T175: a:p paragraphs, string caches).
   const worksheetPaths: string[] = [];
   const commentPaths: string[] = [];
+  const drawingPaths: string[] = [];
   zip.forEach((relativePath) => {
     if (/^xl\/worksheets\/[^/]+\.xml$/.test(relativePath)) {
       worksheetPaths.push(relativePath);
@@ -176,23 +220,36 @@ export async function readXlsx(file: File): Promise<XlsxExtraction> {
       /^xl\/threadedComments\/[^/]+\.xml$/.test(relativePath)
     ) {
       commentPaths.push(relativePath);
+    } else if (XLSX_DRAWING_TEXT_PARTS.test(relativePath)) {
+      drawingPaths.push(relativePath);
     }
   });
   worksheetPaths.sort();
   commentPaths.sort();
+  drawingPaths.sort();
 
   const partPlans: Array<{ path: string; unitsOf: (doc: Document) => StringUnit[] }> = [
     { path: 'xl/sharedStrings.xml', unitsOf: sharedStringUnits },
     ...worksheetPaths.map((path) => ({ path, unitsOf: worksheetUnits })),
     ...commentPaths.map((path) => ({ path, unitsOf: commentUnits })),
+    ...drawingPaths.map((path) => ({ path, unitsOf: drawingUnits })),
   ];
 
   let flatText = '';
   const contentParts: XlsxContentPart[] = [];
+  // Fail closed (H1): worksheets whose sheetData is not SpreadsheetML in a
+  // namespace we read (transitional or strict) while foreign elements exist
+  // are refused rather than copied through.
+  let sheetDataFound = false;
+  const foreign = new Set<string>();
 
   for (const plan of partPlans) {
     const xmlDoc = await readXmlPart(zip, plan.path);
     if (!xmlDoc) continue;
+    if (plan.unitsOf === worksheetUnits) {
+      if (elementsByLocalName(xmlDoc, OOXML_NS.ss, 'sheetData').length > 0) sheetDataFound = true;
+      else for (const ns of foreignNamespaces(xmlDoc)) foreign.add(ns);
+    }
 
     const textNodes: TextNodeMapping[] = [];
     for (const unit of plan.unitsOf(xmlDoc)) {
@@ -218,11 +275,26 @@ export async function readXlsx(file: File): Promise<XlsxExtraction> {
     contentParts.push({ path: plan.path, xmlDoc, textNodes });
   }
 
+  if (worksheetPaths.length > 0 && !sheetDataFound && foreign.size > 0) {
+    throw new UnsupportedDocumentError(
+      'unrecognized-namespace',
+      `Unsupported .xlsx: no SpreadsheetML sheetData in any worksheet, found elements in ${[...foreign].join(', ')}`,
+      [...foreign],
+    );
+  }
+
+  // Package policy (T177): parts the writer would copy verbatim are
+  // reported; the writer refuses them until the host passes allowUnredactable.
+  const unredactable = await collectUnredactableParts(zip, 'xlsx');
+
   return {
     plainText: flatText,
     zip,
     contentParts,
     textNodes: contentParts.flatMap((part) => part.textNodes),
+    empty: flatText.trim().length === 0,
+    unredactable,
+    warnings: [],
   };
 }
 
@@ -304,6 +376,28 @@ async function sanitizeXlsxMetadata(zip: JSZip, valueReplacements: ValueReplacem
   );
 }
 
+/** Result of writeAnonymizedXlsxWithReport (T172). */
+export interface XlsxWriteResult {
+  /** The redacted .xlsx */
+  blob: Blob;
+  /**
+   * Parts the layer-zero scrub could not parse and left untouched, plus
+   * (with allowUnredactable) every unredactable part copied verbatim.
+   */
+  warnings: string[];
+}
+
+/** Options for writeAnonymizedXlsx (T177). */
+export interface XlsxWriteOptions {
+  /**
+   * Export even though extraction.unredactable is non-empty: the listed
+   * parts are copied verbatim and named in result.warnings. Default false:
+   * the writer throws UnsupportedDocumentError('unredactable-parts') before
+   * touching the extraction. See DocxWriteOptions.allowUnredactable.
+   */
+  allowUnredactable?: boolean;
+}
+
 /**
  * Apply text replacements to the xlsx XML, preserving formatting, then scrub
  * metadata. Returns a new .xlsx file as a Blob; the input file is untouched.
@@ -311,21 +405,48 @@ async function sanitizeXlsxMetadata(zip: JSZip, valueReplacements: ValueReplacem
 export async function writeAnonymizedXlsx(
   extraction: XlsxExtraction,
   replacements: Array<{ start: number; end: number; replacement: string }>,
-  valueReplacements: ValueReplacement[] = []
+  valueReplacements: ValueReplacement[] = [],
+  options: XlsxWriteOptions = {}
 ): Promise<Blob> {
+  const result = await writeAnonymizedXlsxWithReport(extraction, replacements, valueReplacements, options);
+  return result.blob;
+}
+
+/**
+ * Same as writeAnonymizedXlsx, with the write report. After the content
+ * parts and metadata, layer zero (T172) scrubs every known value from every
+ * other XML/rels/vml part: pivot cache records, drawings, charts, tables,
+ * defined names in the workbook, docProps.
+ */
+export async function writeAnonymizedXlsxWithReport(
+  extraction: XlsxExtraction,
+  replacements: Array<{ start: number; end: number; replacement: string }>,
+  valueReplacements: ValueReplacement[] = [],
+  options: XlsxWriteOptions = {}
+): Promise<XlsxWriteResult> {
+  assertUnredactableAllowed(extraction.unredactable, options.allowUnredactable);
+
   applyTextReplacements(extraction.textNodes, replacements);
 
+  const contentPaths = new Set<string>();
   for (const part of extraction.contentParts) {
     sanitizeXlsxPart(part.xmlDoc, valueReplacements);
     writeXmlPart(extraction.zip, part.path, part.xmlDoc);
+    contentPaths.add(part.path);
   }
 
   await sanitizeXlsxMetadata(extraction.zip, valueReplacements);
 
-  return extraction.zip.generateAsync({
+  const scrub = await scrubPackageValues(extraction.zip, valueReplacements, { skip: contentPaths });
+
+  // Container normalisation (T179): fixed entry dates, no comments.
+  normalizeZipEntries(extraction.zip);
+  const blob = await extraction.zip.generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    comment: '',
   });
+  return { blob, warnings: [...scrub.warnings, ...unredactableWarnings(extraction.unredactable)] };
 }
 
 /**

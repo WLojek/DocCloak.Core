@@ -1,0 +1,88 @@
+{
+  "seed": "pl-table-heavy",
+  "source": "pl-table-heavy.fodt",
+  "language": "pl",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Katarzyna Wiśniewska",
+    "85031412347",
+    "+48 601 234 567",
+    "k.wisniewska@przyklad-firma.pl",
+    "ul. Długa 12/4, 31-147 Kraków",
+    "Tomasz Zieliński",
+    "90112256787",
+    "(12) 345-67-89",
+    "tomasz.zielinski@poczta-testowa.pl",
+    "os. Słoneczne 7 m. 21, 61-131 Poznań",
+    "Małgorzata Kaczmarek",
+    "72070887650",
+    "PL61 1090 1014 0000 0712 1981 2874",
+    "Agnieszka Pawlak-Dudek",
+    "65123098761",
+    "+48 22 555 01 99",
+    "Bartłomiej Sroka"
+  ],
+  "where": [
+    "table",
+    "table-merged-cell",
+    "meta"
+  ],
+  "placements": {
+    "Katarzyna Wiśniewska": [
+      "table"
+    ],
+    "85031412347": [
+      "table"
+    ],
+    "+48 601 234 567": [
+      "table"
+    ],
+    "k.wisniewska@przyklad-firma.pl": [
+      "table"
+    ],
+    "ul. Długa 12/4, 31-147 Kraków": [
+      "table"
+    ],
+    "Tomasz Zieliński": [
+      "table"
+    ],
+    "90112256787": [
+      "table"
+    ],
+    "(12) 345-67-89": [
+      "table"
+    ],
+    "tomasz.zielinski@poczta-testowa.pl": [
+      "table"
+    ],
+    "os. Słoneczne 7 m. 21, 61-131 Poznań": [
+      "table"
+    ],
+    "Małgorzata Kaczmarek": [
+      "table"
+    ],
+    "72070887650": [
+      "table"
+    ],
+    "PL61 1090 1014 0000 0712 1981 2874": [
+      "table-merged-cell"
+    ],
+    "Agnieszka Pawlak-Dudek": [
+      "table"
+    ],
+    "65123098761": [
+      "table"
+    ],
+    "+48 22 555 01 99": [
+      "table"
+    ],
+    "Bartłomiej Sroka": [
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "Two tables with header rows and a merged cell; every value lives in a table cell."
+}

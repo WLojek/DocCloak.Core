@@ -6,10 +6,14 @@ import {
   redactOfficeFile,
   redactedFileName,
   officeFileKind,
+  StaleAnalysisError,
+  isStaleAnalysisError,
 } from '../src/dom/office.ts';
 import { readDocx, writeAnonymizedDocx } from '../src/dom/docx.ts';
+import { UnsupportedDocumentError } from '../src/dom/errors.ts';
 import { AnonymizationSession } from '../src/session.ts';
 import type { DetectedEntity, EntityType } from '../src/types.ts';
+import { assertNoTrace, writeOutput } from './helpers/package-scan.ts';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
@@ -73,6 +77,20 @@ function buildXlsxZip(): JSZip {
 <sst xmlns="${SS}" count="1" uniqueCount="1"><si><t>Owner: John Smith</t></si></sst>`);
   zip.file('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="${SS}"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>`);
+  return zip;
+}
+
+/** buildDocx plus an OLE object: an unredactable part under the T177 policy. */
+function buildDocxWithEmbedding(): JSZip {
+  const zip = buildDocx();
+  zip.file('word/embeddings/oleObject1.bin', new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3]));
+  return zip;
+}
+
+/** buildXlsxZip plus an OLE object: an unredactable part under the T177 policy. */
+function buildXlsxWithEmbedding(): JSZip {
+  const zip = buildXlsxZip();
+  zip.file('xl/embeddings/oleObject1.bin', new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3]));
   return zip;
 }
 
@@ -156,6 +174,21 @@ describe('analyzeOfficeFile', () => {
     const file = new File([new ArrayBuffer(4)], 'scan.pdf');
     await expect(analyzeOfficeFile(file, DETECT)).rejects.toThrow(/Unsupported/);
   });
+
+  it('exposes the unredactable part list and reader warnings (T179, T177 passthrough)', async () => {
+    const clean = await analyzeOfficeFile(await zipToFile(buildDocx(), 'case.docx'), DETECT);
+    expect(clean.unredactable).toEqual([]);
+    expect(clean.warnings).toEqual([]);
+
+    const withObject = await analyzeOfficeFile(await zipToFile(buildDocxWithEmbedding(), 'case.docx'), DETECT);
+    expect(withObject.unredactable.map((p) => p.part)).toEqual(['word/embeddings/oleObject1.bin']);
+    expect(withObject.unredactable[0].kind).toBe('embedded-object');
+    expect(withObject.entities.map((e) => e.value).sort()).toEqual(['John Smith', 'jane@acme.com']);
+
+    const xlsx = await analyzeOfficeFile(await zipToFile(buildXlsxWithEmbedding(), 'clients.xlsx'), DETECT);
+    expect(xlsx.unredactable.map((p) => p.part)).toEqual(['xl/embeddings/oleObject1.bin']);
+    expect(xlsx.warnings).toEqual([]);
+  });
 });
 
 describe('redactOfficeFile round trip (docx)', () => {
@@ -175,6 +208,8 @@ describe('redactOfficeFile round trip (docx)', () => {
     expect(result.suggestedName).toBe('case.redacted.docx');
     expect(result.entities.length).toBeGreaterThan(0);
     expect(originalBytes).toEqual(snapshot); // input buffer untouched
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com', 'Real Author']);
+    await writeOutput('office-docx-round-trip.docx', result.blob);
 
     const out = await partContents(result.blob);
     const doc = out.get('word/document.xml')!;
@@ -196,6 +231,8 @@ describe('redactOfficeFile round trip (docx)', () => {
     const file = await zipToFile(buildDocx(), 'case.docx');
     const session = new AnonymizationSession();
     const result = await redactOfficeFile(file, { session, detect: DETECT });
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com', 'Alice Reviewer', 'Deleted draft sentence']);
+    await writeOutput('office-docx-accept-tracked-changes.docx', result.blob);
     const doc = (await partContents(result.blob)).get('word/document.xml')!;
     expect(doc).not.toContain('w:del');
     expect(doc).not.toContain('Deleted draft sentence');
@@ -213,6 +250,8 @@ describe('redactOfficeFile round trip (docx)', () => {
     const result = await redactOfficeFile(file, {
       session, detect: DETECT, acceptTrackedChanges: false,
     });
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-keep-tracked-changes.docx', result.blob);
     const doc = (await partContents(result.blob)).get('word/document.xml')!;
     expect(doc).toContain('<w:ins');
     expect(doc).toContain('<w:del');
@@ -228,22 +267,199 @@ describe('redactOfficeFile round trip (docx)', () => {
       session, entities: analysis.entities, detect: countingDetect,
     });
     expect(detectCalls).toBe(0);
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-reuse-entities.docx', result.blob);
     const doc = (await partContents(result.blob)).get('word/document.xml')!;
     expect(doc).not.toContain('John Smith');
   });
 
-  it('drops stale entities whose offsets do not match the text', async () => {
+  it('refuses stale entities whose offsets do not match the text instead of shipping the value (T179, M4)', async () => {
     const file = await zipToFile(buildDocx(), 'case.docx');
     const session = new AnonymizationSession();
-    const result = await redactOfficeFile(file, {
+    await expect(redactOfficeFile(file, {
       session,
       entities: [
         { type: 'PERSON', value: 'Nobody Here', start: 0, end: 11, confidence: 1, detector: 'stale' },
       ],
+    })).rejects.toBeInstanceOf(StaleAnalysisError);
+    // Refused before the session was touched.
+    expect(session.getEntries()).toEqual([]);
+  });
+
+  it('returns no warnings and lists no unredactable parts on a clean file', async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const result = await redactOfficeFile(file, { session: new AnonymizationSession(), detect: DETECT });
+    expect(result.warnings).toEqual([]);
+    expect(result.unredactable).toEqual([]);
+  });
+});
+
+describe('redactOfficeFile onMismatch (T179, M4)', () => {
+  const STALE_A: DetectedEntity = { type: 'PERSON', value: 'Nobody Here', start: 0, end: 11, confidence: 1, detector: 'stale' };
+  const STALE_B: DetectedEntity = { type: 'EMAIL', value: 'gone@old.example', start: 500, end: 516, confidence: 1, detector: 'stale' };
+
+  it('the error names every mismatched entity, none of the valid ones, and does not repeat the values in its message', async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const analysis = await analyzeOfficeFile(file, DETECT);
+    const session = new AnonymizationSession();
+    let caught: unknown;
+    try {
+      await redactOfficeFile(file, { session, entities: [STALE_A, ...analysis.entities, STALE_B] });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(StaleAnalysisError);
+    expect(isStaleAnalysisError(caught)).toBe(true);
+    const err = caught as StaleAnalysisError;
+    expect(err.name).toBe('StaleAnalysisError');
+    expect(err.entities).toEqual([STALE_A, STALE_B]);
+    expect(err.message).toContain('2 of 4');
+    expect(err.message).toContain('PERSON@0-11');
+    expect(err.message).toContain('EMAIL@500-516');
+    expect(err.message).not.toContain('Nobody Here');
+    expect(err.message).not.toContain('gone@old.example');
+    expect(session.getEntries()).toEqual([]);
+  });
+
+  it('a wrong value at otherwise valid offsets is a mismatch too', async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const analysis = await analyzeOfficeFile(file, DETECT);
+    const john = analysis.entities.find((e) => e.value === 'John Smith')!;
+    const shifted = { ...john, start: john.start + 1, end: john.end + 1 };
+    await expect(redactOfficeFile(file, { session: new AnonymizationSession(), entities: [shifted], onMismatch: 'throw' }))
+      .rejects.toMatchObject({ name: 'StaleAnalysisError', entities: [shifted] });
+  });
+
+  it("onMismatch: 'drop' keeps the historical behaviour: mismatches filtered, valid entities redacted", async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const analysis = await analyzeOfficeFile(file, DETECT);
+    const session = new AnonymizationSession();
+    const result = await redactOfficeFile(file, {
+      session,
+      entities: [STALE_A, ...analysis.entities, STALE_B],
+      onMismatch: 'drop',
     });
-    expect(result.entities).toHaveLength(0);
+    expect(result.entities.map((e) => e.value).sort()).toEqual(['John Smith', 'jane@acme.com']);
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-drop-stale-entities.docx', result.blob);
     const doc = (await partContents(result.blob)).get('word/document.xml')!;
-    expect(doc).toContain('John Smith'); // nothing valid to redact
+    expect(doc).toContain('[PERSON_1]');
+    expect(session.getForward('Nobody Here')).toBeUndefined();
+  });
+
+  it("onMismatch: 'drop' with only stale entities writes an unredacted copy (the host asked for it)", async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const result = await redactOfficeFile(file, { session: new AnonymizationSession(), entities: [STALE_A], onMismatch: 'drop' });
+    expect(result.entities).toHaveLength(0);
+    await writeOutput('office-docx-stale-entities.docx', result.blob);
+    const doc = (await partContents(result.blob)).get('word/document.xml')!;
+    expect(doc).toContain('John Smith');
+  });
+
+  it('entities from a fresh analysis never trip the default', async () => {
+    const file = await zipToFile(buildDocx(), 'case.docx');
+    const analysis = await analyzeOfficeFile(file, DETECT);
+    const result = await redactOfficeFile(file, { session: new AnonymizationSession(), entities: analysis.entities });
+    expect(result.entities).toHaveLength(analysis.entities.length);
+  });
+});
+
+describe('redactOfficeFile allowUnredactable passthrough (T179, T177)', () => {
+  it('docx: refuses by default with the part names, copies verbatim with a warning when allowed', async () => {
+    const session = new AnonymizationSession();
+    await expect(redactOfficeFile(await zipToFile(buildDocxWithEmbedding(), 'case.docx'), { session, detect: DETECT }))
+      .rejects.toMatchObject({ code: 'unredactable-parts', details: ['word/embeddings/oleObject1.bin'] });
+    let refused: unknown;
+    try {
+      await redactOfficeFile(await zipToFile(buildDocxWithEmbedding(), 'case.docx'), { session, detect: DETECT, allowUnredactable: false });
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused).toBeInstanceOf(UnsupportedDocumentError);
+
+    const result = await redactOfficeFile(await zipToFile(buildDocxWithEmbedding(), 'case.docx'), {
+      session, detect: DETECT, allowUnredactable: true,
+    });
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-allow-unredactable.docx', result.blob);
+    expect(result.unredactable.map((p) => p.part)).toEqual(['word/embeddings/oleObject1.bin']);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/^word\/embeddings\/oleObject1\.bin: .*copied verbatim \(not redacted\)$/);
+    const out = await JSZip.loadAsync(await blobToArrayBuffer(result.blob));
+    expect(out.file('word/embeddings/oleObject1.bin')).not.toBeNull();
+  });
+
+  it('xlsx: refuses by default, copies verbatim with a warning when allowed', async () => {
+    const session = new AnonymizationSession();
+    await expect(redactOfficeFile(await zipToFile(buildXlsxWithEmbedding(), 'clients.xlsx'), { session, detect: DETECT }))
+      .rejects.toMatchObject({ code: 'unredactable-parts', details: ['xl/embeddings/oleObject1.bin'] });
+
+    const result = await redactOfficeFile(await zipToFile(buildXlsxWithEmbedding(), 'clients.xlsx'), {
+      session, detect: DETECT, allowUnredactable: true,
+    });
+    await assertNoTrace(result.blob, ['John Smith']);
+    await writeOutput('office-xlsx-allow-unredactable.xlsx', result.blob);
+    expect(result.unredactable.map((p) => p.part)).toEqual(['xl/embeddings/oleObject1.bin']);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/^xl\/embeddings\/oleObject1\.bin: .*copied verbatim \(not redacted\)$/);
+    const out = await JSZip.loadAsync(await blobToArrayBuffer(result.blob));
+    expect(out.file('xl/embeddings/oleObject1.bin')).not.toBeNull();
+  });
+});
+
+describe('redactOfficeFile layer zero from the session (T179, T172 follow-up)', () => {
+  it('a PERSON name token from the session reaches parts the extractor never reads', async () => {
+    const zip = buildDocx();
+    // A structural part the docx reader does not extract: only layer zero visits it.
+    zip.file('word/theme/theme1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Theme by Smith"><a:custClrLst><a:custClr name="Smith blue"/></a:custClrLst><a:extLst><a:ext uri="x"><note>prepared for Smith, see John Smith</note></a:ext></a:extLst></a:theme>`);
+    const session = new AnonymizationSession();
+    const result = await redactOfficeFile(await zipToFile(zip, 'case.docx'), { session, detect: DETECT });
+    await assertNoTrace(result.blob, ['John Smith', 'Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-layer-zero-tokens.docx', result.blob);
+    const theme = (await partContents(result.blob)).get('word/theme/theme1.xml')!;
+    expect(theme).toContain('prepared for [PERSON_1], see [PERSON_1]');
+    expect(theme).toContain('name="Theme by [PERSON_1]"');
+  });
+});
+
+describe('redactOfficeFile container normalisation (T179, L1)', () => {
+  async function fingerprintedFile(zip: JSZip, name: string): Promise<File> {
+    for (const [path, entry] of Object.entries(zip.files)) {
+      entry.date = new Date('2024-05-06T07:08:09Z');
+      entry.comment = `note for ${path}`;
+    }
+    const ab = await zip.generateAsync({ type: 'arraybuffer', comment: 'archive note' });
+    const file = new File([ab], name);
+    if (typeof file.arrayBuffer !== 'function') {
+      Object.defineProperty(file, 'arrayBuffer', { value: async () => ab });
+    }
+    return file;
+  }
+
+  async function expectNormalised(blob: Blob): Promise<void> {
+    const out = await JSZip.loadAsync(await blobToArrayBuffer(blob));
+    expect((out as unknown as { comment: string | null }).comment || '').toBe('');
+    const names = Object.keys(out.files);
+    expect(names.length).toBeGreaterThan(2);
+    for (const name of names) {
+      expect(out.files[name].date.getTime(), `${name} date`).toBe(Date.UTC(1980, 0, 1));
+      expect(out.files[name].comment || '', `${name} comment`).toBe('');
+    }
+  }
+
+  it('docx: every entry dated 1980-01-01 UTC, no entry or archive comments', async () => {
+    const result = await redactOfficeFile(await fingerprintedFile(buildDocx(), 'case.docx'), {
+      session: new AnonymizationSession(), detect: DETECT,
+    });
+    await expectNormalised(result.blob);
+  });
+
+  it('xlsx: every entry dated 1980-01-01 UTC, no entry or archive comments', async () => {
+    const result = await redactOfficeFile(await fingerprintedFile(buildXlsxZip(), 'clients.xlsx'), {
+      session: new AnonymizationSession(), detect: DETECT,
+    });
+    await expectNormalised(result.blob);
   });
 });
 
@@ -255,6 +471,8 @@ describe('redactOfficeFile round trip (xlsx)', () => {
 
     expect(result.kind).toBe('xlsx');
     expect(result.suggestedName).toBe('clients.redacted.xlsx');
+    await assertNoTrace(result.blob, ['John Smith']);
+    await writeOutput('office-xlsx-round-trip.xlsx', result.blob);
     const out = await partContents(result.blob);
     const shared = out.get('xl/sharedStrings.xml')!;
     expect(shared).not.toContain('John Smith');
@@ -282,6 +500,8 @@ describe('session consistency between prompts and files (T110 DoD)', () => {
     // 2. Then uploads the file; the same person gets the SAME placeholder
     const file = await zipToFile(buildDocx(), 'case.docx');
     const result = await redactOfficeFile(file, { session, detect: DETECT });
+    await assertNoTrace(result.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-session-consistency.docx', result.blob);
     const doc = (await partContents(result.blob)).get('word/document.xml')!;
     expect(doc).toContain('[PERSON_1]');
     expect(doc).not.toContain('[PERSON_2]');
@@ -304,6 +524,10 @@ describe('session consistency between prompts and files (T110 DoD)', () => {
     const b = await redactOfficeFile(await zipToFile(buildDocx(), 'case.docx'), { session: sessionB, detect: DETECT });
     expect(a.redactedText).toBe(b.redactedText);
     expect(a.redactedText).not.toContain('John Smith');
+    await assertNoTrace(a.blob, ['John Smith', 'jane@acme.com']);
+    await assertNoTrace(b.blob, ['John Smith', 'jane@acme.com']);
+    await writeOutput('office-docx-surrogate-a.docx', a.blob);
+    await writeOutput('office-docx-surrogate-b.docx', b.blob);
   });
 });
 
@@ -312,6 +536,8 @@ describe('writeAnonymizedDocx options regression', () => {
     const file = await zipToFile(buildDocx(), 'case.docx');
     const extraction = await readDocx(file);
     const blob = await writeAnonymizedDocx(extraction, []);
+    // No replacements were requested, so there are no originals to scan for.
+    await writeOutput('office-docx-options-regression.docx', blob);
     const doc = (await partContents(blob)).get('word/document.xml')!;
     expect(doc).toContain('<w:ins'); // tracked changes untouched by default
     expect(doc).toContain('<w:del');

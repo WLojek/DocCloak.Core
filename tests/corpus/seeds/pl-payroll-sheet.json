@@ -1,0 +1,99 @@
+{
+  "seed": "pl-payroll-sheet",
+  "source": "pl-payroll-sheet.fods",
+  "language": "pl",
+  "formats": [
+    "xlsx"
+  ],
+  "needles": [
+    "Katarzyna Wiśniewska",
+    "85031412347",
+    "+48 601 234 567",
+    "ul. Długa 12/4, 31-147 Kraków",
+    "k.wisniewska@przyklad-firma.pl",
+    "Tomasz Zieliński",
+    "90112256787",
+    "(12) 345-67-89",
+    "os. Słoneczne 7 m. 21, 61-131 Poznań",
+    "tomasz.zielinski@poczta-testowa.pl",
+    "Agnieszka Pawlak-Dudek",
+    "65123098761",
+    "+48 22 555 01 99",
+    "Małgorzata Kaczmarek",
+    "PL61 1090 1014 0000 0712 1981 2874",
+    "Bartłomiej Sroka",
+    "b.sroka@kancelaria-sroka.pl"
+  ],
+  "where": [
+    "sheet-name",
+    "cell",
+    "comment",
+    "numeric-cell",
+    "header",
+    "comment-author",
+    "formula-literal",
+    "cached-value",
+    "meta",
+    "footer"
+  ],
+  "placements": {
+    "Katarzyna Wiśniewska": [
+      "sheet-name",
+      "cell",
+      "comment"
+    ],
+    "85031412347": [
+      "cell"
+    ],
+    "+48 601 234 567": [
+      "cell"
+    ],
+    "ul. Długa 12/4, 31-147 Kraków": [
+      "cell"
+    ],
+    "k.wisniewska@przyklad-firma.pl": [
+      "cell"
+    ],
+    "Tomasz Zieliński": [
+      "cell"
+    ],
+    "90112256787": [
+      "numeric-cell"
+    ],
+    "(12) 345-67-89": [
+      "cell"
+    ],
+    "os. Słoneczne 7 m. 21, 61-131 Poznań": [
+      "cell"
+    ],
+    "tomasz.zielinski@poczta-testowa.pl": [
+      "cell"
+    ],
+    "Agnieszka Pawlak-Dudek": [
+      "cell"
+    ],
+    "65123098761": [
+      "cell"
+    ],
+    "+48 22 555 01 99": [
+      "cell"
+    ],
+    "Małgorzata Kaczmarek": [
+      "header",
+      "comment-author"
+    ],
+    "PL61 1090 1014 0000 0712 1981 2874": [
+      "formula-literal",
+      "cached-value"
+    ],
+    "Bartłomiej Sroka": [
+      "meta"
+    ],
+    "b.sroka@kancelaria-sroka.pl": [
+      "footer",
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "Spreadsheet: PII in a sheet name, cells, a numeric cell (PESEL stored as a number), a cell comment, a formula string literal, header/footer, meta."
+}

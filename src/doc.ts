@@ -1,5 +1,6 @@
 import CFB from 'cfb';
-import { normalizeReplacements } from './docx.ts';
+import { normalizeReplacements, type ValueReplacement } from './docx.ts';
+import { UnsupportedDocumentError } from './dom/errors.ts';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,144 @@ function readPlcBlob(tableStream: Uint8Array, fc: number, lcb: number): Uint8Arr
   return tableStream.slice(fc, fc + lcb);
 }
 
+// ─── FIB base flags (MS-DOC 2.5.1 FibBase) ───────────────────────────────────
+
+/** FibBase.nFib (offset 0x02): file format version; superseded by nFibNew. */
+const FIB_NFIB = 0x0002;
+/** FibBase flags word A (offset 0x0A). Bit layout, low to high:
+ *  fDot 0x0001, fGlsy 0x0002, fComplex 0x0004, fHasPic 0x0008,
+ *  cQuickSaves 0x00F0, fEncrypted 0x0100, fWhichTblStm 0x0200,
+ *  fReadOnlyRecommended 0x0400, fWriteReservation 0x0800, fExtChar 0x1000,
+ *  fLoadOverride 0x2000, fFarEast 0x4000, fObfuscated 0x8000. */
+const FIB_FLAGS = 0x000a;
+const FIB_F_COMPLEX = 0x0004;
+const FIB_CQUICKSAVES_MASK = 0x00f0;
+const FIB_CQUICKSAVES_SHIFT = 4;
+const FIB_F_ENCRYPTED = 0x0100;
+const FIB_F_WHICH_TBL_STM = 0x0200;
+/** fObfuscated: XOR obfuscation (only meaningful when fEncrypted is set, but
+ *  a file with either bit set is unreadable for us). */
+const FIB_F_OBFUSCATED = 0x8000;
+/** FibRgFcLcbBlob length prefix cbRgFcLcb (offset 0x98), in 8-byte units.
+ *  FibRgCswNew follows it: cswNew (2 bytes) then nFibNew (2 bytes). */
+const FIB_CB_RG_FC_LCB = 0x0098;
+const FIB_RG_FC_LCB = 0x009a;
+/** nFib of Word 2000. From this version on, cQuickSaves MUST be 0xF and no
+ *  longer counts incremental saves (MS-DOC 2.5.1). */
+const NFIB_WORD_2000 = 0x00d9;
+
+interface FibBase {
+  flags: number;
+  /** Effective format version: FibRgCswNew.nFibNew when present, else FibBase.nFib. */
+  nFib: number;
+  whichTable: 0 | 1;
+  encrypted: boolean;
+  fastSaved: boolean;
+}
+
+function readFibBase(view: DataView): FibBase {
+  const flags = view.getUint16(FIB_FLAGS, true);
+  let nFib = view.getUint16(FIB_NFIB, true);
+  // nFibNew supersedes nFib when FibRgCswNew is present.
+  if (view.byteLength >= FIB_RG_FC_LCB) {
+    const cbRgFcLcb = view.getUint16(FIB_CB_RG_FC_LCB, true);
+    const cswNewOff = FIB_RG_FC_LCB + cbRgFcLcb * 8;
+    if (cswNewOff + 4 <= view.byteLength && view.getUint16(cswNewOff, true) > 0) {
+      nFib = view.getUint16(cswNewOff + 2, true);
+    }
+  }
+  const cQuickSaves = (flags & FIB_CQUICKSAVES_MASK) >> FIB_CQUICKSAVES_SHIFT;
+  // fComplex: the last save was incremental. cQuickSaves counts those saves
+  // only for Word 97 files; Word 2000+ always writes 0xF there.
+  const fastSaved = (flags & FIB_F_COMPLEX) !== 0
+    || (nFib < NFIB_WORD_2000 && cQuickSaves > 0);
+  const encrypted = (flags & (FIB_F_ENCRYPTED | FIB_F_OBFUSCATED)) !== 0;
+  return {
+    flags,
+    nFib,
+    whichTable: (flags & FIB_F_WHICH_TBL_STM) ? 1 : 0,
+    encrypted,
+    fastSaved,
+  };
+}
+
+/**
+ * Fail closed on files this module cannot redact completely:
+ * - encrypted / XOR-obfuscated: the text is ciphertext, detection sees noise
+ *   and the export would be the untouched ciphertext (L2);
+ * - fast-saved (incremental save): deleted text lives in WordDocument regions
+ *   outside the piece table, so it never reaches the detector and cannot be
+ *   located for scrubbing (H5). The user has to resave the file in Word.
+ */
+function assertSupportedFib(fib: FibBase): void {
+  if (fib.encrypted) {
+    throw new UnsupportedDocumentError(
+      'encrypted',
+      'This .doc file is encrypted or obfuscated. Remove the password in Word and save it again, or save as .docx.',
+    );
+  }
+  if (fib.fastSaved) {
+    throw new UnsupportedDocumentError(
+      'fast-saved',
+      'This .doc file was fast-saved (incremental save) and may hold deleted text outside the visible document. Open it in Word and Save As, or save as .docx.',
+    );
+  }
+}
+
+/** Result of inspectDoc. */
+export interface DocInspection {
+  /** fEncrypted or fObfuscated is set: readDocText / writeAnonymizedDoc refuse the file. */
+  encrypted: boolean;
+  /** fComplex is set (or Word 97 cQuickSaves > 0): readDocText / writeAnonymizedDoc refuse the file. */
+  fastSaved: boolean;
+  /** Streams that are copied through the export without being redacted. */
+  streams: {
+    /** Data stream (field data such as hyperlinks, pictures, OLE previews). Scanned and scrubbed in UTF-16LE only. */
+    data: boolean;
+    /** ObjectPool storage (embedded OLE documents). Not scrubbed. */
+    objectPool: boolean;
+    /** Macros storage (VBA project). Not scrubbed. */
+    macros: boolean;
+  };
+}
+
+function containerHasPath(container: CFB.CFB$Container, name: string): boolean {
+  const needle = name.toLowerCase();
+  return container.FullPaths.some((p) => {
+    const rel = p.replace(/^Root Entry\//i, '').replace(/\/$/, '').toLowerCase();
+    return rel === needle || rel.startsWith(needle + '/');
+  });
+}
+
+/**
+ * Cheap look at a legacy .doc without parsing the piece table: which refusal
+ * flags are set and which non-text streams the file carries. Hosts use it to
+ * show a warning next to the export (ObjectPool / Macros are copied through
+ * unchanged, see writeAnonymizedDoc) or to explain a refusal up front.
+ * Throws only when the file is not a .doc at all.
+ */
+export function inspectDoc(buffer: ArrayBuffer | Uint8Array): DocInspection {
+  const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const container = CFB.parse(data);
+  const wordDocEntry = CFB.find(container, '/WordDocument') ?? CFB.find(container, 'WordDocument');
+  if (!wordDocEntry?.content) throw new Error('Invalid .doc file: missing WordDocument stream');
+  const wordDoc = toUint8Array(wordDocEntry.content);
+  const view = new DataView(wordDoc.buffer, wordDoc.byteOffset, wordDoc.byteLength);
+  if (view.byteLength < 0x20 || view.getUint16(0, true) !== 0xa5ec) {
+    throw new Error('Invalid .doc file: bad magic number');
+  }
+  const fib = readFibBase(view);
+  return {
+    encrypted: fib.encrypted,
+    fastSaved: fib.fastSaved,
+    streams: {
+      data: containerHasPath(container, 'Data'),
+      objectPool: containerHasPath(container, 'ObjectPool'),
+      macros: containerHasPath(container, 'Macros'),
+    },
+  };
+}
+
 // ─── Shared parsing ──────────────────────────────────────────────────────────
 
 function parseDocStreams(buffer: ArrayBuffer): ParsedDoc {
@@ -261,9 +400,9 @@ function parseDocStreams(buffer: ArrayBuffer): ParsedDoc {
     throw new Error('Invalid .doc file: bad magic number');
   }
 
-  const flags = wordView.getUint16(0x000a, true);
-  const whichTbl = (flags >> 9) & 1;
-  const tblName = whichTbl ? '1Table' : '0Table';
+  const fib = readFibBase(wordView);
+  assertSupportedFib(fib);
+  const tblName = fib.whichTable ? '1Table' : '0Table';
   const tableEntry = CFB.find(container, '/' + tblName) ?? CFB.find(container, tblName);
   if (!tableEntry?.content) throw new Error(`Invalid .doc file: missing ${tblName} stream`);
   const tableDoc = toUint8Array(tableEntry.content);
@@ -358,9 +497,30 @@ function extractDocContent(parsed: ParsedDoc): DocExtraction {
 
 // ─── Main: write anonymized .doc ─────────────────────────────────────────────
 
+/**
+ * Write a redacted copy of a legacy .doc.
+ *
+ * `replacements` are offsets into the text returned by readDocText. Main-text
+ * ranges are swapped for the replacement string through a rewritten piece
+ * table; ranges in subdocuments (footnotes, headers, comments) are overwritten
+ * in place. `valueReplacements` (same shape as writeAnonymizedDocx) add
+ * original values that were not located by offset, e.g. session entries.
+ *
+ * Every original value (from both sources) is then destroyed wherever else it
+ * still occurs as bytes, without moving any structure (see scrubStreamBytes).
+ *
+ * Refuses (UnsupportedDocumentError) fast-saved and encrypted files, see
+ * assertSupportedFib.
+ *
+ * Copied through untouched: ObjectPool (embedded OLE objects), Macros (VBA)
+ * and \x01CompObj. TODO(T196, T199): delete them with CFB.utils.cfb_del once
+ * the open-in-Word / LibreOffice experiment proves the result still opens.
+ * Until then hosts should call inspectDoc and warn when they are present.
+ */
 export async function writeAnonymizedDoc(
   buffer: ArrayBuffer,
   replacements: Array<{ start: number; end: number; replacement: string }>,
+  valueReplacements: ValueReplacement[] = [],
 ): Promise<Blob> {
   const parsed = parseDocStreams(buffer);
   const { container, wordDocEntry, tableEntry, wordDoc: origWordDoc, wordView: wv, tableDoc: origTable, ccpText, pieces } = parsed;
@@ -368,9 +528,34 @@ export async function writeAnonymizedDoc(
   // Author/title/company metadata lives outside the text streams; scrub it always
   scrubOleMetadataStreams(container);
 
+  // ── Map replacement offsets (normalized text space) to CP space ──
+  // The offsets the caller passes are positions in the text produced by
+  // readDocText. Normalization drops/collapses control characters, so those
+  // offsets shift against CPs; apply the recorded map to land exactly.
+  const { text, cpMap } = extractDocContent(parsed);
+  const cpReplacements: Array<{ start: number; end: number; replacement: string }> = [];
+  const originals: string[] = valueReplacements.map((v) => v.value);
+  for (const repl of normalizeReplacements(replacements)) {
+    if (repl.start < 0 || repl.end > text.length || repl.start >= repl.end) {
+      // Offsets that do not match the extracted text indicate a caller bug.
+      // Fail closed: never export a file whose redaction we cannot place.
+      throw new Error('Replacement offsets do not match the document text');
+    }
+    originals.push(text.slice(repl.start, repl.end));
+    cpReplacements.push({
+      start: cpMap[repl.start],
+      end: cpMap[repl.end - 1] + 1,
+      replacement: repl.replacement,
+    });
+  }
+  const needles = buildScrubNeedles(originals, [
+    ...valueReplacements.map((v) => v.replacement),
+    ...replacements.map((r) => r.replacement),
+  ]);
+
   if (replacements.length === 0) {
-    // Still scrub the associated-strings table (author, template paths) in place
-    scrubSttbfAssoc(origTable, wv);
+    // No structural rewrite: scrub the string tables and remnant bytes in place
+    finalizeDocStreams(container, origWordDoc, origWordDoc.length, origTable, wv, needles);
     wordDocEntry.content = origWordDoc;
     tableEntry.content = origTable;
     const bytes = CFB.write(container, { type: 'array' }) as number[];
@@ -384,25 +569,6 @@ export async function writeAnonymizedDoc(
   const lcbPlcfBtePapx = wv.getInt32(0x0106, true);
   const fcPlcfSed = wv.getInt32(0x00ca, true);
   const lcbPlcfSed = wv.getInt32(0x00ce, true);
-
-  // ── Map replacement offsets (normalized text space) to CP space ──
-  // The offsets the caller passes are positions in the text produced by
-  // readDocText. Normalization drops/collapses control characters, so those
-  // offsets shift against CPs; apply the recorded map to land exactly.
-  const { text, cpMap } = extractDocContent(parsed);
-  const cpReplacements: Array<{ start: number; end: number; replacement: string }> = [];
-  for (const repl of normalizeReplacements(replacements)) {
-    if (repl.start < 0 || repl.end > text.length || repl.start >= repl.end) {
-      // Offsets that do not match the extracted text indicate a caller bug.
-      // Fail closed: never export a file whose redaction we cannot place.
-      throw new Error('Replacement offsets do not match the document text');
-    }
-    cpReplacements.push({
-      start: cpMap[repl.start],
-      end: cpMap[repl.end - 1] + 1,
-      replacement: repl.replacement,
-    });
-  }
 
   // Main-text replacements go through the piece table (labeled placeholders).
   // Replacements in subdocuments (footnotes, headers, comments) are redacted
@@ -559,8 +725,10 @@ export async function writeAnonymizedDoc(
     fv.setInt32(0x00ce, newPlcfSed.length, true);
   }
 
-  // ── Scrub associated strings (author, last-saved-by, template/data paths) ──
-  scrubSttbfAssoc(newTable, fv);
+  // ── String tables, Data stream and remnant bytes ──
+  // The appended region of newWordDoc holds only replacement text and the
+  // FKPs built above, so the byte scrub covers the copied original part.
+  finalizeDocStreams(container, newWordDoc, origWordDoc.length, newTable, fv, needles);
 
   // ── Write back to OLE2 container ──
   // CFB.write sizes streams from entry.size, not content length; keep in sync
@@ -629,54 +797,304 @@ function overwritePieceBytes(
 
 // ─── Metadata scrubbing ──────────────────────────────────────────────────────
 
+// FibRgFcLcb97 (MS-DOC 2.5.5): the fc/lcb pairs start at 0x9A, 8 bytes each,
+// so entry i has fc at 0x9A + 8*i and lcb at 0x9E + 8*i.
+/** Entry 21: SttbfBkmk, bookmark names. */
+const FC_STTBF_BKMK = 0x0142;
+const LCB_STTBF_BKMK = 0x0146;
+/** Entry 32: SttbfAssoc, author, last-saved-by, template and data-source paths. */
 const FC_STTBF_ASSOC = 0x019a;
 const LCB_STTBF_ASSOC = 0x019e;
+/** Entry 35: AutosaveSource. MS-DOC says lcb MUST be 0; older Word versions
+ *  wrote the autosave path here (an Xst). */
+const FC_AUTOSAVE_SOURCE = 0x01b2;
+const LCB_AUTOSAVE_SOURCE = 0x01b6;
+/** Entry 36: GrpXstAtnOwners, comment author names (array of Xst). */
+const FC_GRP_XST_ATN_OWNERS = 0x01ba;
+const LCB_GRP_XST_ATN_OWNERS = 0x01be;
+/** Entry 51: SttbfRMark, revision (tracked change) author names. */
+const FC_STTBF_RMARK = 0x0232;
+const LCB_STTBF_RMARK = 0x0236;
+/** Entry 71: SttbSavedBy, alternating user names and file paths of past saves. */
+const FC_STTB_SAVED_BY = 0x02d2;
+const LCB_STTB_SAVED_BY = 0x02d6;
 
 /**
- * Scrub the associated-strings table (SttbfAssoc) in the Table stream. It
- * holds the document author, last-saved-by name, attached template path and
- * mail-merge data source path. Strings are space-filled in place so no
- * structure moves; if the table cannot be parsed, it is blanked wholesale and
- * disconnected via the FIB.
+ * Space-fill every string of an STTB (MS-DOC 2.9.271) in place. Handles the
+ * extended (0xFFFF marker, UTF-16) and the 8-bit layouts; cbExtra bytes after
+ * each string are kept. Throws when the layout does not add up so the caller
+ * can blank the region wholesale instead of trusting it.
  */
-function scrubSttbfAssoc(table: Uint8Array, fibView: DataView): void {
-  const fc = fibView.getInt32(FC_STTBF_ASSOC, true);
-  const lcb = fibView.getInt32(LCB_STTBF_ASSOC, true);
-  if (lcb <= 0 || fc < 0 || fc + lcb > table.length) return;
+function scrubSttb(table: Uint8Array, fc: number, lcb: number): void {
+  const v = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  let offset = 0;
+  const extended = v.getUint16(0, true) === 0xffff;
+  if (extended) offset = 2;
+  const count = v.getUint16(offset, true);
+  const cbExtra = v.getUint16(offset + 2, true);
+  offset += 4;
+  if (count > 4096) throw new Error('bad sttb');
 
-  try {
-    const v = new DataView(table.buffer, table.byteOffset + fc, lcb);
-    let offset = 0;
-    const extended = v.getUint16(0, true) === 0xffff;
-    if (extended) offset = 2;
-    const count = v.getUint16(offset, true);
-    const cbExtra = v.getUint16(offset + 2, true);
-    offset += 4;
-    if (count > 4096) throw new Error('bad sttbf');
-
-    for (let i = 0; i < count; i++) {
-      let cch: number;
-      if (extended) {
-        cch = v.getUint16(offset, true);
-        offset += 2;
-        for (let j = 0; j < cch; j++) {
-          v.setUint16(offset + j * 2, 0x0020, true);
-        }
-        offset += cch * 2 + cbExtra;
-      } else {
-        cch = v.getUint8(offset);
-        offset += 1;
-        for (let j = 0; j < cch; j++) {
-          v.setUint8(offset + j, 0x20);
-        }
-        offset += cch + cbExtra;
+  for (let i = 0; i < count; i++) {
+    let cch: number;
+    if (extended) {
+      cch = v.getUint16(offset, true);
+      offset += 2;
+      if (offset + cch * 2 > lcb) throw new Error('bad sttb');
+      for (let j = 0; j < cch; j++) {
+        v.setUint16(offset + j * 2, 0x0020, true);
       }
-      if (offset > lcb) throw new Error('bad sttbf');
+      offset += cch * 2 + cbExtra;
+    } else {
+      cch = v.getUint8(offset);
+      offset += 1;
+      if (offset + cch > lcb) throw new Error('bad sttb');
+      for (let j = 0; j < cch; j++) {
+        v.setUint8(offset + j, 0x20);
+      }
+      offset += cch + cbExtra;
     }
+    if (offset > lcb) throw new Error('bad sttb');
+  }
+}
+
+/**
+ * Space-fill every Xst (cch + UTF-16 chars, MS-DOC 2.9.352) of a packed group
+ * such as GrpXstAtnOwners. Throws on a layout mismatch.
+ */
+function scrubXstGroup(table: Uint8Array, fc: number, lcb: number): void {
+  const v = new DataView(table.buffer, table.byteOffset + fc, lcb);
+  let offset = 0;
+  while (offset + 2 <= lcb) {
+    const cch = v.getUint16(offset, true);
+    offset += 2;
+    if (offset + cch * 2 > lcb) throw new Error('bad xst group');
+    for (let j = 0; j < cch; j++) v.setUint16(offset + j * 2, 0x0020, true);
+    offset += cch * 2;
+  }
+  if (offset !== lcb) throw new Error('bad xst group');
+}
+
+/**
+ * Read the fc/lcb pair, run `scrub` over the region and, if the structure
+ * cannot be parsed, zero the region and disconnect it via the FIB. Offsets
+ * of everything else in the Table stream are untouched either way.
+ */
+function scrubTableRegion(
+  table: Uint8Array,
+  fibView: DataView,
+  fcOffset: number,
+  lcbOffset: number,
+  scrub: (table: Uint8Array, fc: number, lcb: number) => void,
+): void {
+  if (lcbOffset + 4 > fibView.byteLength) return;
+  const fc = fibView.getInt32(fcOffset, true);
+  const lcb = fibView.getInt32(lcbOffset, true);
+  if (lcb <= 0 || fc < 0 || fc + lcb > table.length) return;
+  try {
+    scrub(table, fc, lcb);
   } catch {
-    // Unknown layout: blank the whole range and drop the FIB reference
     table.fill(0, fc, fc + lcb);
-    fibView.setInt32(LCB_STTBF_ASSOC, 0, true);
+    fibView.setInt32(lcbOffset, 0, true);
+  }
+}
+
+/**
+ * Zero the region and set its lcb to 0. Used for AutosaveSource, whose lcb
+ * MS-DOC requires to be 0 anyway; nothing references the bytes afterwards.
+ */
+function blankTableRegion(table: Uint8Array, fibView: DataView, fcOffset: number, lcbOffset: number): void {
+  if (lcbOffset + 4 > fibView.byteLength) return;
+  const fc = fibView.getInt32(fcOffset, true);
+  const lcb = fibView.getInt32(lcbOffset, true);
+  if (lcb <= 0 || fc < 0 || fc + lcb > table.length) return;
+  table.fill(0, fc, fc + lcb);
+  fibView.setInt32(lcbOffset, 0, true);
+}
+
+/**
+ * Scrub every Table-stream string table that carries people or paths:
+ * SttbfAssoc (author, last-saved-by, template), SttbfRMark (revision
+ * authors), GrpXstAtnOwners (comment authors), SttbfBkmk (bookmark names),
+ * SttbSavedBy (save history) and the AutosaveSource path. Strings are
+ * space-filled in place so indices referenced from CHPX / PLCs stay valid.
+ */
+function scrubTableStringTables(table: Uint8Array, fibView: DataView): void {
+  scrubTableRegion(table, fibView, FC_STTBF_ASSOC, LCB_STTBF_ASSOC, scrubSttb);
+  scrubTableRegion(table, fibView, FC_STTBF_RMARK, LCB_STTBF_RMARK, scrubSttb);
+  scrubTableRegion(table, fibView, FC_STTBF_BKMK, LCB_STTBF_BKMK, scrubSttb);
+  scrubTableRegion(table, fibView, FC_STTB_SAVED_BY, LCB_STTB_SAVED_BY, scrubSttb);
+  scrubTableRegion(table, fibView, FC_GRP_XST_ATN_OWNERS, LCB_GRP_XST_ATN_OWNERS, scrubXstGroup);
+  blankTableRegion(table, fibView, FC_AUTOSAVE_SOURCE, LCB_AUTOSAVE_SOURCE);
+}
+
+// ─── Length-preserving byte scrub ────────────────────────────────────────────
+
+/** Values shorter than this are not searched for: too many accidental hits. */
+const MIN_SCRUB_NEEDLE = 4;
+
+/**
+ * Derive the byte-scrub needles from the original values: each value itself,
+ * each whitespace-separated token and each token stripped of surrounding
+ * punctuation, keeping those of at least MIN_SCRUB_NEEDLE characters.
+ * Matching is case-insensitive (see scrubStreamBytes), which covers every
+ * case variant (as written, lower, UPPER, Capitalised) in one pass.
+ *
+ * A needle that occurs (case-insensitively) inside one of the `replacements`
+ * is dropped: a token such as "Person" from "Leaky Person" would otherwise
+ * blank the "[PERSON_1]" placeholder, and a surrogate that keeps a word of
+ * the original ("Smith & Co" -> "Nowak & Co") would lose it. The full
+ * original value is never dropped.
+ */
+export function buildScrubNeedles(originals: string[], replacements: string[] = []): string[] {
+  const protectedText = replacements.filter((r) => typeof r === 'string').map((r) => r.toLowerCase());
+  const values = new Set<string>();
+  const out = new Set<string>();
+  const add = (s: string, isValue: boolean): void => {
+    const t = s.trim();
+    if (t.length < MIN_SCRUB_NEEDLE) return;
+    if (isValue) values.add(t);
+    else if (values.has(t)) return;
+    else {
+      const lower = t.toLowerCase();
+      if (protectedText.some((r) => r.includes(lower))) return;
+    }
+    out.add(t);
+  };
+  for (const original of originals) {
+    if (typeof original !== 'string') continue;
+    add(original, true);
+  }
+  for (const original of originals) {
+    if (typeof original !== 'string') continue;
+    for (const token of original.split(/\s+/)) {
+      add(token, false);
+      add(token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''), false);
+    }
+  }
+  // Longest first so a full value is blanked before its tokens are considered
+  return [...out].sort((a, b) => b.length - a.length);
+}
+
+let cp1252Reverse: Map<number, number> | undefined;
+/** Reverse of CP1252_MAP (declared below), built on first use. */
+function cp1252ReverseMap(): Map<number, number> {
+  if (!cp1252Reverse) {
+    cp1252Reverse = new Map(Object.entries(CP1252_MAP).map(([byte, code]) => [code, Number(byte)]));
+  }
+  return cp1252Reverse;
+}
+
+/** Encode to cp1252 bytes, or null when a character has no cp1252 form. */
+function encodeCp1252(text: string): Uint8Array | null {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80 || (code >= 0xa0 && code <= 0xff)) {
+      out[i] = code;
+    } else {
+      const mapped = cp1252ReverseMap().get(code);
+      if (mapped === undefined) return null;
+      out[i] = mapped;
+    }
+  }
+  return out;
+}
+
+function foldCodeUnit(code: number): number {
+  if (code >= 0x41 && code <= 0x5a) return code + 0x20;
+  if (code < 0x80) return code;
+  return String.fromCharCode(code).toLowerCase().charCodeAt(0);
+}
+
+function foldCp1252Byte(byte: number): number {
+  if (byte >= 0x41 && byte <= 0x5a) return byte + 0x20;
+  if (byte < 0x80) return byte;
+  return foldCodeUnit(cp1252ToChar(byte).charCodeAt(0) || byte);
+}
+
+/**
+ * Overwrite every case-insensitive occurrence of `needle` in `bytes` with
+ * spaces of the same encoding. UTF-16LE: units are read at every byte
+ * offset (strings in the Table stream are not always 2-byte aligned) and
+ * replaced by 0x20 0x00; cp1252: bytes replaced by 0x20. Returns the number
+ * of hits. Stream length never changes.
+ */
+export function scrubStreamBytes(bytes: Uint8Array, needle: string, encoding: 'utf16le' | 'cp1252'): number {
+  const folded: number[] = [];
+  if (encoding === 'cp1252') {
+    const encoded = encodeCp1252(needle);
+    if (!encoded) return 0;
+    for (const b of encoded) folded.push(foldCp1252Byte(b));
+  } else {
+    for (let i = 0; i < needle.length; i++) folded.push(foldCodeUnit(needle.charCodeAt(i)));
+  }
+  const n = folded.length;
+  if (n === 0) return 0;
+  const unit = encoding === 'utf16le' ? 2 : 1;
+  const span = n * unit;
+  const first = folded[0];
+  let hits = 0;
+
+  for (let i = 0; i + span <= bytes.length; i++) {
+    // Fast reject on the first unit before folding the rest
+    const u0 = unit === 2 ? bytes[i] | (bytes[i + 1] << 8) : bytes[i];
+    if ((unit === 2 ? foldCodeUnit(u0) : foldCp1252Byte(u0)) !== first) continue;
+    let match = true;
+    for (let j = 1; j < n; j++) {
+      const pos = i + j * unit;
+      const u = unit === 2 ? bytes[pos] | (bytes[pos + 1] << 8) : bytes[pos];
+      if ((unit === 2 ? foldCodeUnit(u) : foldCp1252Byte(u)) !== folded[j]) { match = false; break; }
+    }
+    if (!match) continue;
+    for (let j = 0; j < n; j++) {
+      bytes[i + j * unit] = 0x20;
+      if (unit === 2) bytes[i + j * unit + 1] = 0x00;
+    }
+    hits++;
+    i += span - 1;
+  }
+  return hits;
+}
+
+/**
+ * Last pass over the three streams before the container is written:
+ * 1. string tables in Table (scrubTableStringTables);
+ * 2. remnant bytes of every original value (buildScrubNeedles):
+ *    - WordDocument, first `wordDocScanLength` bytes (the copied original;
+ *      the appended replacement text is excluded), UTF-16LE only;
+ *    - Table, UTF-16LE and cp1252 (STTB remnants, 8-bit layouts);
+ *    - Data (hyperlink field data, OLE previews), UTF-16LE only.
+ * cp1252 is deliberately NOT searched in Data or WordDocument: a 4-letter
+ * name has a real chance (about 2e-4 per name per MB) of matching bytes
+ * inside embedded JPEG/PNG data, and overwriting those would corrupt the
+ * picture. UTF-16 patterns (letter, 0x00, letter, 0x00) do not occur in
+ * compressed image data. Every overwrite is length-preserving.
+ */
+function finalizeDocStreams(
+  container: CFB.CFB$Container,
+  wordDoc: Uint8Array,
+  wordDocScanLength: number,
+  table: Uint8Array,
+  fibView: DataView,
+  needles: string[],
+): void {
+  scrubTableStringTables(table, fibView);
+  if (needles.length === 0) return;
+
+  const wordDocOriginal = wordDoc.subarray(0, Math.min(wordDocScanLength, wordDoc.length));
+  for (const needle of needles) {
+    scrubStreamBytes(wordDocOriginal, needle, 'utf16le');
+    scrubStreamBytes(table, needle, 'utf16le');
+    scrubStreamBytes(table, needle, 'cp1252');
+  }
+
+  const dataEntry = CFB.find(container, '/Data') ?? CFB.find(container, 'Data');
+  if (dataEntry?.content) {
+    const data = toUint8Array(dataEntry.content);
+    for (const needle of needles) scrubStreamBytes(data, needle, 'utf16le');
+    dataEntry.content = data;
+    dataEntry.size = data.length;
   }
 }
 

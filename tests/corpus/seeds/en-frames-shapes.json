@@ -1,0 +1,45 @@
+{
+  "seed": "en-frames-shapes",
+  "source": "en-frames-shapes.fodt",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Marcus Pemberton",
+    "m.pemberton@harbourview-example.com",
+    "Eleanor Whitcombe",
+    "+44 20 7946 0123",
+    "Desmond Okonkwo-Hart",
+    "Priya Raghunathan"
+  ],
+  "where": [
+    "frame",
+    "shape",
+    "meta"
+  ],
+  "placements": {
+    "Marcus Pemberton": [
+      "frame"
+    ],
+    "m.pemberton@harbourview-example.com": [
+      "frame"
+    ],
+    "Eleanor Whitcombe": [
+      "frame"
+    ],
+    "+44 20 7946 0123": [
+      "frame"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "shape"
+    ],
+    "Priya Raghunathan": [
+      "shape",
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "All PII lives in text frames and custom shapes (docx: wps text boxes with mc:Choice and mc:Fallback copies)."
+}

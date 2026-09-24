@@ -51,11 +51,33 @@ export const RULES_DATA: readonly RegionRulesJson[] = ${JSON.stringify(packs, nu
 `;
 }
 
+/**
+ * Lint (T181, R10): a `\b` right after a quantified class that can contain
+ * `\p{L}` cuts the match before a non-ASCII letter ("Malmö" -> "Malm"),
+ * because ECMAScript `\b` only knows ASCII word characters. Such rules
+ * should end with `[\p{L}](?![\p{L}\p{N}])` instead. Returns the offending
+ * rule ids; --check prints them as warnings (never fails the check).
+ */
+export function findAsciiBoundaryAfterLetterClass() {
+  const suspicious = /\\p\{L\}(?:[^\]]*\])?(?:[+*?]|\{[\d,]+\})\??\\b/;
+  const offenders = [];
+  for (const region of PACK_ORDER) {
+    const pack = JSON.parse(readFileSync(join(ROOT, 'rules', `${region}.json`), 'utf8'));
+    for (const rule of pack.rules) {
+      if (suspicious.test(rule.pattern)) offenders.push(rule.id);
+    }
+  }
+  return offenders;
+}
+
 // Only act when executed directly (the module is also importable by tests).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const content = render();
 
   if (process.argv.includes('--check')) {
+    for (const id of findAsciiBoundaryAfterLetterClass()) {
+      console.warn(`warning: ${id}: ASCII \\b after a \\p{L} class truncates non-ASCII letters; use (?![\\p{L}\\p{N}])`);
+    }
     let current = '';
     try {
       current = readFileSync(OUT_FILE, 'utf8');

@@ -180,3 +180,100 @@ describe('person-variant unification (T057) with exact restore (T171)', () => {
     expect(s.anonymize('Smith', 'PERSON')).toBe('[PERSON_1_LAST]');
   });
 });
+
+// ── T183: unambiguous unification (audit finding R5) ───────
+
+describe('unambiguous unification (R5)', () => {
+  it('a bare name fitting two people equally well gets a fresh number and is flagged', () => {
+    const s = new AnonymizationSession();
+    expect(s.anonymize('John Smith', 'PERSON')).toBe('[PERSON_1]');
+    expect(s.anonymize('John Doe', 'PERSON')).toBe('[PERSON_2]');
+    expect(s.lastAmbiguous()).toBe(false);
+    // Before T183 ties kept the first-mapped person: a guess, not "left untouched".
+    expect(s.anonymize('John', 'PERSON')).toBe('[PERSON_3]');
+    expect(s.lastAmbiguous()).toBe(true);
+    expect(s.getAmbiguousValues()).toEqual(['John']);
+    // Idempotent: the second call is a map hit and reports nothing new.
+    expect(s.anonymize('John', 'PERSON')).toBe('[PERSON_3]');
+    expect(s.lastAmbiguous()).toBe(false);
+    expect(s.deanonymize('[PERSON_1], [PERSON_2] and [PERSON_3]')).toBe('John Smith, John Doe and John');
+  });
+
+  it('a clear winner is still unified and not flagged', () => {
+    const s = new AnonymizationSession();
+    s.anonymize('John Smith', 'PERSON');
+    s.anonymize('John Paul Jones', 'PERSON');
+    expect(s.anonymize('John Paul', 'PERSON')).toBe('[PERSON_2_SHORT]');
+    expect(s.lastAmbiguous()).toBe(false);
+    expect(s.getAmbiguousValues()).toEqual([]);
+  });
+
+  it('variants are never match targets: no transitive group growth', () => {
+    // Audit PoC: "Anna Nowak" -> P1, "Anna" -> P1_FIRST, then "Anna
+    // Kowalska" joined P1 as _FULL through the bare "Anna". Only group
+    // references (the fullest name of each group) are compared now.
+    const s = new AnonymizationSession();
+    expect(s.anonymize('Anna Nowak', 'PERSON')).toBe('[PERSON_1]');
+    expect(s.anonymize('Anna', 'PERSON')).toBe('[PERSON_1_FIRST]');
+    expect(s.anonymize('Anna Kowalska', 'PERSON')).toBe('[PERSON_2]');
+    expect(s.lastAmbiguous()).toBe(false);
+    expect(s.deanonymize('[PERSON_1] / [PERSON_1_FIRST] / [PERSON_2]')).toBe('Anna Nowak / Anna / Anna Kowalska');
+  });
+
+  it('the group reference is its fullest member, so a later fuller form still anchors the group', () => {
+    const s = new AnonymizationSession();
+    expect(s.anonymize('John', 'PERSON')).toBe('[PERSON_1]');
+    expect(s.anonymize('John Smith', 'PERSON')).toBe('[PERSON_1_FULL]');
+    // Compared against "John Smith" (the reference), not the bare base "John".
+    expect(s.anonymize('Smith', 'PERSON')).toBe('[PERSON_1_LAST]');
+    // A different John does NOT ride on the bare base either.
+    expect(s.anonymize('John Doe', 'PERSON')).toBe('[PERSON_2]');
+  });
+
+  it('a double surname extends the group reference (hyphen part match) as _FULL', () => {
+    // Kept from T171: before T183 this joined via the variant "Maria";
+    // now it matches the reference "Anna Maria Nowak" through the
+    // "Nowak" part of "Nowak-Kowalska". A bare double surname is not a
+    // variant of the single surname (half a match is a guess).
+    const s = new AnonymizationSession();
+    expect(s.anonymize('Anna Maria Nowak', 'PERSON')).toBe('[PERSON_1]');
+    expect(s.anonymize('Anna Maria Nowak-Kowalska', 'PERSON')).toBe('[PERSON_1_FULL]');
+    expect(s.anonymize('Nowak-Kowalska', 'PERSON')).toBe('[PERSON_2]');
+  });
+
+  it('surrogate mode: an ambiguous bare name gets its own surrogate, not a shared first name', () => {
+    const s = new AnonymizationSession({ mode: 'surrogate', salt: 'fixed' });
+    const smith = s.anonymize('John Smith', 'PERSON');
+    const doe = s.anonymize('John Doe', 'PERSON');
+    const john = s.anonymize('John', 'PERSON');
+    expect(s.lastAmbiguous()).toBe(true);
+    expect(john).not.toBe(smith.split(' ')[0]);
+    expect(john).not.toBe(doe.split(' ')[0]);
+    expect(s.deanonymize(`${smith}, ${doe}, ${john}`)).toBe('John Smith, John Doe, John');
+  });
+
+  it('anonymizeText records every ambiguous value and restores exactly', () => {
+    const s = new AnonymizationSession();
+    const text = 'John Smith met John Doe. Later John called.';
+    const out = s.anonymizeText(text, [
+      { type: 'PERSON', value: 'John Smith', start: 0, end: 10, confidence: 1, detector: 't' },
+      { type: 'PERSON', value: 'John Doe', start: 15, end: 23, confidence: 1, detector: 't' },
+      { type: 'PERSON', value: 'John', start: 31, end: 35, confidence: 1, detector: 't' },
+    ]);
+    expect(out).toBe('[PERSON_1] met [PERSON_2]. Later [PERSON_3] called.');
+    expect(s.getAmbiguousValues()).toEqual(['John']);
+    expect(s.deanonymize(out)).toBe(text);
+    s.clear();
+    expect(s.getAmbiguousValues()).toEqual([]);
+    expect(s.lastAmbiguous()).toBe(false);
+  });
+
+  it('blanked mode never unifies and never flags', () => {
+    const s = new AnonymizationSession({ mode: 'blanked' });
+    s.anonymize('John Smith', 'PERSON');
+    s.anonymize('John Doe', 'PERSON');
+    expect(s.anonymize('John', 'PERSON')).toBe('________');
+    expect(s.lastAmbiguous()).toBe(false);
+    expect(s.getAmbiguousValues()).toEqual([]);
+  });
+});

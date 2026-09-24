@@ -17,14 +17,19 @@
  * - Verifies downloads against a pinned SHA-256 when the caller provides one
  *   (supply-chain hardening, T116): mismatches evict the cache entry and
  *   reject with ModelIntegrityError; verified cache entries carry a marker
- *   so they are not re-hashed on every startup.
+ *   so they are not re-hashed on every startup. The marker records the
+ *   verified byte size (T185): a cache hit whose blob size no longer matches
+ *   the marker is re-hashed instead of trusted.
+ * - Fetches the pinned tokenizer files (tokenizer.json, tokenizer_config.json)
+ *   through the same path (loadPinnedTokenizer, T185) so tokenizers get the
+ *   same resume, retry, cache and integrity treatment as the model.
  *
  * Environment-agnostic: all host capabilities (blob cache, fetch, persistent
  * storage request) are injected via ModelLoaderEnv. This module never touches
  * caches, navigator or global fetch directly.
  */
 
-import type { BlobCache } from './env.ts';
+import type { BlobCache, CoreEnv } from './env.ts';
 
 const MAX_ATTEMPTS = 4;
 const STALL_TIMEOUT_MS = 30_000;
@@ -100,6 +105,27 @@ export function verificationMarkerKey(url: string, sha256: string): string {
 }
 
 /**
+ * Value stored in a verification marker: `${sha256}:${size}`, binding the
+ * marker to the byte size of the blob that was actually hashed (T185, S4).
+ * A cache hit is only trusted without re-hashing when the cached blob's
+ * size equals the recorded one. Markers written by 0.11.0 hold the single
+ * byte '1' (size unknown): they are upgraded by hashing once and rewriting.
+ */
+export function verificationMarkerValue(sha256: string, size: number): string {
+  return `${sha256.toLowerCase()}:${size}`;
+}
+
+/**
+ * Size recorded in a marker value for the given hash, or null when the
+ * marker is the legacy 0.11.0 '1' or otherwise unreadable (size unknown).
+ */
+export function parseVerificationMarker(value: string, sha256: string): number | null {
+  const match = /^([0-9a-f]{64}):(\d{1,15})$/.exec(value.trim());
+  if (!match || match[1] !== sha256.toLowerCase()) return null;
+  return Number(match[2]);
+}
+
+/**
  * SHA-256 of a blob as lowercase hex. WebCrypto has no streaming digest,
  * so the blob is hashed as one contiguous buffer: peak cost is one extra
  * transient copy of the model, released before ONNX Runtime allocates its
@@ -111,11 +137,22 @@ async function sha256Hex(blob: Blob): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Best-effort write of the verification marker (a 1-byte blob). */
-async function markVerified(cache: BlobCache, url: string, sha256: string): Promise<void> {
+/** Best-effort write of the verification marker (`${sha256}:${size}`). */
+async function markVerified(cache: BlobCache, url: string, sha256: string, size: number): Promise<void> {
   try {
-    await cache.put(verificationMarkerKey(url, sha256), new Blob(['1']));
+    await cache.put(verificationMarkerKey(url, sha256), new Blob([verificationMarkerValue(sha256, size)]));
   } catch { /* marker is an optimisation - next startup just re-hashes */ }
+}
+
+/** Size recorded by the marker for this url + hash; null if absent, legacy or unreadable. */
+async function readMarkerSize(cache: BlobCache, url: string, sha256: string): Promise<{ present: boolean; size: number | null }> {
+  const marker = await readFromCache(cache, verificationMarkerKey(url, sha256));
+  if (!marker) return { present: false, size: null };
+  try {
+    return { present: true, size: parseVerificationMarker(await marker.text(), sha256) };
+  } catch {
+    return { present: true, size: null };
+  }
 }
 
 function isRetryable(err: unknown): boolean {
@@ -257,6 +294,13 @@ export interface FetchModelOptions {
    * marked verified or evicted and re-downloaded.
    */
   sha256?: string;
+  /**
+   * Pinned byte size of the file. With sha256 it is cross-checked against
+   * every download (a size mismatch is an integrity failure like a hash
+   * mismatch). It also serves as the progress total when the server sends
+   * no content-length. Without sha256 it is only a progress hint.
+   */
+  size?: number;
   /** Fired once the served blob is known to match the pinned sha256. */
   onVerified?: (verification: ModelVerification) => void;
 }
@@ -274,6 +318,7 @@ export async function fetchModelBlob(
   const maxAttempts = options?.maxAttempts ?? MAX_ATTEMPTS;
   const retryBaseDelayMs = options?.retryBaseDelayMs ?? RETRY_BASE_DELAY_MS;
   const expectedSha256 = options?.sha256?.toLowerCase();
+  const pinnedSize = options?.size;
   const cache = env.cache;
 
   const cachedBlob = await readFromCache(cache, url);
@@ -282,18 +327,24 @@ export async function fetchModelBlob(
       onProgress?.(cachedBlob.size, cachedBlob.size);
       return cachedBlob;
     }
-    // Previously verified against this exact pin: skip the re-hash so
+    // Previously verified against this exact pin AND the cached blob still
+    // has the size recorded at verification time: skip the re-hash so
     // startup cost is unchanged.
-    const marker = await readFromCache(cache, verificationMarkerKey(url, expectedSha256));
-    if (marker) {
+    const marker = await readMarkerSize(cache, url, expectedSha256);
+    if (marker.present && marker.size === cachedBlob.size) {
       onProgress?.(cachedBlob.size, cachedBlob.size);
       options?.onVerified?.({ url, sha256: expectedSha256 });
       return cachedBlob;
     }
-    // No marker (cache predates pinning, or the pin changed): hash once.
+    if (marker.present && marker.size !== null) {
+      console.warn(`[DocCloak] Cached model size ${cachedBlob.size} differs from its verification marker (${marker.size}), re-hashing`);
+    }
+    // No marker (cache predates pinning, or the pin changed), a legacy
+    // 0.11.0 marker without a size, or a size mismatch: hash once and
+    // (re)write the marker with the verified size.
     const actualSha256 = await sha256Hex(cachedBlob);
     if (actualSha256 === expectedSha256) {
-      await markVerified(cache, url, expectedSha256);
+      await markVerified(cache, url, expectedSha256, cachedBlob.size);
       onProgress?.(cachedBlob.size, cachedBlob.size);
       options?.onVerified?.({ url, sha256: expectedSha256 });
       return cachedBlob;
@@ -310,7 +361,8 @@ export async function fetchModelBlob(
     const now = Date.now();
     if (!force && now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
     lastProgressAt = now;
-    onProgress?.(downloaded, total);
+    // The pinned size stands in for the total when the server sends none.
+    onProgress?.(downloaded, total || pinnedSize || 0);
   };
 
   let chunks: Uint8Array[] = [];
@@ -373,16 +425,17 @@ export async function fetchModelBlob(
 
   if (expectedSha256) {
     // Verify the final assembled blob (covers both fresh and resumed
-    // downloads) BEFORE it is cached or handed to the runtime.
+    // downloads) BEFORE it is cached or handed to the runtime. A pinned
+    // size that disagrees is an integrity failure too.
     const actualSha256 = await sha256Hex(blob);
-    if (actualSha256 !== expectedSha256) {
+    if (actualSha256 !== expectedSha256 || (pinnedSize !== undefined && blob.size !== pinnedSize)) {
       await evictModelFromCache(env, url, expectedSha256);
       throw new ModelIntegrityError(url, expectedSha256, actualSha256);
     }
   }
 
   const stored = await tryCachePut(cache, url, blob);
-  if (expectedSha256 && stored) await markVerified(cache, url, expectedSha256);
+  if (expectedSha256 && stored) await markVerified(cache, url, expectedSha256, blob.size);
   // Prefer the cached (disk-backed) copy so the in-memory chunks can be
   // collected before ONNX Runtime allocates its own copy of the model.
   const diskBlob = await readFromCache(cache, url);
@@ -408,10 +461,10 @@ export async function evictModelFromCache(env: ModelLoaderEnv, url: string, sha2
 }
 
 /**
- * Retry an async operation with exponential backoff. Used for the smaller
- * companion downloads (tokenizer files) that go through libraries without
- * their own retry handling - one dropped request on a flaky connection
- * should not abort the whole model load.
+ * Retry an async operation with exponential backoff. Kept for the
+ * deprecated CoreEnv.loadTokenizer path (a host library without its own
+ * retry handling) and for hosts composing their own downloads; the pinned
+ * tokenizer files now go through fetchModelBlob via loadPinnedTokenizer.
  */
 export async function retryAsync<T>(
   operation: () => Promise<T>,
@@ -430,4 +483,90 @@ export async function retryAsync<T>(
       await delay(retryBaseDelayMs * 2 ** (attempt - 1));
     }
   }
+}
+
+// ── Pinned tokenizer files (T185) ──────────────────────────
+
+/** One pinned companion file: immutable resolve/<commit> URL, SHA-256 and byte size. */
+export interface TokenizerFileSpec {
+  url: string;
+  /** Lowercase hex SHA-256 of the file at the pinned commit. */
+  sha256: string;
+  /** Byte size of the file at the pinned commit. */
+  size: number;
+}
+
+/** The two files a provider pins for its tokenizer: tokenizer.json, then tokenizer_config.json. */
+export type TokenizerFiles = readonly [tokenizerJson: TokenizerFileSpec, tokenizerConfig: TokenizerFileSpec];
+
+export type PinnedTokenizerOptions = Pick<FetchModelOptions, 'maxAttempts' | 'retryBaseDelayMs' | 'onVerified'>;
+
+/**
+ * Download (or serve from cache) one pinned JSON file through fetchModelBlob
+ * with its sha256 and size, then parse it. Integrity failures surface as
+ * ModelIntegrityError with the entry evicted, like the model itself.
+ */
+export async function fetchPinnedJson(
+  env: ModelLoaderEnv,
+  file: TokenizerFileSpec,
+  options?: PinnedTokenizerOptions,
+): Promise<unknown> {
+  const blob = await fetchModelBlob(env, file.url, undefined, {
+    ...options,
+    sha256: file.sha256,
+    size: file.size,
+  });
+  const text = await blob.text();
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (err) {
+    throw new Error(`Pinned file is not valid JSON (${file.url}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+let warnedDeprecatedLoadTokenizer = false;
+
+/**
+ * Resolve a provider's tokenizer through the host env.
+ *
+ * Preferred path: fetch both pinned files via fetchPinnedJson (resume,
+ * retry, blob cache, verification marker, ModelIntegrityError) and hand the
+ * parsed objects to CoreEnv.buildTokenizer. No library probes mutable
+ * resolve/main, no second cache bucket, and a warm cache works offline.
+ *
+ * Fallback (deprecated, removed in 0.13.0): hosts that only implement
+ * CoreEnv.loadTokenizer(hfModelId) are still served through it with the
+ * previous retry wrapper.
+ */
+export async function loadPinnedTokenizer(
+  env: CoreEnv,
+  files: TokenizerFiles,
+  legacyHfModelId: string,
+  options?: PinnedTokenizerOptions,
+): Promise<unknown> {
+  if (typeof env.buildTokenizer === 'function') {
+    const loaderEnv: ModelLoaderEnv = {
+      cache: env.modelCache,
+      fetch: env.fetch,
+      persistStorage: env.persistStorage,
+    };
+    const [tokenizerJson, tokenizerConfig] = await Promise.all([
+      fetchPinnedJson(loaderEnv, files[0], options),
+      fetchPinnedJson(loaderEnv, files[1], options),
+    ]);
+    const tokenizer: unknown = await env.buildTokenizer(tokenizerJson, tokenizerConfig);
+    if (tokenizer === null || tokenizer === undefined) {
+      throw new Error('CoreEnv.buildTokenizer returned no tokenizer');
+    }
+    return tokenizer;
+  }
+  if (typeof env.loadTokenizer === 'function') {
+    if (!warnedDeprecatedLoadTokenizer) {
+      warnedDeprecatedLoadTokenizer = true;
+      console.warn('[DocCloak] CoreEnv.loadTokenizer is deprecated and will be removed in @doccloak/core 0.13.0; implement buildTokenizer(tokenizerJson, tokenizerConfig) instead');
+    }
+    // Call through env so host implementations keep their receiver.
+    return retryAsync(() => env.loadTokenizer!(legacyHfModelId), 'Tokenizer download', options);
+  }
+  throw new Error('CoreEnv must implement buildTokenizer(tokenizerJson, tokenizerConfig); loadTokenizer(hfModelId) is deprecated');
 }

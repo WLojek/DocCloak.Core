@@ -56,6 +56,30 @@ export type ProviderFactory = (env: CoreEnv) => DetectionProvider;
 export interface EngineOptions {
   /** Override provider construction (tests inject deterministic stubs). */
   providers?: Partial<Record<ProviderId, ProviderFactory>>;
+  /**
+   * Whether detect() may download and initialise the model on its own
+   * (T185, security report S9). Default true (previous behaviour). With
+   * false the engine never touches the network implicitly: detect() before
+   * a completed preload() (or switchProvider()) rejects with
+   * ModelNotLoadedError, while a preload that is still in flight is awaited.
+   * Hosts that gate model downloads behind user consent should set this to
+   * false and call preload() from the consent flow.
+   */
+  autoLoad?: boolean;
+}
+
+/**
+ * detect() was called while the active provider's model is not loaded and
+ * createEngine was given `autoLoad: false`. Call engine.preload() first.
+ */
+export class ModelNotLoadedError extends Error {
+  providerId: ProviderId;
+
+  constructor(providerId: ProviderId) {
+    super(`Model for provider "${providerId}" is not loaded; call engine.preload() before detect() (createEngine autoLoad is off)`);
+    this.name = 'ModelNotLoadedError';
+    this.providerId = providerId;
+  }
 }
 
 // ── Settings ───────────────────────────────────────────────
@@ -163,11 +187,14 @@ export function createEngine(
     bardsai: (e) => new BardsaiProvider(e),
     ...options?.providers,
   };
+  const autoLoad = options?.autoLoad ?? true;
 
   const settings: EngineSettings = {
     providerId: initial?.providerId ?? pickDefaultProvider(env.hardware),
     threshold: 0,
-    regexEnabled: initial?.regexEnabled ?? false,
+    // Regex rules are on unless the host or a saved setting turns them off
+    // (T203): structured identifiers must not depend on the model alone.
+    regexEnabled: initial?.regexEnabled ?? true,
     regexRegion: initial?.regexRegion ?? 'all',
     customLabels: [...(initial?.customLabels ?? [])],
   };
@@ -241,12 +268,14 @@ export function createEngine(
     }
   }
 
-  async function preload(): Promise<void> {
-    await ready;
+  function preload(): Promise<void> {
+    // inflightLoad is assigned synchronously so a detect() issued right
+    // after preload() (without awaiting it) sees the load in flight.
     if (inflightLoad) return inflightLoad;
-    const p = ensureProvider();
-    if (p.isLoaded()) return;
-    inflightLoad = (async () => {
+    const run = (async () => {
+      await ready;
+      const p = ensureProvider();
+      if (p.isLoaded()) return;
       // A previous attempt may have failed: release() clears the cached load
       // error so load() can retry (model bytes are served from the blob
       // cache when available). Mirrors the old worker init path.
@@ -256,11 +285,10 @@ export function createEngine(
       settings.threshold = p.getThreshold();
       if (supportsCustomLabels(p)) settings.customLabels = p.getCustomLabels();
     })();
-    try {
-      await inflightLoad;
-    } finally {
-      inflightLoad = null;
-    }
+    inflightLoad = run;
+    return run.finally(() => {
+      if (inflightLoad === run) inflightLoad = null;
+    });
   }
 
   async function switchProvider(id: ProviderId): Promise<void> {
@@ -316,6 +344,13 @@ export function createEngine(
     if (signal?.aborted) throw new Error('Detection aborted');
     if (!text.trim()) return [];
     const p = ensureProvider();
+    if (!autoLoad && !p.isLoaded()) {
+      // Explicit-preload mode: never download from detect(). A preload that
+      // is already running is awaited; otherwise the host must call it.
+      if (!inflightLoad) throw new ModelNotLoadedError(settings.providerId);
+      await inflightLoad;
+      if (!p.isLoaded()) throw new ModelNotLoadedError(settings.providerId);
+    }
     const mlResults = await p.detect(text, (progress: number) => {
       onProgress?.(progress);
       for (const cb of detectionListeners) cb(progress);

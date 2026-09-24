@@ -1,0 +1,56 @@
+{
+  "seed": "de-protokoll-lists",
+  "source": "de-protokoll-lists.fodt",
+  "language": "de",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Hans-Jürgen Müller",
+    "Annelore Schäfer",
+    "Friedrich Oberländer",
+    "DE44 5001 0517 5407 3249 31",
+    "Lindenallee 22, 80331 München",
+    "+49 30 1234 5678",
+    "Ingrid Vollmer-Brandt",
+    "i.vollmer@beispiel-versand.de"
+  ],
+  "where": [
+    "list",
+    "header-with-page-field",
+    "body",
+    "meta",
+    "footer"
+  ],
+  "placements": {
+    "Hans-Jürgen Müller": [
+      "list"
+    ],
+    "Annelore Schäfer": [
+      "list"
+    ],
+    "Friedrich Oberländer": [
+      "list"
+    ],
+    "DE44 5001 0517 5407 3249 31": [
+      "list"
+    ],
+    "Lindenallee 22, 80331 München": [
+      "list"
+    ],
+    "+49 30 1234 5678": [
+      "list"
+    ],
+    "Ingrid Vollmer-Brandt": [
+      "header-with-page-field",
+      "body",
+      "meta"
+    ],
+    "i.vollmer@beispiel-versand.de": [
+      "footer"
+    ]
+  },
+  "optional": [],
+  "notes": "German minutes: numbered lists inside a section, header with a page-number field, footer, meta keyword."
+}

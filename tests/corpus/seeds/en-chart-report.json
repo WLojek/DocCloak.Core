@@ -1,0 +1,45 @@
+{
+  "seed": "en-chart-report",
+  "source": "en-chart-report.fodt",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Marcus Pemberton",
+    "Eleanor Whitcombe",
+    "Priya Raghunathan",
+    "Desmond Okonkwo-Hart"
+  ],
+  "where": [
+    "chart-title",
+    "chart-category",
+    "table",
+    "footer",
+    "meta"
+  ],
+  "placements": {
+    "Marcus Pemberton": [
+      "chart-title"
+    ],
+    "Eleanor Whitcombe": [
+      "chart-category",
+      "table"
+    ],
+    "Priya Raghunathan": [
+      "chart-category",
+      "table",
+      "footer",
+      "meta"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "chart-category",
+      "table"
+    ]
+  },
+  "optional": [
+    "Marcus Pemberton"
+  ],
+  "notes": "Embedded bar chart: names as categories and in the title. The title needle is optional because a converter may drop the chart title; categories are also seeded in the source table so they are always required."
+}

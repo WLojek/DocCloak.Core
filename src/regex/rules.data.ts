@@ -269,7 +269,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:universal:postal_city",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+\\b",
+        "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+(?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.65,
         "domains": [
@@ -376,6 +376,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
         "entityType": "SECRET",
         "pattern": "-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----",
         "flags": "g",
+        "multiline": true,
         "confidence": 0.99,
         "domains": [
           "technical"
@@ -782,7 +783,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:pl:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{2}-\\d{3}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{2}-\\d{3}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -973,7 +974,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:de:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -1167,7 +1168,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:fr:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -1326,7 +1327,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:es:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s'-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.75,
         "domains": [
@@ -1454,7 +1455,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:pt:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{4}-\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+        "pattern": "\\b\\d{4}-\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.85,
         "domains": [
@@ -1603,7 +1604,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:se:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{3}\\s?\\d{2}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{3}\\s?\\d{2}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -1735,7 +1736,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:no:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -1881,7 +1882,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:it:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -2049,7 +2050,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:be:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b[1-9]\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]+\\b",
+        "pattern": "\\b[1-9]\\d{3}\\s+[\\p{L}][\\p{L}\\s'-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.75,
         "domains": [
@@ -2119,7 +2120,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:at:postal",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -2185,7 +2186,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:ch:postal-city",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -2298,7 +2299,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:dk:postal-city",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{4}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [
@@ -2341,7 +2342,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:fi:postal-city",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+        "pattern": "\\b\\d{5}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.8,
         "domains": [

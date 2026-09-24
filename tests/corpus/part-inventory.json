@@ -1,0 +1,51 @@
+{
+  "note": "Package part names seen per format across the T173 synthetic fixtures and the T196 corpus (generated + hand-saved). Digit runs are folded to \"#\". Regenerate with DOCCLOAK_UPDATE_INVENTORY=1 npx vitest run tests/corpus/inventory.test.ts. Every new name must be classified in the T177 part policy.",
+  "docx": [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "customXml/_rels/item#.xml.rels",
+    "customXml/item#.xml",
+    "customXml/itemProps#.xml",
+    "word/_rels/document.xml.rels",
+    "word/afchunk.mht",
+    "word/charts/chart#.xml",
+    "word/diagrams/data#.xml",
+    "word/document.xml",
+    "word/embeddings/Microsoft_Excel_Worksheet#.xlsx",
+    "word/embeddings/oleObject#.bin",
+    "word/numbering.xml",
+    "word/settings.xml",
+    "word/vbaProject.bin"
+  ],
+  "xlsx": [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "xl/_rels/workbook.xml.rels",
+    "xl/connections.xml",
+    "xl/drawings/drawing#.xml",
+    "xl/drawings/vmlDrawing#.vml",
+    "xl/externalLinks/_rels/externalLink#.xml.rels",
+    "xl/externalLinks/externalLink#.xml",
+    "xl/pivotCache/_rels/pivotCacheDefinition#.xml.rels",
+    "xl/pivotCache/pivotCacheDefinition#.xml",
+    "xl/pivotCache/pivotCacheRecords#.xml",
+    "xl/richData/rdrichvalue.xml",
+    "xl/sharedStrings.xml",
+    "xl/workbook.xml",
+    "xl/worksheets/_rels/sheet#.xml.rels",
+    "xl/worksheets/sheet#.xml"
+  ],
+  "doc": [
+    "Root Entry/\u0001Sh#tJ#",
+    "Root Entry/\u0005SummaryInformation",
+    "Root Entry/#Table",
+    "Root Entry/Data",
+    "Root Entry/Macros/",
+    "Root Entry/Macros/VBA/",
+    "Root Entry/Macros/VBA/Module#",
+    "Root Entry/ObjectPool/",
+    "Root Entry/ObjectPool/_#/",
+    "Root Entry/ObjectPool/_#/\u0001Ole#Native",
+    "Root Entry/WordDocument"
+  ]
+}

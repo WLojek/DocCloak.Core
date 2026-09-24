@@ -496,6 +496,56 @@ describe('IP_ADDRESS / CURRENCY / OTHER fallbacks', () => {
   });
 });
 
+describe('pool hygiene (T182, audit R3/R4)', () => {
+  // A surrogate becomes a restore key. Dictionary words and very short
+  // names fire on ordinary prose ("Bob" for "Bo", "the martin paper"), so
+  // no alphabetic pool may contain them. The removed entries were
+  // replaced at the same index, so every surrogate that never drew a
+  // removed entry is unchanged.
+  const STOPLIST = new Set([
+    'white', 'green', 'king', 'young', 'hill', 'scott', 'baker', 'post', 'bos', 'vos', 'kok',
+    'long', 'short', 'best', 'bright', 'wood', 'stone', 'hall', 'fox', 'wolf', 'lane', 'price',
+    'rice', 'brown', 'miller', 'walker', 'martin', 'lee', 'mark', 'carol', 'frank', 'bent',
+    'lone', 'tone', 'urban', 'lien', 'petit', 'roux', 'iris', 'richter', 'koch', 'bauer',
+    'fischer', 'roman', 'král', 'król',
+  ]);
+  const SAMPLES = [
+    'John Smith', 'Mary Jones', 'Jan Kowalski', 'Anna Nowak', 'Hans Müller', 'Ursula Weber',
+    'Jean Dubois', 'Marie Leroy', 'José García', 'Carmen López', 'Giuseppe Rossi',
+    'Maria Russo', 'Jiří Novák', 'Kateřina Svobodová',
+    'Тарас Коваленко',
+    'Олена Шевченко',
+    'João Silva', 'Catarina Santos', 'Daan Jansen', 'Sanne Visser', 'Erik Andersson',
+    'Kerstin Nilsson', 'Knut Hansen', 'Ingrid Haugen', 'Jens Nielsen', 'Mette Jensen',
+    'Juha Virtanen', 'Tiina Mäkinen',
+  ] as const;
+
+  it('never emits a dictionary-word or three-letter-or-shorter token (300 salts per sample)', () => {
+    for (const name of SAMPLES) {
+      for (let i = 0; i < 300; i++) {
+        const out = generateSurrogate(name, 'PERSON', { salt: `hygiene-${i}` });
+        for (const token of out.split(/[\s-]+/)) {
+          expect(token.length, `${name} -> ${out}`).toBeGreaterThan(3);
+          // Unfolded on purpose: an accented key ("Martín") never matches
+          // the English word, so it is not a restore hazard.
+          expect(STOPLIST.has(token.toLowerCase()), `${name} -> ${out}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('keeps surrogates for originals that never drew a removed entry (same-index refill)', () => {
+    // Values captured with this salt BEFORE the T182 pool edit; each draws
+    // only entries that stayed at their index, so they must not move.
+    // (Names that did draw a removed entry moved on purpose, e.g.
+    // "JOHN SMITH": SCOTT NELSON -> DOUGLAS NELSON.)
+    expect(generateSurrogate('Jan Kowalski', 'PERSON', ctx)).toBe('Jacek Mazur');
+    expect(generateSurrogate('John Smith', 'PERSON', ctx)).toBe('Jonathan Clark');
+    expect(generateSurrogate('Hans Müller', 'PERSON', ctx)).toBe('Peter Lange');
+    expect(generateSurrogate('Anouk Dijkstra', 'PERSON', ctx)).toBe('Lieke Hendriks');
+  });
+});
+
 describe('collision handling (generateUniqueSurrogate)', () => {
   it('re-derives on collision with an already-taken candidate', () => {
     const first = generateSurrogate('John Smith', 'PERSON', ctx, 0);

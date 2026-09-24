@@ -20,3 +20,132 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+
+  # Proves that the files our tests export still open in a real office suite.
+  # Every writer test drops its outputs (and tests/helpers/fixtures.test.ts its
+  # synthetic inputs) into DOCCLOAK_WRITE_OUTPUTS; LibreOffice then converts
+  # each one to PDF headlessly. A non-zero exit or a PDF under 1 KB fails the job.
+  #
+  # T196 real-file corpus: before the tests run, tests/corpus/generate.mjs
+  # converts the seeds under tests/corpus/seeds to docx/doc/xlsx with the
+  # same LibreOffice, so tests/corpus.test.ts redacts real converter output.
+  # Every '*-redacted.*' file it writes is then converted to txt (Writer) or
+  # csv (Calc, all sheets) and grepped for every manifest needle: a hit fails
+  # the job. This is the independent-extractor check of plan v2 section 4.
+  # continue-on-error: required from 2026-10-08 (remove the flag then).
+  office-open:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      DOCCLOAK_WRITE_OUTPUTS: ${{ github.workspace }}/.office-outputs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install LibreOffice (writer + calc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc
+          soffice --version
+      - run: npm ci
+      - name: Generate the real-file corpus from the seeds
+        run: node tests/corpus/generate.mjs
+      - name: Run the test suite, writing every exported file
+        run: npm test
+      - name: Open every written file with LibreOffice headless
+        run: |
+          set -u
+          shopt -s nullglob
+          inputs=("$DOCCLOAK_WRITE_OUTPUTS"/*.docx "$DOCCLOAK_WRITE_OUTPUTS"/*.xlsx "$DOCCLOAK_WRITE_OUTPUTS"/*.doc)
+          if [ "${#inputs[@]}" -eq 0 ]; then
+            echo "no files were written to $DOCCLOAK_WRITE_OUTPUTS"
+            exit 1
+          fi
+          outdir="$DOCCLOAK_WRITE_OUTPUTS/pdf"
+          mkdir -p "$outdir"
+          failed=0
+          for f in "${inputs[@]}"; do
+            name="$(basename "$f")"
+            stem="${name%.*}"
+            if ! timeout 120 soffice --headless --norestore --convert-to pdf --outdir "$outdir" "$f" >"$outdir/$stem.log" 2>&1; then
+              echo "FAIL (exit code) $name"; cat "$outdir/$stem.log"; failed=1; continue
+            fi
+            pdf="$outdir/$stem.pdf"
+            if [ ! -f "$pdf" ]; then
+              echo "FAIL (no pdf) $name"; cat "$outdir/$stem.log"; failed=1; continue
+            fi
+            size=$(stat -c %s "$pdf")
+            if [ "$size" -lt 1024 ]; then
+              echo "FAIL (pdf ${size} B < 1 KB) $name"; failed=1; continue
+            fi
+            echo "ok   $name -> $(basename "$pdf") (${size} B)"
+          done
+          exit "$failed"
+      - name: Extract every redacted corpus output with LibreOffice and grep the needles
+        run: |
+          set -u
+          shopt -s nullglob
+          out="$DOCCLOAK_WRITE_OUTPUTS"
+          textdir="$out/text"
+          needles="$out/corpus-needles.txt"
+          mkdir -p "$textdir"
+          node tests/corpus/generate.mjs --needles > "$needles"
+          if [ ! -s "$needles" ]; then
+            echo "no needles found in tests/corpus/seeds/*.json"; exit 1
+          fi
+          docs=("$out"/*-redacted.docx "$out"/*-redacted.doc)
+          sheets=("$out"/*-redacted.xlsx)
+          if [ "${#docs[@]}" -eq 0 ] && [ "${#sheets[@]}" -eq 0 ]; then
+            echo "no *-redacted.* corpus outputs were written to $out"; exit 1
+          fi
+          failed=0
+          for f in "${docs[@]}"; do
+            name="$(basename "$f")"
+            if ! timeout 120 soffice --headless --norestore --convert-to txt:Text --outdir "$textdir" "$f" >"$textdir/$name.log" 2>&1; then
+              echo "FAIL (txt export) $name"; cat "$textdir/$name.log"; failed=1
+            fi
+          done
+          for f in "${sheets[@]}"; do
+            name="$(basename "$f")"
+            # Token 12 (-1) exports every sheet to its own <stem>-<sheet>.csv.
+            if ! timeout 120 soffice --headless --norestore --convert-to 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,-1' --outdir "$textdir" "$f" >"$textdir/$name.log" 2>&1; then
+              echo "FAIL (csv export) $name"; cat "$textdir/$name.log"; failed=1
+            fi
+          done
+          count=0
+          for f in "$textdir"/*.txt "$textdir"/*.csv; do
+            count=$((count + 1))
+            if grep -F -n -f "$needles" "$f"; then
+              echo "FAIL (needle survived in LibreOffice extraction) $(basename "$f")"; failed=1
+            else
+              echo "ok   $(basename "$f")"
+            fi
+          done
+          # Sheet names end up in csv file names, not in their content.
+          if ls "$textdir" | grep -F -f "$needles"; then
+            echo "FAIL (needle survived in an exported file name)"; failed=1
+          fi
+          if [ "$count" -eq 0 ]; then
+            echo "no txt/csv was produced from the redacted outputs"; failed=1
+          fi
+          echo "checked $count extracted file(s) against $(wc -l < "$needles") needle(s)"
+          exit "$failed"
+      - name: Refresh the part-name inventory (uploaded as an artifact, not committed)
+        if: always()
+        run: |
+          DOCCLOAK_UPDATE_INVENTORY=1 npx vitest run tests/corpus/inventory.test.ts
+          mkdir -p "$DOCCLOAK_WRITE_OUTPUTS/inventory"
+          cp tests/corpus/part-inventory.json "$DOCCLOAK_WRITE_OUTPUTS/inventory/part-inventory.json"
+          git --no-pager diff --stat -- tests/corpus/part-inventory.json
+          git --no-pager diff -- tests/corpus/part-inventory.json
+      - name: Upload outputs, PDFs, extracted text and the generated corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-open-outputs
+          path: |
+            ${{ github.workspace }}/.office-outputs
+            ${{ github.workspace }}/tests/corpus/generated
+          if-no-files-found: ignore

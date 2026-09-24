@@ -13,8 +13,8 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, EntityType, DetectionProvider, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
-import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
-import { evictModelFromCache, fetchModelBlob, retryAsync } from '../model-loader.ts';
+import type { ModelLoaderEnv, ModelVerification, TokenizerFiles } from '../model-loader.ts';
+import { evictModelFromCache, fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
 
 // ── Model config ──────────────────────────────────────────
 // Supply-chain pinning (T116): the model is fetched from an immutable
@@ -32,6 +32,25 @@ export const GLINER_MODEL_SHA256 = '891589426ee96f2748b16439f44fad8c3f97e198e002
 export const GLINER_MODEL_URL = `https://huggingface.co/knowledgator/gliner-pii-small-v1.0/resolve/${GLINER_MODEL_REVISION}/onnx/model_quint8.onnx`;
 const DEFAULT_MODEL_URL = GLINER_MODEL_URL;
 /**
+ * Tokenizer files at the same pinned commit (T185): fetched through
+ * fetchModelBlob with SHA-256 + size, cached next to the model and handed to
+ * CoreEnv.buildTokenizer. Hashes re-measured against the resolve/<commit>
+ * URLs on 2026-09-24 (documentation/model-provenance.md).
+ */
+export const GLINER_TOKENIZER_FILES: TokenizerFiles = [
+  {
+    url: `https://huggingface.co/knowledgator/gliner-pii-small-v1.0/resolve/${GLINER_MODEL_REVISION}/tokenizer.json`,
+    sha256: '84b3a9b18f04a0ccd03b72d9f871b7e0bec40fd7021ef50bc30a7c3693c11205',
+    size: 3_583_593,
+  },
+  {
+    url: `https://huggingface.co/knowledgator/gliner-pii-small-v1.0/resolve/${GLINER_MODEL_REVISION}/tokenizer_config.json`,
+    sha256: '3398f6d1ad4b4c4f9874d390d060a75c58cad5e5ce9b22841b3e40643b4ada27',
+    size: 21_214,
+  },
+];
+const TOKENIZER_FILES = GLINER_TOKENIZER_FILES;
+/**
  * Superseded download URLs; their cache entries are evicted best-effort on
  * load so stale ~46 MB copies do not linger against the origin quota:
  * the pre-pinning edge resolve/main URL and the pinned edge URL replaced
@@ -41,6 +60,7 @@ const LEGACY_MODEL_URLS = [
   'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/main/onnx/model_quint8.onnx',
   'https://huggingface.co/knowledgator/gliner-pii-edge-v1.0/resolve/9b7f39b0a2da971a5beea78d35f1539d4009c891/onnx/model_quint8.onnx',
 ];
+/** Hugging Face id for the deprecated CoreEnv.loadTokenizer fallback only. */
 const DEFAULT_TOKENIZER_HF = 'knowledgator/gliner-pii-small-v1.0';
 const DEFAULT_MODEL_NAME = 'GLiNER PII Small';
 const CUSTOM_LABELS_STORAGE_KEY = 'doccloak-custom-labels';
@@ -256,7 +276,7 @@ export class GlinerProvider implements DetectionProvider {
       ];
       if (!this.tokenizer) {
         tasks.push(
-          retryAsync(() => this.env.loadTokenizer(DEFAULT_TOKENIZER_HF), 'Tokenizer download').then((t: unknown) => {
+          loadPinnedTokenizer(this.env, TOKENIZER_FILES, DEFAULT_TOKENIZER_HF).then((t: unknown) => {
             this.tokenizer = t;
           }),
         );

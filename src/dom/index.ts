@@ -13,3 +13,9 @@ export * from './ocr.ts';
 // T110: xlsx + detection-driven office file redaction
 export * from './xlsx.ts';
 export * from './office.ts';
+// T172: typed refusal errors (fail-closed readers)
+export * from './errors.ts';
+// T175: DrawingML / chart / SmartArt / custom XML text units
+export * from './drawingml.ts';
+// T177: package part policy, unredactable parts, unpacked-size guard
+export * from './package-policy.ts';

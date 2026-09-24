@@ -1,0 +1,55 @@
+{
+  "seed": "en-board-minutes",
+  "source": "en-board-minutes.fodt",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Marcus Pemberton",
+    "Eleanor Whitcombe",
+    "Desmond Okonkwo-Hart",
+    "+44 7700 900123",
+    "2210 Lakeshore Drive, Oakland, CA 94612",
+    "m.pemberton@harbourview-example.com",
+    "Priya Raghunathan"
+  ],
+  "where": [
+    "body",
+    "comment",
+    "comment-author",
+    "list",
+    "endnote",
+    "meta"
+  ],
+  "placements": {
+    "Marcus Pemberton": [
+      "body",
+      "comment"
+    ],
+    "Eleanor Whitcombe": [
+      "body",
+      "comment-author"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "list",
+      "endnote"
+    ],
+    "+44 7700 900123": [
+      "list"
+    ],
+    "2210 Lakeshore Drive, Oakland, CA 94612": [
+      "list"
+    ],
+    "m.pemberton@harbourview-example.com": [
+      "comment"
+    ],
+    "Priya Raghunathan": [
+      "comment-author",
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "English minutes: two comments with different authors, endnote, bullet list, meta description."
+}

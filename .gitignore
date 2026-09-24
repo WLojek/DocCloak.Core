@@ -6,3 +6,8 @@ coverage/
 *.log
 .vite/
 .cache/
+
+# T196 real-file corpus: LibreOffice output of tests/corpus/seeds (regenerate with node tests/corpus/generate.mjs)
+tests/corpus/generated/
+# npm pack output (preview tarballs are linked from ../DocCloak, never committed)
+*.tgz

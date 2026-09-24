@@ -86,6 +86,10 @@
           "description": "Name of a post-match validation function in the runtime validator registry",
           "type": "string",
           "pattern": "^[a-z][a-zA-Z0-9]*$"
+        },
+        "multiline": {
+          "description": "When true the rule runs against the whole document; when false or absent it runs line by line (detectWithRegex splits on newlines, so a match can never span a line break). Only rules whose match legitimately crosses lines (PEM key blocks) set this.",
+          "type": "boolean"
         }
       }
     }

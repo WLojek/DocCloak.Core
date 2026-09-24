@@ -1,0 +1,75 @@
+{
+  "seed": "de-kundenliste",
+  "source": "de-kundenliste.fods",
+  "language": "de",
+  "formats": [
+    "xlsx"
+  ],
+  "needles": [
+    "Hans-Jürgen Müller",
+    "Bergstraße 7, 10115 Berlin",
+    "DE89 3704 0044 0532 0130 00",
+    "+49 30 1234 5678",
+    "hj.mueller@beispiel-gmbh.de",
+    "Annelore Schäfer",
+    "Lindenallee 22, 80331 München",
+    "+49 171 987 6543",
+    "a.schaefer@beispiel-kanzlei.de",
+    "Friedrich Oberländer",
+    "DE44 5001 0517 5407 3249 31",
+    "Ingrid Vollmer-Brandt"
+  ],
+  "where": [
+    "cell",
+    "comment",
+    "formula-literal",
+    "footer",
+    "comment-author",
+    "meta"
+  ],
+  "placements": {
+    "Hans-Jürgen Müller": [
+      "cell",
+      "comment"
+    ],
+    "Bergstraße 7, 10115 Berlin": [
+      "cell"
+    ],
+    "DE89 3704 0044 0532 0130 00": [
+      "cell"
+    ],
+    "+49 30 1234 5678": [
+      "cell",
+      "comment"
+    ],
+    "hj.mueller@beispiel-gmbh.de": [
+      "cell"
+    ],
+    "Annelore Schäfer": [
+      "cell"
+    ],
+    "Lindenallee 22, 80331 München": [
+      "cell"
+    ],
+    "+49 171 987 6543": [
+      "cell"
+    ],
+    "a.schaefer@beispiel-kanzlei.de": [
+      "cell",
+      "formula-literal"
+    ],
+    "Friedrich Oberländer": [
+      "cell"
+    ],
+    "DE44 5001 0517 5407 3249 31": [
+      "cell"
+    ],
+    "Ingrid Vollmer-Brandt": [
+      "footer",
+      "comment-author",
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "German customer list on two sheets: umlauts in cells, a comment, a formula string literal, footer and meta subject."
+}

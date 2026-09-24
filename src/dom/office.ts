@@ -14,10 +14,12 @@
 import type { DetectedEntity } from '../types.ts';
 import type { AnonymizationSession } from '../session.ts';
 import type { ValueReplacement } from '../docx.ts';
-import { getFileExtension, readDocx, writeAnonymizedDocx } from './docx.ts';
+import { getFileExtension, readDocx, writeAnonymizedDocxWithReport } from './docx.ts';
 import type { DocxExtraction } from './docx.ts';
-import { readXlsx, writeAnonymizedXlsx } from './xlsx.ts';
+import { readXlsx, writeAnonymizedXlsxWithReport } from './xlsx.ts';
 import type { XlsxExtraction } from './xlsx.ts';
+import { layerZeroValueReplacements } from './opc.ts';
+import type { UnredactablePart } from './errors.ts';
 
 /** File kinds the office redaction flow can regenerate. */
 export type OfficeFileKind = 'docx' | 'xlsx';
@@ -37,12 +39,52 @@ export function officeFileKind(filename: string): OfficeFileKind | null {
 /** A detect function, typically DocCloakEngine.detect or detectEntities. */
 export type DetectFn = (text: string) => Promise<DetectedEntity[]>;
 
+/**
+ * Raised by redactOfficeFile (T179, finding M4) when supplied entities do
+ * not match the file's freshly extracted text: the analysis is stale or came
+ * from a different file. Before T179 such entities were dropped silently and
+ * the host received a "successful" copy that still held the value.
+ *
+ * `entities` lists every mismatch (value, type, offsets); the message only
+ * counts them and names their types and offsets so it can be logged without
+ * repeating the values. The session is not touched when this is thrown.
+ */
+export class StaleAnalysisError extends Error {
+  readonly entities: DetectedEntity[];
+
+  constructor(entities: DetectedEntity[], total: number = entities.length) {
+    const where = entities.map((e) => `${e.type}@${e.start}-${e.end}`).join(', ');
+    super(
+      `${entities.length} of ${total} supplied entities do not match the file's text `
+      + `(stale analysis or a different file): ${where}. Re-run analyzeOfficeFile on this file.`,
+    );
+    this.name = 'StaleAnalysisError';
+    this.entities = entities;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/** True when `err` is a StaleAnalysisError (also across realms). */
+export function isStaleAnalysisError(err: unknown): err is StaleAnalysisError {
+  return err instanceof StaleAnalysisError
+    || (typeof err === 'object' && err !== null && (err as { name?: string }).name === 'StaleAnalysisError');
+}
+
 export interface OfficeAnalysis {
   kind: OfficeFileKind;
   /** Flat text extracted from every text-bearing part of the package */
   plainText: string;
   /** Entities detected in the flat text (offsets refer to plainText) */
   entities: DetectedEntity[];
+  /**
+   * Parts DocCloak cannot redact (embedded objects, macros, HTML chunks,
+   * printer settings, unknown parts; T177). Non-empty means redactOfficeFile
+   * refuses the file unless allowUnredactable is passed; hosts show the list
+   * and ask before doing so.
+   */
+  unredactable: UnredactablePart[];
+  /** Reader notes: parts skipped by the extractor (malformed XML). */
+  warnings: string[];
 }
 
 /**
@@ -55,11 +97,15 @@ export interface OfficeAnalysis {
 export async function analyzeOfficeFile(file: File, detect: DetectFn): Promise<OfficeAnalysis> {
   const kind = officeFileKind(file.name);
   if (!kind) throw new Error(`Unsupported office file: ${file.name}`);
-  const plainText = kind === 'docx'
-    ? (await readDocx(file)).plainText
-    : (await readXlsx(file)).plainText;
-  const entities = await detect(plainText);
-  return { kind, plainText, entities };
+  const extraction = kind === 'docx' ? await readDocx(file) : await readXlsx(file);
+  const entities = await detect(extraction.plainText);
+  return {
+    kind,
+    plainText: extraction.plainText,
+    entities,
+    unredactable: extraction.unredactable,
+    warnings: extraction.warnings,
+  };
 }
 
 export interface RedactOfficeFileOptions {
@@ -74,6 +120,23 @@ export interface RedactOfficeFileOptions {
   detect?: DetectFn;
   /** Accept and strip tracked changes in docx output. Default: true. */
   acceptTrackedChanges?: boolean;
+  /**
+   * What to do with a supplied entity whose offsets do not match the freshly
+   * extracted text (T179, M4). 'throw' (default): raise StaleAnalysisError
+   * listing every mismatch before the session is touched, so the host never
+   * gets a "redacted" file that still holds the value. 'drop': the historical
+   * behaviour, mismatches are filtered out and absent from result.entities.
+   */
+  onMismatch?: 'throw' | 'drop';
+  /**
+   * Export even though the package holds parts DocCloak cannot redact
+   * (T177). Default false: the writer throws
+   * UnsupportedDocumentError('unredactable-parts') with the part names in
+   * `details`. With true the parts are copied verbatim and named in
+   * result.warnings; hosts pass it only after the user saw the list from
+   * analyzeOfficeFile.
+   */
+  allowUnredactable?: boolean;
 }
 
 export interface OfficeRedactionResult {
@@ -88,6 +151,14 @@ export interface OfficeRedactionResult {
   plainText: string;
   /** The redacted flat text (placeholders applied), for preview UIs */
   redactedText: string;
+  /**
+   * Writer notes the host must show: one line per unredactable part copied
+   * verbatim (allowUnredactable) and per part the layer-zero scrub could not
+   * parse. Empty on a clean run.
+   */
+  warnings: string[];
+  /** Parts copied verbatim because allowUnredactable was passed (T177). */
+  unredactable: UnredactablePart[];
 }
 
 /** "report.docx" -> "report.redacted.docx"; extensionless names get a suffix. */
@@ -97,12 +168,25 @@ export function redactedFileName(filename: string): string {
   return `${filename.slice(0, dot)}.redacted${filename.slice(dot)}`;
 }
 
+/** True when the entity's offsets land exactly on its value in the text. */
+function matchesText(entity: DetectedEntity, plainText: string): boolean {
+  return entity.start >= 0
+    && entity.end <= plainText.length
+    && entity.start < entity.end
+    && plainText.slice(entity.start, entity.end) === entity.value;
+}
+
 /**
  * Redact a DOCX or XLSX file: extract text, detect (or reuse supplied
  * entities), map every entity through the session, and regenerate the file
  * with placeholders spliced into the XML, formatting preserved and metadata
  * stripped. Placeholder issuing goes through session.anonymize, so a value
  * already seen in a prompt reuses its existing placeholder and vice versa.
+ *
+ * Fail-closed (T179): supplied entities that do not match this extraction
+ * raise StaleAnalysisError unless onMismatch is 'drop'; parts that cannot be
+ * redacted raise UnsupportedDocumentError('unredactable-parts') unless
+ * allowUnredactable is passed. Both are thrown before the session changes.
  */
 export async function redactOfficeFile(
   file: File,
@@ -124,14 +208,20 @@ export async function redactOfficeFile(
 
   const { session } = options;
 
-  // Drop entities whose offsets do not match this extraction (defensive: a
-  // stale analysis of a different file must not splice garbage), then map
-  // through the session in reading order. Surrogate mode maps PERSON values
-  // first, mirroring AnonymizationSession.anonymizeText, so derived
+  // Entities whose offsets do not match this extraction come from a stale
+  // analysis (or a different file). Splicing them would corrupt the text and
+  // skipping them silently would ship the value (M4), so the default is to
+  // refuse; 'drop' keeps the historical filter for hosts that re-detect.
+  const mismatched = entities.filter((e) => !matchesText(e, plainText));
+  if (mismatched.length > 0 && (options.onMismatch ?? 'throw') === 'throw') {
+    throw new StaleAnalysisError(mismatched, entities.length);
+  }
+
+  // Map through the session in reading order. Surrogate mode maps PERSON
+  // values first, mirroring AnonymizationSession.anonymizeText, so derived
   // surrogates (emails from owner names) stay consistent with prompts.
   const valid = entities
-    .filter((e) => e.start >= 0 && e.end <= plainText.length && e.start < e.end
-      && plainText.slice(e.start, e.end) === e.value)
+    .filter((e) => matchesText(e, plainText))
     .sort((a, b) => a.start - b.start || a.end - b.end);
 
   if (session.getMode() === 'surrogate') {
@@ -146,30 +236,38 @@ export async function redactOfficeFile(
     replacement: session.anonymize(entity.value, entity.type),
   }));
 
-  // Value-level scrubbing (relationship targets, formulas, field instructions)
-  // uses the whole session map, so a value redacted in an earlier prompt is
-  // also caught when it hides in a hyperlink target of this file.
-  const valueReplacements: ValueReplacement[] = session.getEntries()
-    .filter((entry) => entry.replacement !== '________')
-    .map((entry) => ({ value: entry.original, replacement: entry.replacement }));
+  // Value-level scrubbing (relationship targets, formulas, field instructions
+  // and the package-wide layer zero) uses the whole session map, so a value
+  // redacted in an earlier prompt is also caught when it hides in a hyperlink
+  // target of this file. layerZeroValueReplacements (T172) adds the PERSON
+  // name tokens, so a bare surname in a chart cache or custom XML part is
+  // caught too. Blanked entries ('________') stay out of the value list.
+  const valueReplacements: ValueReplacement[] = layerZeroValueReplacements(
+    session.getEntries().filter((entry) => entry.replacement !== '________'),
+  );
 
   let redactedText = plainText;
   for (const repl of [...replacements].sort((a, b) => b.start - a.start)) {
     redactedText = redactedText.slice(0, repl.start) + repl.replacement + redactedText.slice(repl.end);
   }
 
-  const blob = kind === 'docx'
-    ? await writeAnonymizedDocx(extraction as DocxExtraction, replacements, valueReplacements, {
+  const written = kind === 'docx'
+    ? await writeAnonymizedDocxWithReport(extraction as DocxExtraction, replacements, valueReplacements, {
         acceptTrackedChanges: options.acceptTrackedChanges ?? true,
+        allowUnredactable: options.allowUnredactable ?? false,
       })
-    : await writeAnonymizedXlsx(extraction as XlsxExtraction, replacements, valueReplacements);
+    : await writeAnonymizedXlsxWithReport(extraction as XlsxExtraction, replacements, valueReplacements, {
+        allowUnredactable: options.allowUnredactable ?? false,
+      });
 
   return {
     kind,
-    blob,
+    blob: written.blob,
     suggestedName: redactedFileName(file.name),
     entities: valid,
     plainText,
     redactedText,
+    warnings: written.warnings,
+    unredactable: extraction.unredactable,
   };
 }

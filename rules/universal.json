@@ -262,7 +262,7 @@
     {
       "id": "regex:universal:postal_city",
       "entityType": "ADDRESS",
-      "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+\\b",
+      "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+(?![\\p{L}\\p{N}])",
       "flags": "gu",
       "confidence": 0.65,
       "domains": [
@@ -369,6 +369,7 @@
       "entityType": "SECRET",
       "pattern": "-----BEGIN (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----[\\s\\S]*?-----END (?:[A-Z]+ )*PRIVATE KEY(?: BLOCK)?-----",
       "flags": "g",
+      "multiline": true,
       "confidence": 0.99,
       "domains": [
         "technical"

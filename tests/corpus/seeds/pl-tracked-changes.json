@@ -1,0 +1,50 @@
+{
+  "seed": "pl-tracked-changes",
+  "source": "pl-tracked-changes.fodt",
+  "language": "pl",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Agnieszka Pawlak-Dudek",
+    "65123098761",
+    "Małgorzata Kaczmarek",
+    "+48 22 555 01 99",
+    "Tomasz Zieliński",
+    "Bartłomiej Sroka"
+  ],
+  "where": [
+    "tracked-deletion",
+    "tracked-insertion",
+    "body",
+    "change-author",
+    "meta"
+  ],
+  "placements": {
+    "Agnieszka Pawlak-Dudek": [
+      "tracked-deletion"
+    ],
+    "65123098761": [
+      "tracked-deletion"
+    ],
+    "Małgorzata Kaczmarek": [
+      "tracked-insertion"
+    ],
+    "+48 22 555 01 99": [
+      "tracked-insertion"
+    ],
+    "Tomasz Zieliński": [
+      "body"
+    ],
+    "Bartłomiej Sroka": [
+      "change-author",
+      "meta"
+    ]
+  },
+  "optional": [
+    "Agnieszka Pawlak-Dudek",
+    "65123098761"
+  ],
+  "notes": "Tracked deletion carrying a name and PESEL (w:delText in docx), tracked insertion, change author. The deleted needles are optional in the input because a converter may drop deleted text; they must never appear in the output."
+}

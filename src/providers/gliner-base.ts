@@ -22,8 +22,8 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, DetectionProvider, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
-import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
-import { fetchModelBlob, retryAsync } from '../model-loader.ts';
+import type { ModelLoaderEnv, ModelVerification, TokenizerFiles } from '../model-loader.ts';
+import { fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
 import {
   DEFAULT_PII_LABELS,
   greedySelect,
@@ -47,6 +47,26 @@ export const GLINER_BASE_MODEL_REVISION = '61726e0ad791dcab3e29339bbec3ad42ded65
 export const GLINER_BASE_MODEL_SHA256 = '0514c8fd86d0513ce5351a3267f132b57d5bcd8f99a90d43cde1228092881d19';
 export const GLINER_BASE_MODEL_URL = `https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/onnx/model_quint8.onnx`;
 const DEFAULT_MODEL_URL = GLINER_BASE_MODEL_URL;
+/**
+ * Tokenizer files at the same pinned commit (T185): fetched through
+ * fetchModelBlob with SHA-256 + size, cached next to the model and handed to
+ * CoreEnv.buildTokenizer. Hashes re-measured against the resolve/<commit>
+ * URLs on 2026-09-24 (documentation/model-provenance.md).
+ */
+export const GLINER_BASE_TOKENIZER_FILES: TokenizerFiles = [
+  {
+    url: `https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/tokenizer.json`,
+    sha256: 'ee028763434d18611c1c36356ea1d050e90a9fa94ede57fac48b39f85f818ad1',
+    size: 8_649_232,
+  },
+  {
+    url: `https://huggingface.co/knowledgator/gliner-pii-base-v1.0/resolve/${GLINER_BASE_MODEL_REVISION}/tokenizer_config.json`,
+    sha256: '3ec8a90d8758fbc56d50831990c3a3a65660f020c5b06534adf43b04091ffa9e',
+    size: 1_691,
+  },
+];
+const TOKENIZER_FILES = GLINER_BASE_TOKENIZER_FILES;
+/** Hugging Face id for the deprecated CoreEnv.loadTokenizer fallback only. */
 const DEFAULT_TOKENIZER_HF = 'knowledgator/gliner-pii-base-v1.0';
 const DEFAULT_MODEL_NAME = 'GLiNER PII Base';
 const CUSTOM_LABELS_STORAGE_KEY = 'doccloak-custom-labels';
@@ -258,7 +278,7 @@ export class GlinerBaseProvider implements DetectionProvider {
       ];
       if (!this.tokenizer) {
         tasks.push(
-          retryAsync(() => this.env.loadTokenizer(DEFAULT_TOKENIZER_HF), 'Tokenizer download').then((t: unknown) => {
+          loadPinnedTokenizer(this.env, TOKENIZER_FILES, DEFAULT_TOKENIZER_HF).then((t: unknown) => {
             this.tokenizer = t;
           }),
         );

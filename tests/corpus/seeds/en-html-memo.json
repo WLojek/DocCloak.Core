@@ -1,0 +1,56 @@
+{
+  "seed": "en-html-memo",
+  "source": "en-html-memo.html",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Eleanor Whitcombe",
+    "eleanor.whitcombe@northgate-example.co.uk",
+    "Priya Raghunathan",
+    "Desmond Okonkwo-Hart",
+    "2210 Lakeshore Drive, Oakland, CA 94612",
+    "+44 7700 900123",
+    "Marcus Pemberton",
+    "GB29 NWBK 6016 1331 9268 19"
+  ],
+  "where": [
+    "body",
+    "table",
+    "hyperlink-target",
+    "meta"
+  ],
+  "placements": {
+    "Eleanor Whitcombe": [
+      "body",
+      "table"
+    ],
+    "eleanor.whitcombe@northgate-example.co.uk": [
+      "hyperlink-target",
+      "body"
+    ],
+    "Priya Raghunathan": [
+      "body",
+      "meta"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "body"
+    ],
+    "2210 Lakeshore Drive, Oakland, CA 94612": [
+      "body"
+    ],
+    "+44 7700 900123": [
+      "body"
+    ],
+    "Marcus Pemberton": [
+      "table"
+    ],
+    "GB29 NWBK 6016 1331 9268 19": [
+      "table"
+    ]
+  },
+  "optional": [],
+  "notes": "HTML memo: mailto link, table, emphasised signature, meta author."
+}

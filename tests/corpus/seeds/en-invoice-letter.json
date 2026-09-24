@@ -1,0 +1,64 @@
+{
+  "seed": "en-invoice-letter",
+  "source": "en-invoice-letter.fodt",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Eleanor Whitcombe",
+    "eleanor.whitcombe@northgate-example.co.uk",
+    "+44 20 7946 0123",
+    "GB29 NWBK 6016 1331 9268 19",
+    "14 Ashcroft Lane, Reading RG1 8QT",
+    "Marcus Pemberton",
+    "+1 (415) 555-0142",
+    "Priya Raghunathan",
+    "priya.raghunathan@example-labs.io"
+  ],
+  "where": [
+    "header",
+    "body",
+    "meta",
+    "footer",
+    "frame",
+    "table",
+    "footnote"
+  ],
+  "placements": {
+    "Eleanor Whitcombe": [
+      "header",
+      "body",
+      "meta"
+    ],
+    "eleanor.whitcombe@northgate-example.co.uk": [
+      "footer"
+    ],
+    "+44 20 7946 0123": [
+      "footer"
+    ],
+    "GB29 NWBK 6016 1331 9268 19": [
+      "body"
+    ],
+    "14 Ashcroft Lane, Reading RG1 8QT": [
+      "frame"
+    ],
+    "Marcus Pemberton": [
+      "table"
+    ],
+    "+1 (415) 555-0142": [
+      "table"
+    ],
+    "Priya Raghunathan": [
+      "body",
+      "footnote",
+      "meta"
+    ],
+    "priya.raghunathan@example-labs.io": [
+      "footnote"
+    ]
+  },
+  "optional": [],
+  "notes": "English letter: text frame (becomes a text box with mc:Fallback twin in docx), header, footer, footnote, table, meta."
+}

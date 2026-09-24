@@ -1,0 +1,59 @@
+{
+  "seed": "pl-medical-report",
+  "source": "pl-medical-report.fodt",
+  "language": "pl",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Tomasz Zieliński",
+    "90112256787",
+    "os. Słoneczne 7 m. 21, 61-131 Poznań",
+    "(12) 345-67-89",
+    "tomasz.zielinski@poczta-testowa.pl",
+    "Małgorzata Kaczmarek",
+    "72070887650"
+  ],
+  "where": [
+    "body",
+    "footer",
+    "footnote",
+    "frame",
+    "list",
+    "shape",
+    "meta"
+  ],
+  "placements": {
+    "Tomasz Zieliński": [
+      "body",
+      "footer",
+      "footnote"
+    ],
+    "90112256787": [
+      "body",
+      "footer"
+    ],
+    "os. Słoneczne 7 m. 21, 61-131 Poznań": [
+      "body"
+    ],
+    "(12) 345-67-89": [
+      "frame"
+    ],
+    "tomasz.zielinski@poczta-testowa.pl": [
+      "frame",
+      "list",
+      "footnote"
+    ],
+    "Małgorzata Kaczmarek": [
+      "body",
+      "shape",
+      "meta"
+    ],
+    "72070887650": [
+      "body"
+    ]
+  },
+  "optional": [],
+  "notes": "Polish medical report: frame, custom shape with text (wps shape in docx), numbered list, footnote, footer."
+}

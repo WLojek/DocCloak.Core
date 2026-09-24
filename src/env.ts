@@ -32,7 +32,27 @@ export interface CoreEnv {
   modelCache: BlobCache;
   fetch: typeof fetch;                 // injectable for tests/proxies
   wasm: { paths: string; numThreads?: number };   // replaces import.meta.env.BASE_URL; default numThreads 1
-  loadTokenizer(hfModelId: string): Promise<unknown /* PreTrainedTokenizer */>;
+  /**
+   * Build a tokenizer from the parsed contents of the provider's pinned
+   * `tokenizer.json` and `tokenizer_config.json` (T185). Core fetches both
+   * files itself through fetchModelBlob (immutable resolve/<commit> URL,
+   * SHA-256 + size check, blob cache, resume and retry) and only hands the
+   * verified, parsed objects here; the host never contacts the network for
+   * tokenizers. With @huggingface/transformers this is
+   * `new PreTrainedTokenizer(tokenizerJson, tokenizerConfig)` (or the class
+   * named by `tokenizerConfig.tokenizer_class`). May return a promise.
+   *
+   * Optional in 0.12.0 only so hosts still on loadTokenizer keep compiling;
+   * required from 0.13.0.
+   */
+  buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
+  /**
+   * @deprecated since 0.12.0, removed in 0.13.0. Used only when
+   * buildTokenizer is absent. Loading by Hugging Face model id lets the
+   * host library probe mutable `resolve/main` and keep an unverified
+   * second cache (security report S1/S3); implement buildTokenizer.
+   */
+  loadTokenizer?(hfModelId: string): Promise<unknown /* PreTrainedTokenizer */>;
   hardware?: HardwareHints;
   persistStorage?: () => Promise<boolean>;        // navigator.storage.persist(), optional
 }

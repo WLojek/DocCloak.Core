@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { AnonymizationSession } from '../src/session.ts';
-import { FAKE_EMAIL_DOMAINS } from '../src/surrogates.ts';
+import { FAKE_EMAIL_DOMAINS, generateSurrogate } from '../src/surrogates.ts';
 import type { DetectedEntity } from '../src/types.ts';
 
 const SALT = 'session-test-salt';
@@ -228,5 +228,163 @@ describe('serialization', () => {
     expect(restored.getMode()).toBe('surrogate');
     restored.setMode('labeled');
     expect(restored.anonymize('Carol King', 'PERSON')).toBe('[PERSON_2]');
+  });
+});
+
+// ── T183: document values (audit finding R3) ───────────────
+
+/** PERSON entities for every listed value (first occurrence), reading order. */
+function personEntities(text: string, values: string[]): DetectedEntity[] {
+  return values.map((value) => entityAt(text, value, 'PERSON'));
+}
+
+/** Lowercased tokens of a list of names ("Jan Kowalski" -> jan, kowalski). */
+function nameTokens(names: string[]): string[] {
+  return names.flatMap((n) => n.toLowerCase().split(/\s+/));
+}
+
+describe('surrogates never carry a document value (R3)', () => {
+  it('audit PoC: a person mapped later can no longer become an earlier surrogate', () => {
+    // The surrogate "Jan Kowalski" would get on its own for this salt is
+    // written into the document as a SECOND, later person. Before T183
+    // isTaken only saw already-mapped values, so Jan became that person
+    // and restore then wrote "Jan Kowalski" twice.
+    const probe = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const wouldBe = probe.anonymize('Jan Kowalski', 'PERSON');
+    const text = `Jan Kowalski pozywa ${wouldBe} o zapłatę.`;
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const out = session.anonymizeText(text, personEntities(text, ['Jan Kowalski', wouldBe]));
+    const jan = session.getForward('Jan Kowalski')!;
+    expect(jan).not.toBe(wouldBe);
+    for (const token of nameTokens([wouldBe])) {
+      expect(jan.toLowerCase().split(' ')).not.toContain(token);
+    }
+    expect(out.toLowerCase()).not.toContain(wouldBe.toLowerCase());
+    expect(session.deanonymize(out)).toBe(text);
+  });
+
+  it('audit PoC quantified: 10 pool names, 500 salts, 0 document names in the output', () => {
+    const names = [
+      'Piotr Nowak', 'Anna Kowalska', 'Tomasz Wiśniewski', 'Maria Wójcik', 'Krzysztof Kowalczyk',
+      'Katarzyna Kamińska', 'Andrzej Lewandowski', 'Agnieszka Zielińska', 'Marek Szymański', 'Barbara Woźniak',
+    ];
+    const text = `${names.join(' pozywa, ')} pozywa.`;
+    const tokens = nameTokens(names);
+    let leaks = 0;
+    for (let i = 0; i < 500; i++) {
+      const session = new AnonymizationSession({ mode: 'surrogate', salt: `r3-salt-${i}` });
+      const out = session.anonymizeText(text, personEntities(text, names)).toLowerCase();
+      for (const name of names) if (out.includes(name.toLowerCase())) leaks++;
+      // Tokens too: "Adam Nowak" for "Piotr Nowak" is still a leak.
+      for (const token of tokens) if (new RegExp(`(?<![\\p{L}])${token}(?![\\p{L}])`, 'u').test(out)) leaks++;
+    }
+    expect(leaks).toBe(0);
+  });
+
+  it('a person surrogate never contains a document name of 3+ letters', () => {
+    // "Johnson" for a document naming "John", "Marianna" for "Anna": the
+    // containment rule refuses them (whole-word exclusion alone would not).
+    for (let i = 0; i < 40; i++) {
+      const session = new AnonymizationSession({ mode: 'surrogate', salt: `contain-${i}` });
+      session.registerDocumentValues(['Anna', 'John', 'Nowak']);
+      for (const value of ['Katarzyna Zielińska', 'Mary Williams', 'Tomasz Kowal']) {
+        const surrogate = session.anonymize(value, 'PERSON').toLowerCase();
+        expect(surrogate, `${value} -> ${surrogate} (salt ${i})`).not.toMatch(/anna|john|nowak/);
+      }
+    }
+  });
+
+  it('registerDocumentValues protects hosts that anonymize value by value', () => {
+    const probe = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const wouldBe = probe.anonymize('Jan Kowalski', 'PERSON');
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    // Both accepted shapes: plain strings and { value } objects.
+    session.registerDocumentValues([wouldBe]);
+    session.registerDocumentValues([{ value: 'Nobody Else' }]);
+    const jan = session.anonymize('Jan Kowalski', 'PERSON');
+    expect(jan).not.toBe(wouldBe);
+    expect(session.anonymize('Nobody Else', 'PERSON')).not.toBe(jan);
+  });
+
+  it('is cumulative across documents of one session and reset by clear()', () => {
+    const probe = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const wouldBe = probe.anonymize('Zofia Mazur', 'PERSON');
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const doc1 = `Umowa z ${wouldBe}.`;
+    session.anonymizeText(doc1, personEntities(doc1, [wouldBe]));
+    // Second document of the same matter: the first document's names are still off limits.
+    const doc2 = 'Pismo od Zofia Mazur.';
+    session.anonymizeText(doc2, personEntities(doc2, ['Zofia Mazur']));
+    expect(session.getForward('Zofia Mazur')).not.toBe(wouldBe);
+    session.clear();
+    expect(session.anonymize('Zofia Mazur', 'PERSON')).toBe(wouldBe);
+  });
+
+  it('keeps non-person surrogates shaped: only the exact value is refused, never its tokens', () => {
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    session.registerDocumentValues(['+48 601 234 567', 'ul. Polna 5', 'Nowak Sp. z o.o.', '15.03.2024']);
+    const phone = session.anonymize('+48 601 234 567', 'PHONE');
+    expect(phone).toMatch(/^\+48 /);
+    expect(phone).not.toBe('+48 601 234 567');
+    const address = session.anonymize('ul. Polna 5', 'ADDRESS');
+    expect(address).toMatch(/^ul\. /);
+    expect(address).not.toBe('ul. Polna 5');
+    const company = session.anonymize('Nowak Sp. z o.o.', 'COMPANY');
+    expect(company).not.toBe('Nowak Sp. z o.o.');
+    expect(session.anonymize('15.03.2024', 'DATE')).toMatch(/^\d{2}\.\d{2}\.\d{4}$/);
+    // None of them was re-derived: each is the very first draw for this salt.
+    for (const e of session.getEntries()) {
+      expect(e.replacement).toBe(generateSurrogate(e.original, e.entityType, { salt: SALT }, 0));
+    }
+  });
+
+  it('falls back to a numeric suffix (exact checks only) when every attempt hits a document name', () => {
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const ctx = { salt: SALT };
+    const attempts = Array.from({ length: 24 }, (_, i) => generateSurrogate('Jan Kowalski', 'PERSON', ctx, i));
+    session.registerDocumentValues(attempts);
+    const surrogate = session.anonymize('Jan Kowalski', 'PERSON');
+    // The loop terminates (a token rule can never be satisfied by a suffix)
+    // and the result is still not an exact document value.
+    expect(surrogate).toBe(`${attempts[23]}2`);
+    expect(attempts).not.toContain(surrogate);
+    expect(session.deanonymize(surrogate)).toBe('Jan Kowalski');
+  });
+
+  it('imported originals count as document values', () => {
+    const probe = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    const wouldBe = probe.anonymize('Jan Kowalski', 'PERSON');
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: SALT });
+    session.importEntries([{ original: wouldBe, replacement: 'Somebody Mapped', entityType: 'PERSON' }]);
+    expect(session.anonymize('Jan Kowalski', 'PERSON')).not.toBe(wouldBe);
+  });
+});
+
+describe('pool health under the document-value rule (R3)', () => {
+  it('200 unique surnames in one document: at least 90% of PERSON surrogates without a numeric suffix', () => {
+    const stems = [
+      'Brzęczy', 'Grzmoto', 'Kłopoto', 'Skrzypo', 'Wrzosko', 'Trzcin', 'Chrząszczo', 'Dzwono', 'Świerszczo', 'Żmijo',
+      'Pszczoło', 'Krzemie', 'Strzało', 'Gwiazdo', 'Błyskawi', 'Piorun', 'Śnieżyn', 'Deszczo', 'Wichro', 'Mgliste',
+      'Grudzie', 'Tęczo', 'Jaskół', 'Bocian', 'Sokoło',
+    ];
+    const endings = ['wicz', 'wski', 'wiak', 'wczyk', 'wiec', 'wiński', 'wnik', 'wiuk'];
+    const firsts = ['Piotr', 'Tomasz', 'Marek', 'Krzysztof', 'Andrzej', 'Anna', 'Maria', 'Katarzyna', 'Agnieszka', 'Barbara'];
+    const people: string[] = [];
+    for (const stem of stems) {
+      for (const ending of endings) people.push(`${firsts[people.length % firsts.length]} ${stem}${ending}`);
+    }
+    expect(new Set(people.map((p) => p.split(' ')[1])).size).toBe(200);
+    const text = `${people.join(', ')}.`;
+    const session = new AnonymizationSession({ mode: 'surrogate', salt: 'pool-health' });
+    const out = session.anonymizeText(text, personEntities(text, people));
+    const persons = session.getEntries().filter((e) => e.entityType === 'PERSON');
+    expect(persons).toHaveLength(200);
+    const unsuffixed = persons.filter((e) => !/\d$/.test(e.replacement)).length;
+    expect(unsuffixed).toBeGreaterThanOrEqual(180);
+    // Every surrogate is distinct and none is a document name.
+    expect(new Set(persons.map((e) => e.replacement)).size).toBe(200);
+    const lower = out.toLowerCase();
+    for (const person of people) expect(lower).not.toContain(person.toLowerCase());
+    expect(session.deanonymize(out)).toBe(text);
   });
 });

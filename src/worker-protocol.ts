@@ -22,8 +22,8 @@
 
 import type { DetectedEntity } from './types.ts';
 import type { DocCloakEngine, EngineSettings, ProviderId } from './engine.ts';
-import { clampThreshold, defaultThresholdFor } from './engine.ts';
-import type { RegexRegionId } from './regex/index.ts';
+import { PROVIDERS, clampThreshold, defaultThresholdFor } from './engine.ts';
+import { REGEX_REGIONS, type RegexRegionId } from './regex/index.ts';
 
 // ── Transport contract ─────────────────────────────────────
 
@@ -53,10 +53,85 @@ export type EngineResponse =
   | { type: 'detectError'; requestId: number; error: string }
   | { type: 'detectionProgress'; requestId: number; progress: number }
   | { type: 'downloadProgress'; downloaded: number; total: number }
-  | { type: 'released'; requestId?: number };
+  | { type: 'released'; requestId?: number }
+  /**
+   * Protocol-level failure (T185, R12): a message the host could not act on
+   * (unknown type, wrong payload shape) or an error outside the dedicated
+   * load/detect replies. `fatal` marks a host that can no longer serve; the
+   * client then rejects every pending request and closes.
+   */
+  | { type: 'error'; requestId?: number; error: string; fatal?: boolean };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// ── Message validation (R12) ───────────────────────────────
+
+const REQUEST_TYPES: ReadonlySet<string> = new Set<EngineRequest['type']>([
+  'init', 'detect', 'switchProvider', 'setThreshold', 'setCustomLabels', 'setRegex', 'setRegexRegion', 'releaseModel',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === 'string' && PROVIDERS.some((p) => p.id === value);
+}
+
+function isRegexRegionId(value: unknown): value is RegexRegionId {
+  return typeof value === 'string' && (REGEX_REGIONS as readonly string[]).includes(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalRequestId(value: unknown): number | undefined {
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+/**
+ * Field-level validation of a message whose `type` is known. Returns a
+ * description of the first problem, or null when the payload is usable.
+ */
+function requestProblem(msg: Record<string, unknown>): string | null {
+  switch (msg.type as EngineRequest['type']) {
+    case 'init':
+      if (msg.providerId !== undefined && !isProviderId(msg.providerId)) return 'providerId must be a known provider id';
+      if (msg.customLabels !== undefined && !isStringArray(msg.customLabels)) return 'customLabels must be an array of strings';
+      if (msg.regexEnabled !== undefined && typeof msg.regexEnabled !== 'boolean') return 'regexEnabled must be a boolean';
+      if (msg.regexRegion !== undefined && !isRegexRegionId(msg.regexRegion)) return 'regexRegion must be a known region id';
+      return null;
+    case 'detect':
+      if (!isFiniteNumber(msg.requestId)) return 'requestId must be a number';
+      if (typeof msg.text !== 'string') return 'text must be a string';
+      return null;
+    case 'switchProvider':
+      if (!isProviderId(msg.providerId)) return 'providerId must be a known provider id';
+      if (msg.customLabels !== undefined && !isStringArray(msg.customLabels)) return 'customLabels must be an array of strings';
+      return null;
+    case 'setThreshold':
+      if (!isFiniteNumber(msg.value)) return 'value must be a finite number';
+      return null;
+    case 'setCustomLabels':
+      if (!isStringArray(msg.labels)) return 'labels must be an array of strings';
+      return null;
+    case 'setRegex':
+      if (typeof msg.enabled !== 'boolean') return 'enabled must be a boolean';
+      if (msg.region !== undefined && !isRegexRegionId(msg.region)) return 'region must be a known region id';
+      return null;
+    case 'setRegexRegion':
+      if (!isRegexRegionId(msg.region)) return 'region must be a known region id';
+      return null;
+    case 'releaseModel':
+      return null;
+  }
 }
 
 // ── Host side ──────────────────────────────────────────────
@@ -85,8 +160,36 @@ export function serveEngine(engine: DocCloakEngine, port: PortLike): () => void 
     }
   }
 
-  const unsubscribeMessages = port.onMessage(async (raw) => {
-    const msg = raw as EngineRequest;
+  /** Fire-and-forget settings message: failures are reported, never thrown. */
+  async function handleSetting(run: () => Promise<void>): Promise<void> {
+    try {
+      await run();
+    } catch (err) {
+      post({ type: 'error', error: errorMessage(err) });
+    }
+  }
+
+  /**
+   * Reject a message the host cannot act on. Requests with a dedicated
+   * error reply (init/switchProvider -> loadError, detect -> detectError)
+   * use it so legacy senders matching by type keep working; everything
+   * else gets the generic protocol error.
+   */
+  function rejectRequest(raw: unknown, problem: string): void {
+    const msg = isRecord(raw) ? raw : {};
+    const requestId = optionalRequestId(msg.requestId);
+    const type = typeof msg.type === 'string' ? msg.type : undefined;
+    const error = type ? `Invalid ${type} message: ${problem}` : problem;
+    if (type === 'init' || type === 'switchProvider') {
+      post({ type: 'loadError', requestId, error });
+    } else if (type === 'detect' && requestId !== undefined) {
+      post({ type: 'detectError', requestId, error });
+    } else {
+      post({ type: 'error', requestId, error });
+    }
+  }
+
+  async function dispatch(msg: EngineRequest): Promise<void> {
     switch (msg.type) {
       case 'init': {
         await handleLoad(msg.requestId, async () => {
@@ -124,32 +227,65 @@ export function serveEngine(engine: DocCloakEngine, port: PortLike): () => void 
       }
 
       case 'setThreshold': {
-        await engine.updateSettings({ threshold: msg.value });
+        await handleSetting(() => engine.updateSettings({ threshold: msg.value }));
         break;
       }
 
       case 'setCustomLabels': {
-        await engine.updateSettings({ customLabels: msg.labels });
+        await handleSetting(() => engine.updateSettings({ customLabels: msg.labels }));
         break;
       }
 
       case 'setRegex': {
-        const patch: Partial<EngineSettings> = { regexEnabled: msg.enabled };
-        if (msg.region !== undefined) patch.regexRegion = msg.region;
-        await engine.updateSettings(patch);
+        await handleSetting(async () => {
+          const patch: Partial<EngineSettings> = { regexEnabled: msg.enabled };
+          if (msg.region !== undefined) patch.regexRegion = msg.region;
+          await engine.updateSettings(patch);
+        });
         break;
       }
 
       case 'setRegexRegion': {
-        await engine.updateSettings({ regexRegion: msg.region });
+        await handleSetting(() => engine.updateSettings({ regexRegion: msg.region }));
         break;
       }
 
       case 'releaseModel': {
-        await engine.release();
-        post({ type: 'released', requestId: msg.requestId });
+        try {
+          await engine.release();
+          post({ type: 'released', requestId: msg.requestId });
+        } catch (err) {
+          post({ type: 'error', requestId: msg.requestId, error: errorMessage(err) });
+        }
         break;
       }
+    }
+  }
+
+  const unsubscribeMessages = port.onMessage(async (raw) => {
+    // R12: the port is same-origin but not trusted with the message shape.
+    // Anything that is not a well-formed request gets an error reply and
+    // never reaches the engine; nothing here may throw into the transport.
+    try {
+      if (!isRecord(raw) || typeof raw.type !== 'string') {
+        rejectRequest(raw, 'message must be an object with a string type');
+        return;
+      }
+      if (!REQUEST_TYPES.has(raw.type)) {
+        post({ type: 'error', requestId: optionalRequestId(raw.requestId), error: `Unknown message type: ${raw.type}` });
+        return;
+      }
+      const problem = requestProblem(raw);
+      if (problem) {
+        rejectRequest(raw, problem);
+        return;
+      }
+      await dispatch(raw as unknown as EngineRequest);
+    } catch (err) {
+      // Only reachable if posting a reply itself failed; report best-effort.
+      try {
+        post({ type: 'error', requestId: isRecord(raw) ? optionalRequestId(raw.requestId) : undefined, error: errorMessage(err) });
+      } catch { /* transport gone */ }
     }
   });
 
@@ -213,6 +349,9 @@ export function connectEngine(port: PortLike, initial?: Partial<EngineSettings>)
   }
 
   const unsubscribe = port.onMessage((raw) => {
+    // Ignore anything that is not an object with a string type: the host is
+    // the only expected sender, but a malformed frame must not throw here.
+    if (!isRecord(raw) || typeof raw.type !== 'string') return;
     const msg = raw as EngineResponse;
     switch (msg.type) {
       case 'downloadProgress': {
@@ -245,6 +384,17 @@ export function connectEngine(port: PortLike, initial?: Partial<EngineSettings>)
       }
       case 'released': {
         takePending(msg.requestId)?.resolve(undefined);
+        break;
+      }
+      case 'error': {
+        const err = new Error(msg.error);
+        if (msg.fatal) {
+          // The host cannot serve any further request: fail everything
+          // that is still waiting instead of leaving promises hanging.
+          close(err);
+          break;
+        }
+        takePending(msg.requestId)?.reject(err);
         break;
       }
     }

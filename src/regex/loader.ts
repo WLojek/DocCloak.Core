@@ -33,6 +33,8 @@ export interface RegexRuleJson {
   falsePositiveNotes?: string;
   /** Name of a post-match validation function in the validator registry */
   validate?: string;
+  /** Run against the whole document instead of line by line (default false) */
+  multiline?: boolean;
 }
 
 /** JSON shape of a whole rules/<region>.json file. */
@@ -62,6 +64,7 @@ function compileRule(region: RegionCode, json: RegexRuleJson): RegexRule {
   };
   if (json.examples !== undefined) rule.examples = json.examples;
   if (json.falsePositiveNotes !== undefined) rule.falsePositiveNotes = json.falsePositiveNotes;
+  if (json.multiline !== undefined) rule.multiline = json.multiline;
   if (json.validate !== undefined) {
     const validate = VALIDATORS[json.validate];
     if (validate === undefined) {

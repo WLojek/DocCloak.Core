@@ -5,6 +5,9 @@
  * detect request/response with requestId correlation, detection and
  * download progress events, error propagation, provider switching,
  * release, legacy requestId-less messages and connection teardown.
+ * T185 (R12): malformed messages (null, garbage, wrong payload types and
+ * unknown types) get an error reply instead of crashing the host, and the
+ * client fails its pending requests on a fatal host error.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { createEngine } from '../src/engine.ts';
@@ -238,6 +241,25 @@ describe('serveEngine / connectEngine over MessageChannel', () => {
     expect(loaded).toMatchObject({ providerId: 'gliner', threshold: 0.35, customLabels: [] });
   });
 
+  it('reports a failed fire-and-forget setting as an error message instead of crashing', async () => {
+    const h = makeHarness('gliner');
+    await h.client.preload();
+    const replies: EngineResponse[] = [];
+    h.clientPort.addEventListener('message', ((e: MessageEvent) => { replies.push(e.data as EngineResponse); }) as EventListener);
+    const original = h.engine.updateSettings;
+    h.engine.updateSettings = async (patch) => {
+      if (patch.threshold !== undefined) throw new Error('settings store exploded');
+      return original(patch);
+    };
+
+    await h.client.updateSettings({ threshold: 0.6 });
+
+    await expect.poll(() => replies.some((m) => m.type === 'error')).toBe(true);
+    expect(replies.find((m) => m.type === 'error')).toMatchObject({ error: 'settings store exploded' });
+    // The host is still serving.
+    expect(await h.client.detect('still alive')).toEqual([]);
+  });
+
   it('close() rejects pending requests and resolves pending releases', async () => {
     const h = makeHarness('gliner');
     await h.client.preload();
@@ -248,5 +270,179 @@ describe('serveEngine / connectEngine over MessageChannel', () => {
 
     await expect(hanging).rejects.toThrow('Detection worker crashed');
     await expect(h.client.detect('after close')).rejects.toThrow('Engine connection closed');
+  });
+});
+
+// ── Message validation (T185, R12) ────────────────────────
+
+interface RawHarness {
+  gliner: FakeProvider;
+  engine: ReturnType<typeof createEngine>;
+  send: (msg: unknown) => void;
+  replies: EngineResponse[];
+}
+
+/** Serve an engine over a raw channel and speak the wire format directly. */
+function makeRawHarness(): RawHarness {
+  const raw = new MessageChannel();
+  openChannels.push(raw);
+  const gliner = new FakeProvider(0.35);
+  const engine = createEngine(makeEnv(), { providerId: 'gliner' }, {
+    providers: { gliner: () => gliner, bardsai: () => gliner },
+  });
+  serveEngine(engine, wrapPort(raw.port1));
+  const replies: EngineResponse[] = [];
+  raw.port2.addEventListener('message', ((e: MessageEvent) => {
+    replies.push(e.data as EngineResponse);
+  }) as EventListener);
+  raw.port2.start();
+  return { gliner, engine, send: (msg) => raw.port2.postMessage(msg), replies };
+}
+
+describe('serveEngine message validation', () => {
+  const garbage: Array<[string, unknown]> = [
+    ['null', null],
+    ['undefined', undefined],
+    ['number', 42],
+    ['string', 'detect'],
+    ['array', ['detect']],
+    ['empty object', {}],
+    ['numeric type', { type: 42 }],
+    ['object type', { type: { nested: true } }],
+  ];
+
+  for (const [label, msg] of garbage) {
+    it(`answers a malformed message (${label}) with an error and keeps serving`, async () => {
+      const h = makeRawHarness();
+      h.send(msg);
+      await expect.poll(() => h.replies.length).toBe(1);
+      expect(h.replies[0]).toMatchObject({ type: 'error' });
+      expect((h.replies[0] as { error: string }).error).toContain('string type');
+
+      h.send({ type: 'detect', requestId: 7, text: 'still serving' });
+      await expect.poll(() => h.replies.some((m) => m.type === 'detected')).toBe(true);
+      expect(h.replies.find((m) => m.type === 'detected')).toMatchObject({ requestId: 7, entities: [] });
+    });
+  }
+
+  it('answers an unknown message type with an error carrying the requestId', async () => {
+    const h = makeRawHarness();
+    h.send({ type: 'selfDestruct', requestId: 3 });
+    await expect.poll(() => h.replies.length).toBe(1);
+    expect(h.replies[0]).toEqual({ type: 'error', requestId: 3, error: 'Unknown message type: selfDestruct' });
+  });
+
+  it('rejects setCustomLabels with a non-array payload without touching the engine', async () => {
+    const h = makeRawHarness();
+    await h.engine.updateSettings({ customLabels: ['kept'] });
+
+    h.send({ type: 'setCustomLabels', labels: 'x' });
+    await expect.poll(() => h.replies.length).toBe(1);
+    expect(h.replies[0]).toMatchObject({ type: 'error', error: expect.stringContaining('labels must be an array of strings') });
+    expect(h.engine.getSettings().customLabels).toEqual(['kept']);
+
+    h.send({ type: 'setCustomLabels', labels: ['ok', 5] });
+    await expect.poll(() => h.replies.length).toBe(2);
+    expect(h.replies[1]).toMatchObject({ type: 'error' });
+    expect(h.engine.getSettings().customLabels).toEqual(['kept']);
+  });
+
+  it('rejects wrong field types on every settings message', async () => {
+    const h = makeRawHarness();
+    const bad: unknown[] = [
+      { type: 'setThreshold', value: 'high' },
+      { type: 'setThreshold', value: NaN },
+      { type: 'setRegex', enabled: 'yes' },
+      { type: 'setRegex', enabled: true, region: 'atlantis' },
+      { type: 'setRegexRegion', region: 42 },
+    ];
+    for (const msg of bad) h.send(msg);
+    await expect.poll(() => h.replies.length).toBe(bad.length);
+    expect(h.replies.every((m) => m.type === 'error')).toBe(true);
+    const s = h.engine.getSettings();
+    expect(s.threshold).toBe(0.35);
+    expect(s.regexEnabled).toBe(true);
+    expect(s.regexRegion).toBe('all');
+  });
+
+  it('rejects a detect with a non-string text as detectError on the same requestId', async () => {
+    const h = makeRawHarness();
+    h.send({ type: 'detect', requestId: 11, text: 5 });
+    await expect.poll(() => h.replies.length).toBe(1);
+    expect(h.replies[0]).toEqual({ type: 'detectError', requestId: 11, error: 'Invalid detect message: text must be a string' });
+  });
+
+  it('rejects a detect without a numeric requestId as a generic error', async () => {
+    const h = makeRawHarness();
+    h.send({ type: 'detect', text: 'no id' });
+    await expect.poll(() => h.replies.length).toBe(1);
+    expect(h.replies[0]).toMatchObject({ type: 'error', error: expect.stringContaining('requestId must be a number') });
+  });
+
+  it('rejects init/switchProvider with an unknown provider as loadError without loading anything', async () => {
+    const h = makeRawHarness();
+    h.send({ type: 'init', requestId: 1, providerId: 'gpt-9' });
+    h.send({ type: 'switchProvider', requestId: 2, providerId: null });
+    h.send({ type: 'init', requestId: 3, customLabels: 'not-a-list' });
+    await expect.poll(() => h.replies.length).toBe(3);
+    expect(h.replies.map((m) => m.type)).toEqual(['loadError', 'loadError', 'loadError']);
+    expect(h.replies.map((m) => (m as { requestId?: number }).requestId)).toEqual([1, 2, 3]);
+    expect(h.gliner.loaded).toBe(false);
+  });
+});
+
+describe('connectEngine host errors', () => {
+  it('rejects every pending request and closes on a fatal host error', async () => {
+    const channel = new MessageChannel();
+    openChannels.push(channel);
+    const hostReceived: unknown[] = [];
+    channel.port1.addEventListener('message', ((e: MessageEvent) => { hostReceived.push(e.data); }) as EventListener);
+    channel.port1.start();
+    const client = connectEngine(wrapPort(channel.port2), { providerId: 'gliner' });
+
+    const pendingDetect = client.detect('never answered');
+    const pendingLoad = client.preload();
+    await expect.poll(() => hostReceived.length).toBe(2);
+
+    channel.port1.postMessage({ type: 'error', error: 'host worker crashed', fatal: true });
+
+    await expect(pendingDetect).rejects.toThrow('host worker crashed');
+    await expect(pendingLoad).rejects.toThrow('host worker crashed');
+    await expect(client.detect('after fatal')).rejects.toThrow('Engine connection closed');
+  });
+
+  it('rejects only the addressed request on a non-fatal error with a requestId', async () => {
+    const channel = new MessageChannel();
+    openChannels.push(channel);
+    const hostReceived: Array<{ requestId: number }> = [];
+    channel.port1.addEventListener('message', ((e: MessageEvent) => { hostReceived.push(e.data as { requestId: number }); }) as EventListener);
+    channel.port1.start();
+    const client = connectEngine(wrapPort(channel.port2), { providerId: 'gliner' });
+
+    const first = client.detect('one');
+    const second = client.detect('two');
+    await expect.poll(() => hostReceived.length).toBe(2);
+
+    channel.port1.postMessage({ type: 'error', requestId: hostReceived[0].requestId, error: 'bad request' });
+    await expect(first).rejects.toThrow('bad request');
+
+    channel.port1.postMessage({ type: 'detected', requestId: hostReceived[1].requestId, entities: [] });
+    expect(await second).toEqual([]);
+  });
+
+  it('ignores malformed frames from the host without throwing', async () => {
+    const channel = new MessageChannel();
+    openChannels.push(channel);
+    const hostReceived: Array<{ requestId: number }> = [];
+    channel.port1.addEventListener('message', ((e: MessageEvent) => { hostReceived.push(e.data as { requestId: number }); }) as EventListener);
+    channel.port1.start();
+    const client = connectEngine(wrapPort(channel.port2), { providerId: 'gliner' });
+
+    const pending = client.detect('text');
+    await expect.poll(() => hostReceived.length).toBe(1);
+    for (const frame of [null, 1, 'x', {}, { type: 9 }]) channel.port1.postMessage(frame);
+    channel.port1.postMessage({ type: 'detected', requestId: hostReceived[0].requestId, entities: [] });
+
+    expect(await pending).toEqual([]);
   });
 });

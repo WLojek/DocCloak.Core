@@ -1,0 +1,58 @@
+{
+  "seed": "de-html-rechnung",
+  "source": "de-html-rechnung.html",
+  "language": "de",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Hans-Jürgen Müller",
+    "Bergstraße 7, 10115 Berlin",
+    "hj.mueller@beispiel-gmbh.de",
+    "Annelore Schäfer",
+    "+49 171 987 6543",
+    "DE44 5001 0517 5407 3249 31",
+    "Friedrich Oberländer",
+    "Ingrid Vollmer-Brandt",
+    "i.vollmer@beispiel-versand.de"
+  ],
+  "where": [
+    "body",
+    "meta",
+    "table"
+  ],
+  "placements": {
+    "Hans-Jürgen Müller": [
+      "body",
+      "meta"
+    ],
+    "Bergstraße 7, 10115 Berlin": [
+      "body"
+    ],
+    "hj.mueller@beispiel-gmbh.de": [
+      "body"
+    ],
+    "Annelore Schäfer": [
+      "table"
+    ],
+    "+49 171 987 6543": [
+      "table"
+    ],
+    "DE44 5001 0517 5407 3249 31": [
+      "body"
+    ],
+    "Friedrich Oberländer": [
+      "body"
+    ],
+    "Ingrid Vollmer-Brandt": [
+      "body",
+      "meta"
+    ],
+    "i.vollmer@beispiel-versand.de": [
+      "body"
+    ]
+  },
+  "optional": [],
+  "notes": "HTML invoice with umlauts, table, IBAN in running text, meta author and description."
+}

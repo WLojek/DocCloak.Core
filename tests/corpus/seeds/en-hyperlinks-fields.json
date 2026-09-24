@@ -1,0 +1,52 @@
+{
+  "seed": "en-hyperlinks-fields",
+  "source": "en-hyperlinks-fields.fodt",
+  "language": "en",
+  "formats": [
+    "docx",
+    "doc"
+  ],
+  "needles": [
+    "Eleanor Whitcombe",
+    "eleanor.whitcombe@northgate-example.co.uk",
+    "m.pemberton@harbourview-example.com",
+    "Marcus Pemberton",
+    "Priya Raghunathan",
+    "Desmond Okonkwo-Hart"
+  ],
+  "where": [
+    "hyperlink-text",
+    "hyperlink-target",
+    "body",
+    "hyperlink-target-urlencoded",
+    "field",
+    "footer",
+    "meta"
+  ],
+  "placements": {
+    "Eleanor Whitcombe": [
+      "hyperlink-text"
+    ],
+    "eleanor.whitcombe@northgate-example.co.uk": [
+      "hyperlink-target"
+    ],
+    "m.pemberton@harbourview-example.com": [
+      "hyperlink-target",
+      "hyperlink-text"
+    ],
+    "Marcus Pemberton": [
+      "body"
+    ],
+    "Priya Raghunathan": [
+      "hyperlink-target-urlencoded",
+      "body"
+    ],
+    "Desmond Okonkwo-Hart": [
+      "field",
+      "footer",
+      "meta"
+    ]
+  },
+  "optional": [],
+  "notes": "mailto hyperlinks (rels Target), a URL-encoded name in a hyperlink query, a fixed author field, a bookmark."
+}

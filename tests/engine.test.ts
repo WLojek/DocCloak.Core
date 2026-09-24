@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createEngine,
+  ModelNotLoadedError,
   pickDefaultProvider,
   defaultThresholdFor,
   clampThreshold,
@@ -26,9 +27,12 @@ import type { DetectedEntity, DetectionProvider, ProgressCallback } from '../src
 class FakeProvider implements DetectionProvider {
   readonly name = 'Fake NER';
   loaded = false;
+  loading = false;
   releaseCount = 0;
   loadCount = 0;
   failLoad = false;
+  /** When set, load() waits for this promise before finishing (in-flight preload tests). */
+  loadGate: Promise<void> | null = null;
   entities: DetectedEntity[] = [];
   private threshold: number;
   private progressCallback: ProgressCallback | null = null;
@@ -40,12 +44,18 @@ class FakeProvider implements DetectionProvider {
   async load(): Promise<void> {
     this.loadCount++;
     if (this.failLoad) throw new Error('load failed');
+    this.loading = true;
+    try {
+      if (this.loadGate) await this.loadGate;
+    } finally {
+      this.loading = false;
+    }
     this.progressCallback?.(50, 100);
     this.loaded = true;
   }
 
   isLoaded(): boolean { return this.loaded; }
-  isLoading(): boolean { return false; }
+  isLoading(): boolean { return this.loading; }
   onProgress(callback: ProgressCallback): void { this.progressCallback = callback; }
 
   async detect(_text: string, onProgress?: (progress: number) => void): Promise<DetectedEntity[]> {
@@ -149,13 +159,13 @@ describe('threshold helpers', () => {
 // ── Settings load / defaults ───────────────────────────────
 
 describe('createEngine settings', () => {
-  it('starts with defaults on an empty KV (bardsai, 0.5, regex off, region all)', async () => {
+  it('starts with defaults on an empty KV (bardsai, 0.5, regex on, region all)', async () => {
     const engine = createEngine(makeEnv(), undefined, makeFakes().options);
     await engine.ready;
     expect(engine.getSettings()).toEqual({
       providerId: 'bardsai',
       threshold: 0.5,
-      regexEnabled: false,
+      regexEnabled: true,
       regexRegion: 'all',
       customLabels: [],
     });
@@ -199,7 +209,7 @@ describe('createEngine settings', () => {
     expect(engine.getSettings()).toEqual({
       providerId: 'bardsai',
       threshold: 0.5,
-      regexEnabled: false,
+      regexEnabled: true,
       regexRegion: 'all',
       customLabels: [],
     });
@@ -358,6 +368,107 @@ describe('provider lifecycle', () => {
   });
 });
 
+// ── Explicit preload mode (T185, S9) ───────────────────────
+
+describe('createEngine autoLoad', () => {
+  const text = 'Jan called.';
+  const person: DetectedEntity = { type: 'PERSON', value: 'Jan', start: 0, end: 3, confidence: 0.9, detector: 'gliner:person name' };
+
+  it('defaults to autoLoad: detect() loads the model on its own (0.11 behaviour)', async () => {
+    const fakes = makeFakes();
+    fakes.gliner.entities = [person];
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, fakes.options);
+
+    expect(await engine.detect(text)).toHaveLength(1);
+    expect(fakes.gliner.loadCount).toBe(1);
+  });
+
+  it('with autoLoad false, detect() before preload() rejects with ModelNotLoadedError and never loads', async () => {
+    const fakes = makeFakes();
+    fakes.gliner.entities = [person];
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+
+    let caught: unknown;
+    try {
+      await engine.detect(text);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ModelNotLoadedError);
+    expect((caught as ModelNotLoadedError).name).toBe('ModelNotLoadedError');
+    expect((caught as ModelNotLoadedError).providerId).toBe('gliner');
+    expect((caught as Error).message).toContain('preload()');
+    expect(fakes.gliner.loadCount).toBe(0);
+    expect(fakes.gliner.loaded).toBe(false);
+  });
+
+  it('with autoLoad false, detect() works after an explicit preload()', async () => {
+    const fakes = makeFakes();
+    fakes.gliner.entities = [person];
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+
+    await engine.preload();
+    expect(await engine.detect(text)).toHaveLength(1);
+    expect(fakes.gliner.loadCount).toBe(1);
+  });
+
+  it('with autoLoad false, detect() awaits a preload() that is still in flight', async () => {
+    const fakes = makeFakes();
+    fakes.gliner.entities = [person];
+    let openGate!: () => void;
+    fakes.gliner.loadGate = new Promise<void>((resolve) => { openGate = resolve; });
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+
+    const preloading = engine.preload();
+    const detecting = engine.detect(text);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fakes.gliner.loaded).toBe(false);
+
+    openGate();
+    await preloading;
+    expect(await detecting).toHaveLength(1);
+    expect(fakes.gliner.loadCount).toBe(1);
+  });
+
+  it('with autoLoad false, a failed in-flight preload surfaces its error from detect()', async () => {
+    const fakes = makeFakes();
+    fakes.gliner.failLoad = true;
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+
+    const preloading = engine.preload();
+    const detecting = engine.detect(text);
+    await expect(preloading).rejects.toThrow('load failed');
+    await expect(detecting).rejects.toThrow('load failed');
+  });
+
+  it('with autoLoad false, release() puts the engine back into the not-loaded state', async () => {
+    const fakes = makeFakes();
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+    await engine.preload();
+    await engine.release();
+
+    await expect(engine.detect(text)).rejects.toBeInstanceOf(ModelNotLoadedError);
+    expect(fakes.gliner.loadCount).toBe(1);
+  });
+
+  it('with autoLoad false, switchProvider() is an explicit load and detect() then works', async () => {
+    const fakes = makeFakes();
+    fakes.bardsai.entities = [{ ...person, detector: 'bardsai:PERSON_NAME' }];
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+
+    await engine.switchProvider('bardsai');
+    expect(await engine.detect(text)).toHaveLength(1);
+    expect(fakes.bardsai.loadCount).toBe(1);
+  });
+
+  it('blank text still short-circuits without loading', async () => {
+    const fakes = makeFakes();
+    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, { ...fakes.options, autoLoad: false });
+    expect(await engine.detect('  ')).toEqual([]);
+  });
+});
+
 // ── Detection pipeline ─────────────────────────────────────
 
 describe('detect', () => {
@@ -389,7 +500,7 @@ describe('detect', () => {
 
   it('skips regex results when regex is disabled', async () => {
     const fakes = makeFakes();
-    const engine = createEngine(makeEnv(), { providerId: 'gliner' }, fakes.options);
+    const engine = createEngine(makeEnv(), { providerId: 'gliner', regexEnabled: false }, fakes.options);
     const entities = await engine.detect(text);
     expect(entities.every((e) => !e.detector.startsWith('regex:'))).toBe(true);
   });

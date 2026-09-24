@@ -95,41 +95,53 @@ export function generateSessionSalt(): string {
 }
 
 // ── Name pools (EN + PL) ───────────────────────────────────
+//
+// Pool hygiene (T182, audit R3/R4): a surrogate becomes a restore KEY, so
+// every alphabetic pool excludes (a) names that are also everyday words
+// in English or, for capitalized-noun languages, in their own language
+// (White, Green, King, Young, Hill, Baker, Post, Wolf, Richter, Urban,
+// Martin the bird, ...) and (b) entries of three letters or fewer (Bo,
+// Per, Odd, Jan, Eva, Bos, Vos, Kok, ...), which fire inside ordinary
+// words even with boundaries around them. Replacements keep the pool
+// size and sit at the same index, so surrogate derivation is unchanged
+// for every original that never picked a removed entry. CJK pools are
+// exempt from (b): their names are one to three characters by design.
+// The pool-hygiene test in tests/surrogates.test.ts enforces both rules.
 
 const EN_FIRST_MALE = [
   'James', 'John', 'Robert', 'Michael', 'William', 'David', 'Richard', 'Joseph',
-  'Thomas', 'Charles', 'Daniel', 'Matthew', 'Anthony', 'Mark', 'Steven', 'Paul',
+  'Thomas', 'Charles', 'Daniel', 'Matthew', 'Anthony', 'Dennis', 'Steven', 'Paul',
   'Andrew', 'Joshua', 'Kevin', 'Brian', 'George', 'Timothy', 'Ronald', 'Edward',
   'Jason', 'Jeffrey', 'Ryan', 'Jacob', 'Gary', 'Nicholas', 'Eric', 'Jonathan',
-  'Stephen', 'Larry', 'Justin', 'Scott', 'Brandon', 'Benjamin', 'Samuel', 'Gregory',
+  'Stephen', 'Larry', 'Justin', 'Douglas', 'Brandon', 'Benjamin', 'Samuel', 'Gregory',
 ] as const;
 
 const EN_FIRST_FEMALE = [
   'Mary', 'Patricia', 'Jennifer', 'Linda', 'Elizabeth', 'Barbara', 'Susan', 'Jessica',
   'Sarah', 'Karen', 'Lisa', 'Nancy', 'Betty', 'Margaret', 'Sandra', 'Ashley',
-  'Kimberly', 'Emily', 'Donna', 'Michelle', 'Carol', 'Amanda', 'Dorothy', 'Melissa',
-  'Deborah', 'Stephanie', 'Rebecca', 'Sharon', 'Laura', 'Cynthia', 'Kathleen', 'Amy',
+  'Kimberly', 'Emily', 'Donna', 'Michelle', 'Janet', 'Amanda', 'Dorothy', 'Melissa',
+  'Deborah', 'Stephanie', 'Rebecca', 'Sharon', 'Laura', 'Cynthia', 'Kathleen', 'Kathryn',
   'Angela', 'Shirley', 'Anna', 'Ruth', 'Brenda', 'Pamela', 'Emma', 'Nicole',
 ] as const;
 
 const EN_SURNAMES = [
-  'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis',
-  'Wilson', 'Anderson', 'Taylor', 'Thomas', 'Moore', 'Jackson', 'Martin', 'Lee',
-  'Thompson', 'White', 'Harris', 'Clark', 'Lewis', 'Robinson', 'Walker', 'Young',
-  'Allen', 'King', 'Wright', 'Scott', 'Green', 'Baker', 'Adams', 'Nelson',
-  'Hill', 'Campbell', 'Mitchell', 'Roberts', 'Carter', 'Phillips', 'Evans', 'Turner',
+  'Smith', 'Johnson', 'Williams', 'Collins', 'Jones', 'Garcia', 'Stewart', 'Davis',
+  'Wilson', 'Anderson', 'Taylor', 'Thomas', 'Moore', 'Jackson', 'Morgan', 'Murphy',
+  'Thompson', 'Rogers', 'Harris', 'Clark', 'Lewis', 'Robinson', 'Peterson', 'Sullivan',
+  'Allen', 'Bennett', 'Wright', 'Hughes', 'Howard', 'Richardson', 'Adams', 'Nelson',
+  'Morris', 'Campbell', 'Mitchell', 'Roberts', 'Carter', 'Phillips', 'Evans', 'Turner',
 ] as const;
 
 const PL_FIRST_MALE = [
-  'Jan', 'Piotr', 'Krzysztof', 'Andrzej', 'Tomasz', 'Paweł', 'Michał', 'Marcin',
+  'Stanisław', 'Piotr', 'Krzysztof', 'Andrzej', 'Tomasz', 'Paweł', 'Michał', 'Marcin',
   'Marek', 'Grzegorz', 'Jerzy', 'Tadeusz', 'Adam', 'Łukasz', 'Zbigniew', 'Ryszard',
   'Dariusz', 'Henryk', 'Mariusz', 'Kazimierz', 'Wojciech', 'Robert', 'Mateusz', 'Marian',
   'Rafał', 'Jacek', 'Janusz', 'Mirosław', 'Maciej', 'Sławomir', 'Jarosław', 'Kamil',
-  'Wiesław', 'Roman', 'Władysław', 'Jakub', 'Artur', 'Zdzisław', 'Edward', 'Dawid',
+  'Wiesław', 'Bogdan', 'Władysław', 'Jakub', 'Artur', 'Zdzisław', 'Edward', 'Dawid',
 ] as const;
 
 const PL_FIRST_FEMALE = [
-  'Anna', 'Maria', 'Katarzyna', 'Małgorzata', 'Agnieszka', 'Barbara', 'Krystyna', 'Ewa',
+  'Anna', 'Maria', 'Katarzyna', 'Małgorzata', 'Agnieszka', 'Barbara', 'Krystyna', 'Weronika',
   'Elżbieta', 'Zofia', 'Janina', 'Teresa', 'Joanna', 'Magdalena', 'Monika', 'Jadwiga',
   'Danuta', 'Irena', 'Halina', 'Helena', 'Beata', 'Aleksandra', 'Marta', 'Dorota',
   'Marianna', 'Grażyna', 'Jolanta', 'Stanisława', 'Iwona', 'Karolina', 'Bożena', 'Urszula',
@@ -140,8 +152,8 @@ const PL_FIRST_FEMALE = [
 const PL_SURNAMES = [
   'Nowak', 'Kowalski', 'Wiśniewski', 'Wójcik', 'Kowalczyk', 'Kamiński', 'Lewandowski', 'Zieliński',
   'Szymański', 'Woźniak', 'Dąbrowski', 'Kozłowski', 'Jankowski', 'Mazur', 'Kwiatkowski', 'Krawczyk',
-  'Piotrowski', 'Grabowski', 'Nowakowski', 'Pawłowski', 'Michalski', 'Nowicki', 'Adamczyk', 'Dudek',
-  'Zając', 'Wieczorek', 'Jabłoński', 'Król', 'Majewski', 'Olszewski', 'Jaworski', 'Wróbel',
+  'Piotrowski', 'Grabowski', 'Nowakowski', 'Pawłowski', 'Michalski', 'Nowicki', 'Adamczyk', 'Kaczmarek',
+  'Sobczak', 'Wieczorek', 'Jabłoński', 'Zalewski', 'Majewski', 'Olszewski', 'Jaworski', 'Zawadzki',
   'Malinowski', 'Pawlak', 'Witkowski', 'Walczak', 'Stępień', 'Górski', 'Rutkowski', 'Michalak',
 ] as const;
 
@@ -162,7 +174,7 @@ function feminizePlSurname(surname: string): string {
 
 const DE_FIRST_MALE = [
   'Hans', 'Peter', 'Michael', 'Thomas', 'Andreas', 'Wolfgang', 'Klaus', 'Jürgen',
-  'Stefan', 'Christian', 'Markus', 'Alexander', 'Frank', 'Uwe', 'Martin', 'Werner',
+  'Stefan', 'Christian', 'Markus', 'Alexander', 'Dieter', 'Rainer', 'Holger', 'Werner',
   'Matthias', 'Bernd', 'Florian', 'Tobias', 'Sebastian', 'Lukas', 'Felix', 'Jonas',
 ] as const;
 
@@ -173,8 +185,8 @@ const DE_FIRST_FEMALE = [
 ] as const;
 
 const DE_SURNAMES = [
-  'Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker',
-  'Schulz', 'Hoffmann', 'Schäfer', 'Koch', 'Bauer', 'Richter', 'Klein', 'Wolf',
+  'Müller', 'Schmidt', 'Schneider', 'Herrmann', 'Weber', 'Meyer', 'Wagner', 'Becker',
+  'Schulz', 'Hoffmann', 'Schäfer', 'Lehmann', 'Köhler', 'Schulze', 'Klein', 'Hartmann',
   'Schröder', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krüger', 'Hofmann', 'Lange',
 ] as const;
 
@@ -186,14 +198,14 @@ const FR_FIRST_MALE = [
 
 const FR_FIRST_FEMALE = [
   'Marie', 'Nathalie', 'Isabelle', 'Sylvie', 'Catherine', 'Françoise', 'Christine', 'Monique',
-  'Sophie', 'Céline', 'Julie', 'Aurélie', 'Camille', 'Léa', 'Chloé', 'Manon',
+  'Sophie', 'Céline', 'Julie', 'Aurélie', 'Camille', 'Mathilde', 'Chloé', 'Manon',
   'Élise', 'Charlotte', 'Emma', 'Louise', 'Alice', 'Juliette', 'Margaux', 'Inès',
 ] as const;
 
 const FR_SURNAMES = [
-  'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand',
+  'Mercier', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Rousseau', 'Durand',
   'Leroy', 'Moreau', 'Simon', 'Laurent', 'Lefebvre', 'Michel', 'Garcia', 'David',
-  'Bertrand', 'Roux', 'Vincent', 'Fournier', 'Morel', 'Girard', 'Lambert', 'Fontaine',
+  'Bertrand', 'Garnier', 'Vincent', 'Fournier', 'Morel', 'Girard', 'Lambert', 'Fontaine',
 ] as const;
 
 const ES_FIRST_MALE = [
@@ -203,7 +215,7 @@ const ES_FIRST_MALE = [
 ] as const;
 
 const ES_FIRST_FEMALE = [
-  'María', 'Carmen', 'Josefa', 'Isabel', 'Ana', 'Dolores', 'Pilar', 'Teresa',
+  'María', 'Carmen', 'Josefa', 'Isabel', 'Alicia', 'Dolores', 'Pilar', 'Teresa',
   'Rosa', 'Cristina', 'Laura', 'Marta', 'Elena', 'Lucía', 'Sara', 'Paula',
   'Raquel', 'Beatriz', 'Silvia', 'Patricia', 'Nuria', 'Alba', 'Andrea', 'Irene',
 ] as const;
@@ -234,21 +246,21 @@ const IT_SURNAMES = [
 
 /** Masculine base forms; feminizeCsSurname derives -ová / -á endings. */
 const CS_FIRST_MALE = [
-  'Jiří', 'Jan', 'Petr', 'Josef', 'Pavel', 'Martin', 'Tomáš', 'Jaroslav',
+  'Jiří', 'Vojtěch', 'Petr', 'Josef', 'Pavel', 'Matěj', 'Tomáš', 'Jaroslav',
   'Miroslav', 'Zdeněk', 'František', 'Václav', 'Michal', 'Milan', 'Karel', 'Lukáš',
-  'David', 'Ladislav', 'Stanislav', 'Roman', 'Ondřej', 'Jakub', 'Vladimír', 'Radek',
+  'David', 'Ladislav', 'Stanislav', 'Libor', 'Ondřej', 'Jakub', 'Vladimír', 'Radek',
 ] as const;
 
 const CS_FIRST_FEMALE = [
   'Marie', 'Jiřina', 'Anna', 'Věra', 'Alena', 'Lenka', 'Hana', 'Jaroslava',
-  'Kateřina', 'Lucie', 'Eva', 'Jana', 'Petra', 'Martina', 'Zuzana', 'Michaela',
+  'Kateřina', 'Lucie', 'Simona', 'Jana', 'Petra', 'Martina', 'Zuzana', 'Michaela',
   'Tereza', 'Barbora', 'Veronika', 'Kristýna', 'Markéta', 'Ivana', 'Monika', 'Klára',
 ] as const;
 
 const CS_SURNAMES = [
   'Novák', 'Svoboda', 'Novotný', 'Dvořák', 'Černý', 'Procházka', 'Kučera', 'Veselý',
-  'Horák', 'Němec', 'Marek', 'Pokorný', 'Pospíšil', 'Hájek', 'Král', 'Jelínek',
-  'Růžička', 'Beneš', 'Fiala', 'Sedláček', 'Doležal', 'Zeman', 'Kolář', 'Urban',
+  'Horák', 'Němec', 'Marek', 'Pokorný', 'Pospíšil', 'Hájek', 'Bartoš', 'Jelínek',
+  'Růžička', 'Beneš', 'Fiala', 'Sedláček', 'Doležal', 'Zeman', 'Kolář', 'Šimek',
 ] as const;
 
 function feminizeCsSurname(surname: string): string {
@@ -277,27 +289,27 @@ const UK_SURNAMES = [
 ] as const;
 
 const NL_FIRST_MALE = [
-  'Daan', 'Sem', 'Bram', 'Lars', 'Thijs', 'Ruben', 'Kees', 'Joost',
-  'Maarten', 'Wouter', 'Jeroen', 'Sander', 'Bas', 'Niels', 'Floris', 'Gerrit',
+  'Daan', 'Luuk', 'Bram', 'Lars', 'Thijs', 'Ruben', 'Kees', 'Joost',
+  'Maarten', 'Wouter', 'Jeroen', 'Sander', 'Stijn', 'Niels', 'Floris', 'Gerrit',
   'Pieter', 'Willem', 'Hendrik', 'Cornelis', 'Dirk', 'Jaap', 'Sjoerd', 'Teun',
 ] as const;
 
 const NL_FIRST_FEMALE = [
-  'Sanne', 'Lotte', 'Femke', 'Anouk', 'Fleur', 'Iris', 'Nienke', 'Marloes',
+  'Sanne', 'Lotte', 'Femke', 'Anouk', 'Fleur', 'Saskia', 'Nienke', 'Marloes',
   'Ilse', 'Esmee', 'Roos', 'Lieke', 'Johanna', 'Cornelia', 'Willemien', 'Truus',
-  'Marijke', 'Annemiek', 'Wilma', 'Jantine', 'Gerda', 'Hanneke', 'Mieke', 'Els',
+  'Marijke', 'Annemiek', 'Wilma', 'Jantine', 'Gerda', 'Hanneke', 'Mieke', 'Annelies',
 ] as const;
 
 /** Single-token forms only: multi-token surnames (van der ...) would
  *  break the token-count preservation guarantee of generatePerson. */
 const NL_SURNAMES = [
-  'Jansen', 'Bakker', 'Visser', 'Smit', 'Meijer', 'Mulder', 'Bos', 'Vos',
-  'Peters', 'Hendriks', 'Dekker', 'Brouwer', 'Dijkstra', 'Smits', 'Kuipers', 'Post',
-  'Kok', 'Verhoeven', 'Willems', 'Maas', 'Hermans', 'Timmermans', 'Schouten', 'Jacobs',
+  'Jansen', 'Bakker', 'Visser', 'Smit', 'Meijer', 'Mulder', 'Vermeulen', 'Koster',
+  'Peters', 'Hendriks', 'Dekker', 'Brouwer', 'Dijkstra', 'Smits', 'Kuipers', 'Hoekstra',
+  'Scholten', 'Verhoeven', 'Willems', 'Maas', 'Hermans', 'Timmermans', 'Schouten', 'Jacobs',
 ] as const;
 
 const PT_FIRST_MALE = [
-  'Jo\u00e3o', 'Lu\u00eds', 'Paulo', 'Rui', 'Nuno', 'Tiago', 'Ricardo', 'Andr\u00e9',
+  'Jo\u00e3o', 'Lu\u00eds', 'Paulo', 'Guilherme', 'Nuno', 'Tiago', 'Ricardo', 'Andr\u00e9',
   'Diogo', 'Gon\u00e7alo', 'Vasco', 'Duarte', 'Afonso', 'Bernardo', 'Rodrigo', 'Ant\u00f3nio',
   'Manuel', 'Francisco', 'Carlos', 'Pedro', 'Miguel', 'Jos\u00e9', 'Henrique', 'Sim\u00e3o',
 ] as const;
@@ -305,7 +317,7 @@ const PT_FIRST_MALE = [
 const PT_FIRST_FEMALE = [
   'Catarina', 'Margarida', 'Mariana', 'Joana', 'Rita', 'Carolina', 'Leonor', 'Matilde',
   'Francisca', 'Madalena', 'Const\u00e2ncia', 'Louren\u00e7a', 'Gra\u00e7a', 'Concei\u00e7\u00e3o', 'Lurdes', 'In\u00eas',
-  'Beatriz', 'Isabel', 'Teresa', 'Sofia', 'Ana', 'Maria', 'Manuela', 'Fernanda',
+  'Beatriz', 'Isabel', 'Teresa', 'Sofia', 'Filipa', 'Maria', 'Manuela', 'Fernanda',
 ] as const;
 
 const PT_SURNAMES = [
@@ -322,12 +334,12 @@ function feminizeUkSurname(surname: string): string {
 }
 
 const SV_FIRST_MALE = [
-  'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Per', 'Nils', 'Sven',
-  'Gunnar', 'Bo', '\u00c5ke', 'G\u00f6ran', 'Henrik', 'Magnus', 'Fredrik', 'Oskar',
+  'Erik', 'Lars', 'Karl', 'Anders', 'Johan', 'Mats', 'Nils', 'Sven',
+  'Gunnar', 'Olof', 'Bengt', 'G\u00f6ran', 'Henrik', 'Magnus', 'Fredrik', 'Oskar',
 ] as const;
 
 const SV_FIRST_FEMALE = [
-  'Anna', 'Eva', 'Maria', 'Karin', 'Ingrid', 'Kerstin', 'Lena', 'Helena',
+  'Anna', 'Kristina', 'Maria', 'Karin', 'Ingrid', 'Kerstin', 'Lena', 'Helena',
   'Marianne', 'Birgitta', 'Elin', 'Sara', 'Emma', 'Linnea', 'Astrid', 'Ebba',
 ] as const;
 
@@ -337,27 +349,27 @@ const SV_SURNAMES = [
 ] as const;
 
 const NO_FIRST_MALE = [
-  'Ole', 'Lars', 'Knut', 'Bj\u00f8rn', 'Arne', 'Odd', 'Geir', 'Tor',
+  'Olav', 'Lars', 'Knut', 'Bj\u00f8rn', 'Arne', 'Einar', 'Geir', 'Sverre',
   'Terje', 'Kjell', 'Espen', 'H\u00e5kon', 'Sindre', 'Eirik', 'Trygve', 'Leif',
 ] as const;
 
 const NO_FIRST_FEMALE = [
-  'Anne', 'Inger', 'Kari', 'Marit', 'Ingrid', 'Liv', 'Astrid', 'Solveig',
-  'Randi', 'Bj\u00f8rg', 'Silje', 'Mari', 'Ingeborg', 'Tone', 'Gunn', 'Sigrid',
+  'Anne', 'Inger', 'Kari', 'Marit', 'Ingrid', 'Hilde', 'Astrid', 'Solveig',
+  'Randi', 'Bj\u00f8rg', 'Silje', 'Mari', 'Ingeborg', 'Berit', 'Gunn', 'Sigrid',
 ] as const;
 
 const NO_SURNAMES = [
   'Hansen', 'Johansen', 'Olsen', 'Larsen', 'Andersen', 'Pedersen', 'Nilsen', 'Kristiansen',
-  'Jensen', 'Karlsen', 'Berg', 'Haugen', 'Hagen', 'Solberg', 'Moen', 'Lien',
+  'Jensen', 'Karlsen', 'Berg', 'Haugen', 'Hagen', 'Solberg', 'Moen', 'Eide',
 ] as const;
 
 const DA_FIRST_MALE = [
-  'Jens', 'Peter', 'Lars', 'Henrik', 'S\u00f8ren', 'Niels', 'Ole', 'Erik',
-  'Mads', 'Rasmus', 'Bent', 'Kaj', 'Frederik', 'Mikkel', 'Emil', 'Bjarne',
+  'Jens', 'Peter', 'Lars', 'Henrik', 'S\u00f8ren', 'Niels', 'Torben', 'Erik',
+  'Mads', 'Rasmus', 'Jesper', 'Morten', 'Frederik', 'Mikkel', 'Emil', 'Bjarne',
 ] as const;
 
 const DA_FIRST_FEMALE = [
-  'Kirsten', 'Mette', 'Hanne', 'Lone', 'Bente', 'Karen', 'Dorthe', 'Pia',
+  'Kirsten', 'Mette', 'Hanne', 'Trine', 'Bente', 'Karen', 'Dorthe', 'Helle',
   'Gitte', 'Ditte', 'Freja', 'Signe', 'Maja', 'Cecilie', 'Louise', 'Astrid',
 ] as const;
 

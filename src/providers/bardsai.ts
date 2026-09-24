@@ -17,8 +17,8 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
-import type { ModelLoaderEnv, ModelVerification } from '../model-loader.ts';
-import { evictModelFromCache, fetchModelBlob, retryAsync } from '../model-loader.ts';
+import type { ModelLoaderEnv, ModelVerification, TokenizerFiles } from '../model-loader.ts';
+import { evictModelFromCache, fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
 
 // ── Model config ──────────────────────────────────────────
 // Supply-chain pinning (T116): the model is fetched from an immutable
@@ -36,6 +36,26 @@ export const BARDSAI_MODEL_URL = `https://huggingface.co/bardsai/eu-pii-anonimiz
 const MODEL_URL = BARDSAI_MODEL_URL;
 /** Pre-pinning download URL; its cache entry is evicted best-effort on load. */
 const LEGACY_MODEL_URL = 'https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/main/onnx/model_quantized.onnx';
+/**
+ * Tokenizer files at the same pinned commit (T185): fetched through
+ * fetchModelBlob with SHA-256 + size, cached next to the model and handed to
+ * CoreEnv.buildTokenizer. Hashes re-measured against the resolve/<commit>
+ * URLs on 2026-09-24 (documentation/model-provenance.md).
+ */
+export const BARDSAI_TOKENIZER_FILES: TokenizerFiles = [
+  {
+    url: `https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/${BARDSAI_MODEL_REVISION}/tokenizer.json`,
+    sha256: '2464f9721707cb3d5edcf9a3d73454b13e8a7b3bb8fdba94b3de3d843f30e946',
+    size: 16_781_584,
+  },
+  {
+    url: `https://huggingface.co/bardsai/eu-pii-anonimization-multilang/resolve/${BARDSAI_MODEL_REVISION}/tokenizer_config.json`,
+    sha256: 'c019e3e4f7f901adf680dde303c7d964de86675a13e089bcc0f614d3fce75333',
+    size: 314,
+  },
+];
+const TOKENIZER_FILES = BARDSAI_TOKENIZER_FILES;
+/** Hugging Face id for the deprecated CoreEnv.loadTokenizer fallback only. */
 const TOKENIZER_HF = 'bardsai/eu-pii-anonimization-multilang';
 const MODEL_NAME = 'BardS.ai EU PII';
 const DEFAULT_THRESHOLD = 0.5;
@@ -203,7 +223,7 @@ export class BardsaiProvider implements DetectionProvider {
       ];
       if (!this.tokenizer) {
         tasks.push(
-          retryAsync(() => this.env.loadTokenizer(TOKENIZER_HF), 'Tokenizer download').then((t: unknown) => {
+          loadPinnedTokenizer(this.env, TOKENIZER_FILES, TOKENIZER_HF).then((t: unknown) => {
             this.tokenizer = t;
           }),
         );

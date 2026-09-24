@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import CFB from 'cfb';
 import { readDocText, writeAnonymizedDoc } from '../src/doc.ts';
+import { assertNoTrace, bytesContain, writeOutput } from './helpers/package-scan.ts';
 
 // Builds a minimal but structurally valid legacy .doc:
 // - main text as a compressed (CP1252) piece, containing field control chars
@@ -127,22 +128,6 @@ function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
   });
 }
 
-function bytesContain(buffer: ArrayBuffer, needle: string, utf16: boolean): boolean {
-  const haystack = new Uint8Array(buffer);
-  const target: number[] = [];
-  for (let i = 0; i < needle.length; i++) {
-    target.push(needle.charCodeAt(i));
-    if (utf16) target.push(0);
-  }
-  outer: for (let i = 0; i + target.length <= haystack.length; i++) {
-    for (let j = 0; j < target.length; j++) {
-      if (haystack[i + j] !== target[j]) continue outer;
-    }
-    return true;
-  }
-  return false;
-}
-
 describe('readDocText', () => {
   it('extracts main text and subdocument (footnote) text', () => {
     const text = readDocText(buildDoc(MAIN_TEXT));
@@ -174,6 +159,26 @@ describe('writeAnonymizedDoc', () => {
     // Data remanence: the original bytes must be destroyed, not just unreferenced
     expect(bytesContain(out, 'John Smith', false)).toBe(false);
     expect(bytesContain(out, 'John Smith', true)).toBe(false);
+    await assertNoTrace(blob, ['John Smith', 'AuthorName', 'OleAuthor']);
+    await writeOutput('doc-basic-redacted.doc', blob);
+  });
+
+  it('scrubs session values passed as valueReplacements from the Table stream', async () => {
+    // Plant the value as UTF-16LE in an unreferenced Table region
+    const buffer = buildDoc(MAIN_TEXT);
+    const container = CFB.parse(new Uint8Array(buffer), { type: 'array' });
+    const entry = CFB.find(container, '/0Table');
+    if (!entry?.content) throw new Error('missing table');
+    const table = new Uint8Array(entry.content as ArrayLike<number>);
+    const tv = new DataView(table.buffer);
+    const planted = 'jane@acme.example';
+    for (let i = 0; i < planted.length; i++) tv.setUint16(0x1a0 + i * 2, planted.charCodeAt(i), true);
+    entry.content = table;
+    const planted_buffer = new Uint8Array(CFB.write(container, { type: 'array' }) as number[]).buffer;
+
+    const blob = await writeAnonymizedDoc(planted_buffer, [], [{ value: planted, replacement: '<<EMAIL_1>>' }]);
+    await assertNoTrace(blob, [planted, 'AuthorName', 'OleAuthor']);
+    expect(readDocText(await blobToArrayBuffer(blob))).toContain('Call John Smith now.');
   });
 
   it('places replacements correctly when control chars shift offsets', async () => {
@@ -202,6 +207,8 @@ describe('writeAnonymizedDoc', () => {
     expect(outText).not.toContain('SecretName');
     expect(bytesContain(out, 'SecretName', false)).toBe(false);
     expect(bytesContain(out, 'SecretName', true)).toBe(false);
+    await assertNoTrace(blob, ['SecretName', 'AuthorName', 'OleAuthor']);
+    await writeOutput('doc-footnote-redacted.doc', blob);
   });
 
   it('scrubs SttbfAssoc and OLE property-set metadata', async () => {

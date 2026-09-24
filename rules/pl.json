@@ -116,7 +116,7 @@
     {
       "id": "regex:pl:postal",
       "entityType": "ADDRESS",
-      "pattern": "\\b\\d{2}-\\d{3}\\s+[\\p{L}][\\p{L}\\s-]+\\b",
+      "pattern": "\\b\\d{2}-\\d{3}\\s+[\\p{L}][\\p{L}\\s-]*[\\p{L}](?![\\p{L}\\p{N}])",
       "flags": "gu",
       "confidence": 0.8,
       "domains": [
