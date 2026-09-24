@@ -25,6 +25,12 @@ export interface FixtureSpec {
   findings: string[];
   build: () => Promise<Uint8Array> | Uint8Array;
   seeds: readonly Seed[];
+  /**
+   * False for inputs no office suite can open by design (a .doc with the
+   * encryption flag set): the reader must refuse them, and the office-open
+   * CI job must not be asked to render them.
+   */
+  openable?: boolean;
 }
 
 export const NS = {

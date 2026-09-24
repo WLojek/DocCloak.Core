@@ -218,6 +218,6 @@ export const DOC_FIXTURES: readonly FixtureSpec[] = [
   { name: 'doc-fastsave', ext: 'doc', findings: ['H5'], build: buildDocFastSave, seeds: DOC_FASTSAVE_SEEDS },
   { name: 'doc-extra-streams', ext: 'doc', findings: ['H6'], build: buildDocExtraStreams, seeds: DOC_EXTRASTREAMS_SEEDS },
   { name: 'doc-revision-authors', ext: 'doc', findings: ['M5'], build: buildDocRevisionAuthors, seeds: DOC_REVISIONAUTHORS_SEEDS },
-  { name: 'doc-encrypted', ext: 'doc', findings: ['L2'], build: buildDocEncrypted, seeds: DOC_ENCRYPTED_SEEDS },
+  { name: 'doc-encrypted', ext: 'doc', findings: ['L2'], build: buildDocEncrypted, seeds: DOC_ENCRYPTED_SEEDS, openable: false },
   { name: 'doc-everything', ext: 'doc', findings: ['H5', 'H6', 'M5'], build: buildDocEverything, seeds: DOC_EVERYTHING_SEEDS },
 ];

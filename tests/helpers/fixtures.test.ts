@@ -50,7 +50,8 @@ describe('fixture generators', () => {
           const main = fixture.ext === 'docx' ? 'word/document.xml' : 'xl/workbook.xml';
           expect(zip.file(main)).not.toBeNull();
         }
-        await writeOutput(`${fixture.name}.${fixture.ext}`, bytes);
+        // Inputs the office-open job cannot render by design stay out of it.
+        if (fixture.openable !== false) await writeOutput(`${fixture.name}.${fixture.ext}`, bytes);
       });
 
       it('has at least one seed and names a finding', () => {
