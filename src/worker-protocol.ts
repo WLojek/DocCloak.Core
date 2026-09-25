@@ -7,6 +7,7 @@
  *
  *   init / switchProvider  -> loaded | loadError   (+ downloadProgress events)
  *   detect                 -> detected | detectError (+ detectionProgress events)
+ *   cancelDetect           -> detectError { aborted: true } on the cancelled requestId (T222)
  *   releaseModel           -> released
  *   setThreshold / setCustomLabels / setRegex / setRegexRegion  (fire and forget)
  *
@@ -21,6 +22,7 @@
  */
 
 import type { DetectedEntity } from './types.ts';
+import { DetectionAbortedError } from './types.ts';
 import type { DocCloakEngine, EngineSettings, ProviderId } from './engine.ts';
 import { PROVIDERS, clampThreshold, defaultThresholdFor } from './engine.ts';
 import { REGEX_REGIONS, type RegexRegionId } from './regex/index.ts';
@@ -39,6 +41,12 @@ export interface PortLike {
 export type EngineRequest =
   | { type: 'init'; requestId?: number; providerId?: ProviderId; customLabels?: string[]; regexEnabled?: boolean; regexRegion?: RegexRegionId }
   | { type: 'detect'; requestId: number; text: string }
+  /**
+   * T222: stop the detect call with this requestId at its next chunk
+   * boundary. Unknown or already finished ids are ignored; the cancelled
+   * call answers with detectError { aborted: true }.
+   */
+  | { type: 'cancelDetect'; requestId: number }
   | { type: 'switchProvider'; requestId?: number; providerId: ProviderId; customLabels?: string[] }
   | { type: 'setThreshold'; value: number }
   | { type: 'setCustomLabels'; labels: string[] }
@@ -50,7 +58,7 @@ export type EngineResponse =
   | { type: 'loaded'; requestId?: number; providerId: ProviderId; threshold: number; customLabels: string[] }
   | { type: 'loadError'; requestId?: number; error: string }
   | { type: 'detected'; requestId: number; entities: DetectedEntity[] }
-  | { type: 'detectError'; requestId: number; error: string }
+  | { type: 'detectError'; requestId: number; error: string; aborted?: boolean }
   | { type: 'detectionProgress'; requestId: number; progress: number }
   | { type: 'downloadProgress'; downloaded: number; total: number }
   | { type: 'released'; requestId?: number }
@@ -69,7 +77,7 @@ function errorMessage(err: unknown): string {
 // ── Message validation (R12) ───────────────────────────────
 
 const REQUEST_TYPES: ReadonlySet<string> = new Set<EngineRequest['type']>([
-  'init', 'detect', 'switchProvider', 'setThreshold', 'setCustomLabels', 'setRegex', 'setRegexRegion', 'releaseModel',
+  'init', 'detect', 'cancelDetect', 'switchProvider', 'setThreshold', 'setCustomLabels', 'setRegex', 'setRegexRegion', 'releaseModel',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -112,6 +120,9 @@ function requestProblem(msg: Record<string, unknown>): string | null {
       if (!isFiniteNumber(msg.requestId)) return 'requestId must be a number';
       if (typeof msg.text !== 'string') return 'text must be a string';
       return null;
+    case 'cancelDetect':
+      if (!isFiniteNumber(msg.requestId)) return 'requestId must be a number';
+      return null;
     case 'switchProvider':
       if (!isProviderId(msg.providerId)) return 'providerId must be a known provider id';
       if (msg.customLabels !== undefined && !isStringArray(msg.customLabels)) return 'customLabels must be an array of strings';
@@ -149,6 +160,9 @@ export function serveEngine(engine: DocCloakEngine, port: PortLike): () => void 
   function post(msg: EngineResponse): void {
     port.postMessage(msg);
   }
+
+  /** In-flight detect calls by requestId, so cancelDetect can abort them (T222). */
+  const inflight = new Map<number, AbortController>();
 
   async function handleLoad(requestId: number | undefined, run: () => Promise<void>): Promise<void> {
     try {
@@ -215,14 +229,26 @@ export function serveEngine(engine: DocCloakEngine, port: PortLike): () => void 
       }
 
       case 'detect': {
+        // A repeated requestId supersedes the earlier call's controller;
+        // the earlier call keeps running to completion on its own signal.
+        const controller = new AbortController();
+        inflight.set(msg.requestId, controller);
         try {
-          const entities = await engine.detect(msg.text, undefined, (progress) => {
+          const entities = await engine.detect(msg.text, controller.signal, (progress) => {
             post({ type: 'detectionProgress', requestId: msg.requestId, progress });
           });
           post({ type: 'detected', requestId: msg.requestId, entities });
         } catch (err) {
-          post({ type: 'detectError', requestId: msg.requestId, error: errorMessage(err) });
+          const aborted = err instanceof DetectionAbortedError || controller.signal.aborted;
+          post({ type: 'detectError', requestId: msg.requestId, error: errorMessage(err), aborted });
+        } finally {
+          if (inflight.get(msg.requestId) === controller) inflight.delete(msg.requestId);
         }
+        break;
+      }
+
+      case 'cancelDetect': {
+        inflight.get(msg.requestId)?.abort();
         break;
       }
 
@@ -379,7 +405,9 @@ export function connectEngine(port: PortLike, initial?: Partial<EngineSettings>)
         break;
       }
       case 'detectError': {
-        takePending(msg.requestId)?.reject(new Error(msg.error));
+        takePending(msg.requestId)?.reject(
+          msg.aborted ? new DetectionAbortedError(msg.error) : new Error(msg.error),
+        );
         break;
       }
       case 'released': {
@@ -458,18 +486,29 @@ export function connectEngine(port: PortLike, initial?: Partial<EngineSettings>)
     }
   }
 
+  /**
+   * Detect over the port. An aborted `signal` sends cancelDetect to the host
+   * and the promise rejects with DetectionAbortedError once the host has
+   * acknowledged (its detectError { aborted: true }), so a resolved rejection
+   * means the worker is idle again; a host that never answers is the
+   * caller's watchdog's business (the web app terminates it after a grace
+   * period). A signal aborted before the call rejects at once.
+   */
   function detect(
     text: string,
     signal?: AbortSignal,
     onProgress?: (progress: number) => void,
   ): Promise<DetectedEntity[]> {
-    if (signal?.aborted) return Promise.reject(new Error('Detection aborted'));
+    if (signal?.aborted) return Promise.reject(new DetectionAbortedError());
     const promise = request('detect', { type: 'detect', text }, onProgress) as Promise<DetectedEntity[]>;
     if (signal) {
       const requestId = nextRequestId;
-      signal.addEventListener('abort', () => {
-        takePending(requestId)?.reject(new Error('Detection aborted'));
-      }, { once: true });
+      const onAbort = () => {
+        if (closed || !pending.has(requestId)) return;
+        port.postMessage({ type: 'cancelDetect', requestId } satisfies EngineRequest);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => { /* reported to the caller */ });
     }
     return promise;
   }

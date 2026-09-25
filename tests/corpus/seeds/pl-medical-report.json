@@ -4,7 +4,8 @@
   "language": "pl",
   "formats": [
     "docx",
-    "doc"
+    "doc",
+    "pdf"
   ],
   "needles": [
     "Tomasz Zieliński",

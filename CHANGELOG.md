@@ -4,6 +4,308 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-09-25
+
+PDF-to-PDF redaction that keeps the text layer (new `@doccloak/core/pdf`
+entry point, see "Added" below), cancelable detection, and detection fixes
+found while testing real PDFs: Polish landline phones, catch-all numbers
+that swallowed a PESEL and a phone, regex spans without surrounding
+whitespace, placeholder fitting, and OCR tokens split by a lost character.
+Host-facing additions are optional (`signal` on detect, `cancelDetect` in
+the worker protocol, the PDF entry point); nothing a 0.12.x host uses was
+removed. The new PDF dependencies are pinned exactly like the others:
+`@cantoo/pdf-lib` 2.11.1, `@cantoo/fontkit` 2.0.12, `pdfjs-dist` 6.3.289.
+
+### OCR image redaction covers both halves of a token OCR split (T232)
+
+- Tesseract can drop a character inside a token and return two words: in
+  the kit's scanned letter "t.zielinski@zielinski-kancelaria.pl" came back
+  as "t" + "zielinski@zielinski-kancelaria.pl." with the dot's pixels in the
+  second box. The e-mail rule matched the second word only and boxes are
+  drawn per OCR word, so the "t" stayed visible (with "jan.kowalski@..." it
+  would be a first name). `selectRedactionBoxes` now spreads a selection to
+  same-line neighbours that `findSplitTokens` (exported) marks as one token:
+  the gap between their boxes is at most 0.3 of the line's median word gap
+  (height-based fallback on short lines; touching boxes included), and
+  boxes taller than 1.6x the line's median height (OCR noise such as a
+  26 px "w" on an 11 px line) never join. On seven OCR runs (the scan plus
+  kit pages 01/02 at 1000/1700/2500 px, about 1 150 words) exactly one pair
+  joins: the split e-mail. An ink test for a lost glyph left in a
+  normal-width gap was tried and dropped: Tesseract often cuts a letter's
+  edge out of its own box, which reads the same ("w terminie", "nr wpisu").
+  `renderRedactedImage`'s signature is unchanged.
+
+### A catch-all regex span yields to the specific detections it overlaps (T230)
+
+- `universal:long_number` (confidence 0.5) admits whitespace, so a PESEL cell
+  followed by a phone cell without "+48" ("90050598761 512 987 654") was one
+  23-character span that overlap resolution preferred (same start, longer)
+  over PESEL 0.9 + PHONE 0.8: the row came out as a single [SSN] and the
+  phone was "not detected". `detectEntities` now runs `splitCatchAlls`
+  first: a regex entity at or below confidence 0.5 that overlaps specific
+  detections (confidence >= 0.8, ML or regex) is replaced by its leftovers,
+  which are re-run through the same rule (an unknown long number next to a
+  phone is still caught); the specific spans then win. Catch-alls nothing
+  specific overlaps are untouched, and so is every other overlap (the
+  leak-averse "earlier start, longer span" order is unchanged).
+  Tests: tests/regex/catch-all-split.test.ts. No corpus expectation changed.
+
+### Polish landlines without +48; stricter postal-code-plus-city (T227)
+
+- `regex:pl:phone` only knew the 3-3-3 mobile grouping, so Polish landlines
+  written without the country code ("22 555 01 02", "(22) 555-01-02",
+  "71 777 88 99") fell through to `universal:long_number` and came out as
+  [SSN_n] under region pl. The rule now also accepts the 2-3-2-2 landline
+  grouping with an optional bracketed area code, with or without +48, and
+  the "+" of a "+48" prefix is part of the match (the mobile branch used to
+  start at "48"). A PESEL, a NIP, a bank account and a date still do not
+  match; an 11-digit number starting with 48 is no longer taken for a phone.
+- `regex:universal:postal_city` matched "05/2026 Maria" (date-like prefix)
+  and "111 222 przegląd" (lowercase word) and stole the start of a phone or
+  a person name. The code must now stand at the start of the line or after
+  whitespace (so nothing glued to a digit, "/", "." or "-" matches), a
+  4-2 / 4-4 hyphenated shape ("2025-03", "2024-2025") is skipped and the
+  city must start with an uppercase letter. "00-950 Warszawa", "75008 Paris"
+  and "1010 Wien" still match; a code glued to an opening bracket
+  ("(75008 Paris)") no longer does through this rule (country packs still
+  cover it). The rule stays lookbehind-free (pattern dialect lint) by
+  consuming the leading whitespace, which `runRule` trims (T226).
+- Web regression corpus `universal.json` case `u-03-generic-identifiers`:
+  "987654321 remains" was a baked-in postal_city false positive; the number
+  is now PHONE "987654321" via `regex:pl:phone` (0.8 beats
+  `universal:long_number` 0.5 and the other 9-digit rules on the same span).
+
+### Regex matches never carry whitespace (T226)
+
+- The IBAN rule ended its match on a word boundary after a class that admits
+  whitespace, so "PL61 1090 1014 0000 0712 1981 2874 w terminie" matched
+  with the trailing space and the redaction produced "[IBAN_1]w terminie"
+  (text, DOCX and PDF alike). The pattern now ends on a letter or digit, and
+  `runRule` trims whitespace at both ends of every regex match as a general
+  safety net (start/end adjusted; a validator sees the trimmed value).
+
+### Placeholder fit: move before shrink (T225)
+
+- The planner now moves the rest of the line before it shrinks a placeholder:
+  room up to the next column and up to the page's text edge is used at full
+  size first; only the remainder is shrunk (floor raised from 65 % to 75 %)
+  and condensed (80 %). Short words on left-aligned lines ("NIP", "Kraków")
+  no longer get half-size placeholders; lines that already reach the margin
+  behave as before. `fit.minSizeRatio` default is 0.75. The page's text edge
+  is a hard limit (content boxes are clipped by Chrome and Word), and of a
+  value wrapped over several lines the widest part now carries the
+  placeholder (before: always the first part).
+
+### Cancelable detection (T222)
+
+- `DetectionProvider.detect(text, onProgress?, signal?)`: the three built-in
+  providers check the signal between inference chunks and reject with the new
+  `DetectionAbortedError` (also thrown by `engine.detect` for a signal aborted
+  before or after the ML pass; it used to be a plain `Error('Detection aborted')`).
+- Worker protocol: new `cancelDetect { requestId }` request; the cancelled
+  call answers `detectError { aborted: true }`. `connectEngine().detect` with
+  an aborted signal now sends `cancelDetect` and rejects with
+  `DetectionAbortedError` once the host has acknowledged, so a rejection
+  means the worker is idle again (before, it rejected at once and the host
+  kept computing).
+
+PDF-to-PDF redaction that keeps the text layer (T206-T218, founder decision
+2026-09-24 reversing the 2026-08-30 desktop-only split).
+
+### Added
+
+- New entry point **`@doccloak/core/pdf`**: `readPdf(file, { assets })` and
+  `writeAnonymizedPdfWithReport(extraction, replacements, values, options)`.
+  The redacted glyphs are cut out of the content streams, the placeholder is
+  written back as real text in the document's own font when that font can
+  show it (codes proven present in the subset), else in a metrics-compatible
+  Liberation face (SIL OFL, shipped under `fonts/liberation`) embedded as a
+  subset. Placeholders are fitted to the redacted span: same size when it
+  fits, then shrunk to 65 %, then condensed to 80 % width, then the rest of
+  the line moves right by the overflow; a narrow placeholder closes the slack
+  so no hole is left. Every later show in the positioning scope is
+  re-anchored absolutely, so residual glyph positions cannot encode the
+  removed text (USENIX 2022 "Story Beyond the Eye").
+- Fonts: simple Type1/TrueType/Type3 (Standard/WinAnsi/MacRoman/Differences,
+  ToUnicode), composite Type0 with Identity-H/V or embedded CMaps (Chrome,
+  Word, macOS output), standard-14 metrics for non-embedded fonts.
+- Two independent extractors: our decoder and pdf.js. A page whose text
+  differs between them, or whose fonts cannot be read safely, is rasterized
+  (pixels blacked out) when it carries a redaction, and listed in
+  `rasterizedPages`. Text of such pages comes from pdf.js so detection still
+  sees it.
+- Output is rebuilt as a fresh single-revision document: Info, XMP,
+  outlines, forms, annotations, attachments, JavaScript, named destinations,
+  structure tree, page labels and the incremental-update history of the
+  input never reach the output (reported in `removed`); ToUnicode maps of
+  edited fonts are trimmed to the codes still used; ActualText/Alt marked
+  content is stripped; dates normalised to 2000-01-01, producer `DocCloak`.
+- Verification after every write: re-extraction with both extractors plus a
+  byte scan of every decoded stream and string (UTF-8, Latin-1, UTF-16 BE/LE)
+  and of the removed code sequences; any trace throws `PdfVerifyError` and
+  nothing is exported.
+- `office.ts`: `officeFileKind` returns `'pdf'`; `analyzeOfficeFile` and
+  `redactOfficeFile` handle PDFs through a lazy import of the PDF module
+  (`options.pdf` carries assets, password, fit policy); results gain
+  `removed` and `rasterizedPages`.
+- `UnredactablePart.kind` gains `'scanned-page'` and `'undecodable-text'`.
+- Dependencies: `@cantoo/pdf-lib`, `@cantoo/fontkit`, `pdfjs-dist`. Hosts
+  serve the pdf.js worker, its CMaps and standard fonts, and the Liberation
+  TTFs same-origin (see README, "PDF").
+
+### Second review (T219, same release)
+
+- Layer zero searches the flat text in the verifier's normal form (whitespace,
+  soft hyphens and zero-width characters dropped, ligatures spelled out, case
+  folded), so a value wrapped over a line end ("Jan" / "Kowalski" on the next
+  line), spaced differently by the layout or set with a ligature is redacted
+  instead of blocking the export with `PdfVerifyError`. Segments of a value
+  on other lines close up over the removed glyphs.
+- A fallback font needed inside a form XObject that has no `/Resources` of
+  its own goes into the page resources (where viewers resolve it); duplicated
+  forms with identical bytes all receive it.
+- Lexer: inline image data ends the way pdf.js finds it (`EI` need not follow
+  whitespace, must be followed by ASCII; DCT data ends at its EOI marker,
+  ASCIIHex at `>`, ASCII85 at `~>`; `/L` honoured); an image without an end
+  makes the rest of the stream unsafe instead of a silent opaque operator;
+  arrays/dicts nested deeper than 64 are unsafe instead of a stack overflow;
+  `--5` reads as -5 (pdf.js, Acrobat); raw CR inside literal strings is kept.
+- CMap parser tolerates what pdf.js tolerates: a missing `endcmap`, a bfrange
+  destination array shorter than the range, bounds of different byte lengths.
+  Rewritten ToUnicode maps keep the source codespace and skip empty
+  destinations. Glyph list gains the AGL combining-mark names.
+- `readPdf` enforces the byte cap before pdf.js parses the file. Files that
+  carry only an owner password (print/copy restrictions) open without one.
+- Fonts: a placeholder reuses a simple font only through its encoding (glyph
+  names), never through ToUnicode, and only for codes whose ToUnicode entry
+  agrees with the glyph, so the page shows what the text layer says; composite
+  placeholders take the code byte length from the encoding CMap (Identity-H:
+  2), not from the ToUnicode codespace; the lowest code wins ties in the
+  reverse map (space is 32, not 160); an empty ToUnicode destination falls
+  back to the encoding; TrueType fonts without `/Encoding` default the way
+  pdf.js does (Standard when Nonsymbolic, WinAnsi without the flag, MacRoman
+  for symbolic non-embedded); a symbolic embedded font our decoder cannot
+  read is rasterized on edit (pdf.js reads it), no longer refused; direct
+  font dictionaries no longer share a cache entry; right-to-left pages are
+  compared with pdf.js as a bag of characters (pdf.js hands them back in
+  visual order).
+- Style matching: weight and slant words count only as whole words
+  ("Kobold", "Digital", "Hospital" are not bold/italic), `/StemV` is no
+  longer read as a weight (Chrome writes 130+ for regular Georgia), Computer
+  Modern / Nimbus / Cascadia names map to their families.
+- Verifier: the removed-code-sequence pass only checks the complete code
+  sequence of a whole value (a fragment of a value split over two shows
+  legitimately occurs elsewhere) and deduplicates sequences; layer zero and
+  the placement planner are linear in the number of replacements (a 200-page
+  file with 32 000 replacements writes in under 2 s instead of 90 s).
+- Layout: text pushed right by an overflowing placeholder stops before the
+  next column (the placeholder gives up its size floors rather than overlap);
+  a continuation line that starts with the tail of a wrapped value closes up
+  as a whole, justified word gaps included.
+- `fitPlaceholder` rejects non-finite input and clamps a policy that would
+  enlarge the placeholder.
+
+### Third review (T220, same release)
+
+- Text that lives in tiling pattern cells and ExtGState soft-mask groups is
+  walked like form XObjects: it reaches detection, is edited in place, and
+  never shares a line with page text (it was invisible to both extractors).
+- Glyphs are kept in reading order along the baseline: a value shown back to
+  front, or words drawn from the right, reads as "Jan Kowalski" in the text a
+  detector sees; overlapping glyphs keep content order.
+- The pdf.js cross-check no longer replaces our text when pdf.js read less
+  (a font it rejects, pattern text) or misread a font we decoded completely;
+  such pages keep our text and are rasterized on edit with our glyph
+  geometry for the black boxes (pdf.js item widths can be wrong). A page
+  whose only reading comes from pdf.js as glyph ids, controls, U+FFFD or
+  private-use characters is unredactable instead of "fine".
+- Fonts: a placeholder never reuses a code the font advances by zero;
+  /Differences names without metrics (/.notdef, /gNN) advance like the base
+  encoding's glyph and blank glyphs are not "unreadable"; symbolic embedded
+  TrueType fonts without /Encoding decode through MacRoman (pdf.js); glyph
+  text is folded at decode time (ﬁ -> fi, Kangxi radicals -> ideographs).
+- Matching: layer zero, the verifier's text passes and its byte passes share
+  one search (whitespace, hyphens and ligatures ignored, case folded) that
+  requires token boundaries: "Nowak" is not "Nowakowski", "kid" is not /Kids;
+  a value hyphenated at a line end is still found. The verifier also scans
+  name objects and, for multi-word or numeric values, font programs.
+- Layout: two placeholders on one line, or a value touching another in one
+  show, each get their placeholder and their shift; consecutive TJ
+  adjustments add up; the room before the next column accounts for shifts
+  already planned; a placeholder never goes below 4 pt (a warning reports an
+  unavoidable overlap); text on a rotated baseline crossing a line no longer
+  drags that line's cells.
+- Output hygiene: XMP on any copied object, /PieceInfo, font descriptor
+  family/charset strings and layer names are removed from the output (and
+  the orphaned objects from the file); ToUnicode maps are rewritten for every
+  edited font, including fonts whose edited shows were deleted whole.
+- Files with only an owner password open; Type3 fonts never take standard-14
+  metrics.
+
+### Fourth review (T221, same release)
+
+- Randomized invariants (`tests/pdf-fuzz.test.ts`, seeded generator of
+  layouts with out-of-order text, kerning, wrapped and touching values,
+  ligatures, diacritics, fallback faces; 2000-document campaigns) found and
+  fixed: narrow glyphs drawn back to front filed after their neighbour;
+  shifts inside a TJ applied by array order instead of position (a jump-back
+  adjustment moved the wrong text, even off the page); overlapping runs
+  losing their word separator; two values touching in one show
+  over-estimating the room before the next column; layer zero handling a
+  shorter value before a longer one that contains it (the surname stayed);
+  verifier byte passes counting a Latin-1 letter (ó, ü) or a kerning number
+  as a token boundary ("Nowak" refused because of "Nowaków"); the
+  code-sequence pass without boundaries (now single-byte codes at token
+  boundaries only).
+- Second real-world corpus (44 files: Acrobat, iText, Aspose, Scribus,
+  TCPDF, wkhtmltopdf, pdfTeX/xdvipdfmx, LibreOffice/OpenOffice, ArcGIS,
+  PDF 2.0 samples): pdfTeX Type1 fonts without /Encoding are decoded through
+  the font program's cleartext encoding (LaTeX documents are edited in place
+  instead of rasterized); a rasterized vertical-writing page is covered whole
+  (the value stayed legible before); the verifier scans only string operands
+  of content streams (a house number equal to a font size no longer refuses
+  the export), recognises font programs by their magic bytes (TrueType table
+  tags in the fallback subset are not values), and ignores a value that only
+  survives inside its own placeholder ("We" in "[WE]"); raster boxes on
+  pdf.js-read pages cover the value plus one glyph each side instead of the
+  whole item; scanned pages with a hidden OCR layer are described as such;
+  consecutive unredactable pages collapse into one entry ("pages 2-22").
+- Robustness (byte mutations, hostile structures): page-tree errors and
+  every pdf.js failure surface as typed errors; a page pdf.js cannot read
+  fails verification closed; rasterization failures are typed; replacement
+  ranges outside the text are refused instead of clamped to the whole
+  document; caps on decoded content per page (32 MB), form XObject draws per
+  page (20 000) and glyphs per document (1.5 million, runs weighted) turn
+  Flate bombs and exponential XObject graphs into `too-large` or a refused
+  page, and pdf.js is never asked about such a page; every pdf.js page
+  operation has a 60 s deadline (effective where pdf.js runs in a worker);
+  layer zero, the placement planner (baseline index) and the byte scan
+  (native string search) are linear again for thousands of replacements.
+- Verifier: pages both extractors read identically are settled by our own
+  pass; pdf.js is consulted only for pages with issues (its spacing
+  heuristics reported "Jan" inside a kerned "Janusz"), and its items are read
+  in baseline order (words drawn from the right no longer spell a value); the
+  removed-code-sequence pass runs only when our extractor cannot re-read the
+  output.
+- pdf.js never registers document fonts with the browser's FontFace API:
+  reading a 100-font file in Chromium dropped from 4.2 s to 0.8 s and the
+  export is no longer dominated by font round trips.
+- Web: a damaged PDF gets its own message (the docx one told users to open
+  the file in Word); a failed upload while another file is loaded shows its
+  message.
+
+### Tests
+
+- 15 synthetic PDF fixtures (standard-14, Type0 Liberation, TJ kerning,
+  split shows, short names, form XObject, hidden text, ActualText,
+  annotations, AcroForm, outlines/Info/XMP, embedded file, incremental
+  update, object streams, rotated page with rise/Tz/Tw), the desktop's 10
+  standard-14 fixtures and a Chrome/Skia Type0 fixture; `assertNoTrace`
+  understands PDF (inflated streams, object streams, strings, UTF-16 BE).
+- Fixture zips no longer carry implicit folder entries: JSZip stamped them
+  with the current time, so the "is deterministic" check failed when two
+  builds straddled a 2-second boundary (seen once under full-suite load).
+
 ## [0.12.1] - 2026-09-24
 
 First run of the real-file corpus job (LibreOffice-generated docx, doc and

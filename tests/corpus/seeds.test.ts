@@ -21,9 +21,9 @@ import {
 const manifests = loadManifests();
 
 const SOURCE_FORMATS: Record<string, string[]> = {
-  '.fodt': ['docx', 'doc'],
-  '.html': ['docx', 'doc'],
-  '.fods': ['xlsx'],
+  '.fodt': ['docx', 'doc', 'pdf'],
+  '.html': ['docx', 'doc', 'pdf'],
+  '.fods': ['xlsx', 'pdf'],
 };
 
 /** Placements the plan (section 4) requires the corpus to seed. */
@@ -61,7 +61,7 @@ describe('corpus seeds', () => {
     expect(missing).toEqual([]);
   });
 
-  it('covers docx, doc and xlsx', () => {
+  it('covers docx, doc, xlsx and pdf', () => {
     const formats = new Set<string>();
     for (const manifest of manifests.values()) for (const f of manifest.formats) formats.add(f);
     expect([...formats].sort()).toEqual([...CORPUS_FORMATS].sort());

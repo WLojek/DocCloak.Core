@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 //
-// Real-file corpus (T196): every docx / doc / xlsx under tests/corpus/generated
-// (LibreOffice output of the seeds) and tests/corpus/handsaved (files saved
-// by hand from Word 365, Google Docs, Pages, Excel 365) is redacted through
-// the public writers and must come out with zero traces of the seeded PII.
+// Real-file corpus (T196): every docx / doc / xlsx / pdf under
+// tests/corpus/generated (LibreOffice output of the seeds) and
+// tests/corpus/handsaved (files saved by hand from Word 365, Google Docs,
+// Pages, Excel 365) is redacted through the public writers and must come out
+// with zero traces of the seeded PII. PDFs (T218) go through the text-layer
+// writer of @doccloak/core/pdf with the raster fallback enabled; the
+// office-open job then runs poppler's pdftotext over the outputs.
 //
 // The suite runs no ML. The manifest needles ARE the entity list: every exact
 // occurrence in the extracted plain text becomes an entity with a placeholder
@@ -21,8 +24,8 @@
 // 5. extraction is deterministic (two reads of the input agree);
 // 6. the number of placeholders written covers the occurrences found;
 // 7. the output is written for the office-open CI job, which converts it to
-//    PDF and to txt/csv and greps the needles once more with LibreOffice as
-//    an extractor we did not write.
+//    PDF and to txt/csv (LibreOffice) or to txt (poppler pdftotext for PDF)
+//    and greps the needles once more with an extractor we did not write.
 //
 // Without corpus files (no LibreOffice locally, nothing hand-saved yet) the
 // suite records one skipped test whose name says why.
@@ -36,7 +39,12 @@ import { layerZeroValueReplacements } from '../src/dom/opc.ts';
 import { isUnsupportedDocumentError } from '../src/dom/errors.ts';
 import type { UnredactablePart } from '../src/dom/errors.ts';
 import { inspectDoc, readDocText, writeAnonymizedDoc } from '../src/doc.ts';
+import { readPdf, writeAnonymizedPdfWithReport } from '../src/pdf/index.ts';
+import type { PdfAssetPaths, PdfExtraction } from '../src/pdf/index.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { assertNoTrace, findTraces, toBytes, writeOutput } from './helpers/package-scan.ts';
+import { nodeCanvasFactory } from './helpers/pdf-canvas.ts';
 import {
   discoverCorpusFiles,
   expectedRefusal,
@@ -45,6 +53,20 @@ import {
   requiredNeedles,
 } from './corpus/manifest.ts';
 import type { CorpusFile, CorpusFormat, CorpusManifest } from './corpus/manifest.ts';
+
+// Fallback fonts for the PDF writer. import.meta.url is not a file: URL under
+// jsdom; vitest injects __dirname instead (same as tests/office-redact.test.ts).
+const PDF_FONTS = join(__dirname, '..', 'fonts', 'liberation');
+const PDF_ASSETS: PdfAssetPaths = { loadFont: async (file) => new Uint8Array(readFileSync(join(PDF_FONTS, file))) };
+
+/** Reading a multi-page LibreOffice PDF twice through pdf.js takes seconds, not the default 5 s. */
+const PDF_TIMEOUT = 120_000;
+
+/** Whitespace-insensitive containment, for a PDF whose line wrap turned a space in a needle into a newline. */
+function containsIgnoringWhitespace(text: string, needle: string): boolean {
+  const fold = (s: string) => s.replace(/\s+/g, ' ');
+  return fold(text).includes(fold(needle));
+}
 
 interface Occurrence {
   start: number;
@@ -133,7 +155,7 @@ function toFile(bytes: ArrayBuffer, name: string): File {
 
 interface Snapshot {
   plainText: string;
-  /** Docx paragraph break indices; empty for the other formats. */
+  /** Docx paragraph break indices, PDF page start offsets; empty for the other formats. */
   breaks: number[];
 }
 
@@ -153,6 +175,10 @@ interface RedactionRun {
   consented: (part: string) => boolean;
   /** Occurrences inside tracked deletions: dropped by acceptTrackedChanges, so no placeholder is written for them. */
   deletedOccurrences: number;
+  /** PDF only: occurrences on pages the writer rasterized (blacked out in pixels; no placeholder text is written). */
+  rasterizedOccurrences: number;
+  /** PDF only: 0-based pages the writer rasterized. */
+  rasterizedPages: number[];
 }
 
 function consentedParts(unredactable: UnredactablePart[]): (part: string) => boolean {
@@ -187,8 +213,14 @@ async function snapshot(ext: CorpusFormat, bytes: ArrayBuffer, name: string): Pr
     const extraction = await readXlsx(toFile(bytes, name));
     return { plainText: extraction.plainText, breaks: [] };
   }
+  if (ext === 'pdf') {
+    const extraction = await readPdf(new Uint8Array(bytes), { assets: PDF_ASSETS });
+    return { plainText: extraction.plainText, breaks: extraction.pages.map((p) => p.textStart) };
+  }
   return { plainText: readDocText(bytes.slice(0)), breaks: [] };
 }
+
+const NO_RASTER = { rasterizedOccurrences: 0, rasterizedPages: [] as number[] };
 
 async function redact(file: CorpusFile, manifest: CorpusManifest, bytes: ArrayBuffer): Promise<RedactionRun> {
   if (file.ext === 'docx') {
@@ -204,7 +236,7 @@ async function redact(file: CorpusFile, manifest: CorpusManifest, bytes: ArrayBu
     );
     const output = await toBytes(result.blob);
     const reread = await readDocx(toFile(output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer, file.name));
-    return { input, plan, output, outputText: reread.plainText, writerWarnings: result.warnings, unredactable: extraction.unredactable, consented: consentedParts(extraction.unredactable), deletedOccurrences };
+    return { input, plan, output, outputText: reread.plainText, writerWarnings: result.warnings, unredactable: extraction.unredactable, consented: consentedParts(extraction.unredactable), deletedOccurrences, ...NO_RASTER };
   }
   if (file.ext === 'xlsx') {
     const extraction: XlsxExtraction = await readXlsx(toFile(bytes, file.name));
@@ -218,7 +250,43 @@ async function redact(file: CorpusFile, manifest: CorpusManifest, bytes: ArrayBu
     );
     const output = await toBytes(result.blob);
     const reread = await readXlsx(toFile(output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer, file.name));
-    return { input, plan, output, outputText: reread.plainText, writerWarnings: result.warnings, unredactable: extraction.unredactable, consented: consentedParts(extraction.unredactable), deletedOccurrences: 0 };
+    return { input, plan, output, outputText: reread.plainText, writerWarnings: result.warnings, unredactable: extraction.unredactable, consented: consentedParts(extraction.unredactable), deletedOccurrences: 0, ...NO_RASTER };
+  }
+  if (file.ext === 'pdf') {
+    // Text-layer redaction (T213/T215): every occurrence becomes a placeholder
+    // written as real text; the value list is layer zero (every other
+    // occurrence in the text). allowUnredactable lets a page that is an image
+    // through with a warning, and the Node canvas factory backs the raster
+    // fallback for pages the surgery cannot edit safely.
+    const extraction: PdfExtraction = await readPdf(new Uint8Array(bytes), { assets: PDF_ASSETS });
+    const plan = planNeedles(extraction.plainText, manifest);
+    const input = { plainText: extraction.plainText, breaks: extraction.pages.map((p) => p.textStart) };
+    const result = await writeAnonymizedPdfWithReport(
+      extraction,
+      plan.occurrences.map(({ start, end, replacement }) => ({ start, end, replacement })),
+      plan.valueReplacements,
+      { assets: PDF_ASSETS, allowUnredactable: true, canvasFactory: await nodeCanvasFactory() },
+    );
+    const output = await toBytes(result.blob);
+    const reread = await readPdf(output, { assets: PDF_ASSETS });
+    const rasterized = new Set(result.rasterizedPages);
+    const onRasterizedPage = (start: number) =>
+      extraction.pages.some((p) => rasterized.has(p.index) && p.textStart <= start && start < p.textEnd);
+    const rasterizedOccurrences = plan.occurrences.filter((o) => onRasterizedPage(o.start)).length;
+    // The scanner reports PDF parts by object number, not by page, so no part
+    // is consented: a needle surviving anywhere in the output is a failure.
+    return {
+      input,
+      plan,
+      output,
+      outputText: reread.plainText,
+      writerWarnings: result.warnings,
+      unredactable: extraction.unredactable,
+      consented: () => false,
+      deletedOccurrences: 0,
+      rasterizedOccurrences,
+      rasterizedPages: result.rasterizedPages,
+    };
   }
   const plainText = readDocText(bytes.slice(0));
   const plan = planNeedles(plainText, manifest);
@@ -235,7 +303,21 @@ async function redact(file: CorpusFile, manifest: CorpusManifest, bytes: ArrayBu
   if (inspection.streams.objectPool) consentedStorages.push(/\/ObjectPool\//);
   if (inspection.streams.macros) consentedStorages.push(/\/Macros\//);
   const consented = (part: string) => consentedStorages.some((re) => re.test(part));
-  return { input: { plainText, breaks: [] }, plan, output, outputText, writerWarnings: [], unredactable: [], consented, deletedOccurrences: 0 };
+  return { input: { plainText, breaks: [] }, plan, output, outputText, writerWarnings: [], unredactable: [], consented, deletedOccurrences: 0, ...NO_RASTER };
+}
+
+/** Writer warnings that are not about an unredactable part but are legitimate for the format. */
+function isExpectedWarning(ext: CorpusFormat, warning: string): boolean {
+  if (ext !== 'pdf') return false;
+  // The raster fallback and a placeholder character outside the fallback
+  // font's coverage are reported, not refused (T213); the pdftotext check in
+  // CI still proves nothing readable survived.
+  return /^page \d+: rasterized /.test(warning) || /^placeholder ".*" has characters the fallback font cannot show/.test(warning);
+}
+
+/** Does a writer warning name this unredactable part? docx/xlsx: "<part>: ...", pdf: "<label> (exported as is)". */
+function warnsAbout(ext: CorpusFormat, warning: string, part: UnredactablePart): boolean {
+  return ext === 'pdf' ? warning.startsWith(part.label) : warning.startsWith(`${part.part}:`);
 }
 
 const corpus = discoverCorpusFiles();
@@ -274,24 +356,29 @@ describe('real-file corpus', () => {
           refusalCode = err.code;
           refusalMessage = err.message;
         }
-      });
+      }, PDF_TIMEOUT);
 
       it('carries the required seed needles in the input', async () => {
         // Runs are split by Word into several w:r elements sometimes, so a
         // raw-byte miss is not conclusive; the extracted text is checked too.
-        const raw = await findTraces(new Uint8Array(bytes), requiredNeedles(manifest));
+        // For PDF the raw scan only sees Info strings and simple-font text
+        // (subset Type0 fonts store glyph ids), so the text layer decides;
+        // a needle wrapped over two lines still counts as present.
+        const required = requiredNeedles(manifest, file.ext);
+        const raw = await findTraces(new Uint8Array(bytes), required);
         const inRaw = new Set(raw.map((t) => t.needle));
         let text = '';
         if (!refusalCode) {
           text = run!.input.plainText;
         }
-        const missing = requiredNeedles(manifest).filter((n) => !inRaw.has(n) && !text.includes(n));
+        const inText = (n: string) => text.includes(n) || (file.ext === 'pdf' && containsIgnoringWhitespace(text, n));
+        const missing = required.filter((n) => !inRaw.has(n) && !inText(n));
         expect(
           missing,
           `seed needles missing from ${file.name} (placements: ${missing.map((n) => `${JSON.stringify(n)} in ${(manifest.placements[n] ?? []).join('/')}`).join('; ')}). ` +
-          'If the converter legitimately drops this placement, list the needle under "optional" in the manifest.',
+          'If the converter legitimately drops this placement, list the needle under "optional" (or "optionalFor" per format) in the manifest.',
         ).toEqual([]);
-      });
+      }, PDF_TIMEOUT);
 
       it(expectedCode ? `is refused with code ${expectedCode}` : 'is redacted without a refusal', () => {
         if (expectedCode) {
@@ -315,7 +402,8 @@ describe('real-file corpus', () => {
         // (frames, text boxes, headers, footnotes) in place, without a
         // placeholder, so a .doc whose PII sits only in frames re-parses
         // clean but placeholder-free; the no-needle check above is the test.
-        if (run.plan.occurrences.length > run.deletedOccurrences && file.ext !== 'doc') {
+        // A rasterized PDF page carries no text either (the box is in the pixels).
+        if (run.plan.occurrences.length > run.deletedOccurrences + run.rasterizedOccurrences && file.ext !== 'doc') {
           expect(countPlaceholders(run.outputText, run.plan.placeholders.values())).toBeGreaterThan(0);
         }
       });
@@ -325,7 +413,7 @@ describe('real-file corpus', () => {
         const again = await snapshot(file.ext, bytes, file.name);
         expect(again.plainText).toBe(run.input.plainText);
         expect(again.breaks).toEqual(run.input.breaks);
-      });
+      }, PDF_TIMEOUT);
 
       it('writes at least as many placeholders as needle occurrences', (ctx) => {
         if (!run) return ctx.skip();
@@ -340,9 +428,10 @@ describe('real-file corpus', () => {
           for (const needle of manifest.needles) expect(run.outputText).not.toContain(needle);
         } else {
           // Occurrences inside tracked deletions are dropped with the
-          // deletion (acceptTrackedChanges), not replaced.
-          const expected = occurrences - run.deletedOccurrences;
-          expect(written, `placeholders written (${written}) < occurrences replaced (${occurrences}) minus deleted (${run.deletedOccurrences})`).toBeGreaterThanOrEqual(expected);
+          // deletion (acceptTrackedChanges), not replaced; occurrences on a
+          // rasterized PDF page are blacked out in the pixels instead.
+          const expected = occurrences - run.deletedOccurrences - run.rasterizedOccurrences;
+          expect(written, `placeholders written (${written}) < occurrences replaced (${occurrences}) minus deleted (${run.deletedOccurrences}) minus rasterized (${run.rasterizedOccurrences})`).toBeGreaterThanOrEqual(expected);
         }
       });
 
@@ -350,12 +439,19 @@ describe('real-file corpus', () => {
         if (!run) return ctx.skip();
         for (const part of run.unredactable) {
           expect(
-            run.writerWarnings.some((w) => w.startsWith(`${part.part}:`)),
+            run.writerWarnings.some((w) => warnsAbout(file.ext, w, part)),
             `${part.part} (${part.label}) was copied verbatim but is missing from the warnings`,
           ).toBe(true);
         }
-        const other = run.writerWarnings.filter((w) => !run!.unredactable.some((part) => w.startsWith(`${part.part}:`)));
+        const other = run.writerWarnings.filter(
+          (w) => !run!.unredactable.some((part) => warnsAbout(file.ext, w, part)) && !isExpectedWarning(file.ext, w),
+        );
         expect(other).toEqual([]);
+        // A rasterized page must be announced, so the host can tell the user
+        // that its text layer is gone.
+        for (const page of run.rasterizedPages) {
+          expect(run.writerWarnings.some((w) => w.startsWith(`page ${page + 1}: rasterized`)), `page ${page + 1} was rasterized silently`).toBe(true);
+        }
       });
 
       it('writes the redacted output for the office-open job', async (ctx) => {

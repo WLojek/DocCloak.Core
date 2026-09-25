@@ -99,8 +99,11 @@ describe('detectWithRegex line segmentation', () => {
       rule.pattern.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = rule.pattern.exec(text)) !== null) {
-        if (rule.validate && !rule.validate(m[0])) continue;
-        expected.push({ type: rule.type, value: m[0], start: m.index, end: m.index + m[0].length, confidence: rule.confidence, detector: rule.detector });
+        // T226: runRule trims whitespace at both ends of a match.
+        const lead = m[0].length - m[0].trimStart().length;
+        const value = m[0].trim();
+        if (rule.validate && !rule.validate(value)) continue;
+        expected.push({ type: rule.type, value, start: m.index + lead, end: m.index + lead + value.length, confidence: rule.confidence, detector: rule.detector });
       }
     }
     expect(segmented).toEqual(expected);

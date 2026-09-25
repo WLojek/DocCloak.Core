@@ -16,6 +16,7 @@
 
 import type { CoreEnv, HardwareHints } from './env.ts';
 import type { DetectedEntity, DetectionProvider } from './types.ts';
+import { throwIfAborted } from './types.ts';
 import { detectWithRegex, detectEntities } from './pipeline.ts';
 import { GlinerProvider } from './providers/gliner.ts';
 import { GlinerBaseProvider } from './providers/gliner-base.ts';
@@ -341,7 +342,7 @@ export function createEngine(
     onProgress?: (progress: number) => void,
   ): Promise<DetectedEntity[]> {
     await ready;
-    if (signal?.aborted) throw new Error('Detection aborted');
+    throwIfAborted(signal);
     if (!text.trim()) return [];
     const p = ensureProvider();
     if (!autoLoad && !p.isLoaded()) {
@@ -354,8 +355,8 @@ export function createEngine(
     const mlResults = await p.detect(text, (progress: number) => {
       onProgress?.(progress);
       for (const cb of detectionListeners) cb(progress);
-    });
-    if (signal?.aborted) throw new Error('Detection aborted');
+    }, signal);
+    throwIfAborted(signal);
     const regexResults = settings.regexEnabled ? detectWithRegex(text, settings.regexRegion) : [];
     return detectEntities(text, mlResults, regexResults);
   }

@@ -35,7 +35,7 @@
     {
       "id": "regex:universal:iban",
       "entityType": "IBAN",
-      "pattern": "\\b[A-Z]{2}\\s?\\d{2}[\\s]?[A-Z\\d\\s]{10,30}\\b",
+      "pattern": "\\b[A-Z]{2}\\s?\\d{2}\\s?[A-Z\\d\\s]{9,29}[A-Z\\d]\\b",
       "flags": "g",
       "confidence": 0.9,
       "domains": [
@@ -262,18 +262,19 @@
     {
       "id": "regex:universal:postal_city",
       "entityType": "ADDRESS",
-      "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+(?![\\p{L}\\p{N}])",
+      "pattern": "(?:^|\\s)(?!\\d{4}-(?:\\d{2}|\\d{4})\\s)\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{Lu}][\\p{L}]+(?![\\p{L}\\p{N}])",
       "flags": "gu",
       "confidence": 0.65,
       "domains": [
         "contact"
       ],
-      "description": "Postal/zip code followed by city name (various country formats)",
+      "description": "Postal/zip code followed by a capitalised city name (various country formats); the code must not be glued to a preceding digit, slash, dot or hyphen",
       "examples": [
         "00-950 Warszawa",
-        "75008 Paris"
+        "75008 Paris",
+        "1010 Wien"
       ],
-      "falsePositiveNotes": "May match non-address number+word sequences"
+      "falsePositiveNotes": "May match non-address number+word sequences (a number followed by a capitalised word)"
     },
     {
       "id": "regex:universal:aws_access_key",

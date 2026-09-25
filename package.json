@@ -1,6 +1,6 @@
 {
   "name": "@doccloak/core",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Environment-agnostic document anonymization engine for the DocCloak ecosystem.",
   "license": "Apache-2.0",
   "author": "Witold Lojek",
@@ -11,11 +11,13 @@
     ".": "./src/index.ts",
     "./restore-tokens": "./src/restore-tokens.ts",
     "./dom": "./src/dom/index.ts",
-    "./worker-protocol": "./src/worker-protocol.ts"
+    "./worker-protocol": "./src/worker-protocol.ts",
+    "./pdf": "./src/pdf/index.ts"
   },
   "files": [
     "dist",
     "rules",
+    "fonts",
     "LICENSE",
     "NOTICE",
     "README.md",
@@ -30,7 +32,8 @@
     "gdpr",
     "onnx",
     "docx",
-    "ocr"
+    "ocr",
+    "pdf"
   ],
   "repository": {
     "type": "git",
@@ -62,9 +65,12 @@
     "vitest": "4.1.0"
   },
   "dependencies": {
+    "@cantoo/fontkit": "2.0.12",
+    "@cantoo/pdf-lib": "2.11.1",
     "cfb": "1.2.2",
     "jszip": "3.10.1",
     "onnxruntime-web": "1.29.0",
+    "pdfjs-dist": "6.3.289",
     "tesseract.js": "7.0.0"
   }
 }

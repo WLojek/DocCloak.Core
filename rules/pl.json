@@ -100,17 +100,21 @@
     {
       "id": "regex:pl:phone",
       "entityType": "PHONE",
-      "pattern": "\\b(?:\\+?48[\\s-]?)?\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
+      "pattern": "(?:\\+?48[\\s-]?)?(?:\\(\\d{2}\\)|\\b\\d{2})[\\s-]?\\d{3}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b|(?:\\+?48[\\s-]?)?\\b\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
       "flags": "g",
       "confidence": 0.8,
       "domains": [
         "contact"
       ],
-      "description": "Polish phone number (9 digits, optionally with +48 prefix)",
+      "description": "Polish phone number: 9 digits as mobile 3-3-3 or landline 2-3-2-2 (area code optionally in brackets), optionally with +48 prefix",
       "examples": [
         "+48 600 123 456",
         "600-123-456",
-        "48 600123456"
+        "48 600123456",
+        "22 555 01 02",
+        "(22) 555-01-02",
+        "+48 22 555 01 02",
+        "22 5550102"
       ]
     },
     {

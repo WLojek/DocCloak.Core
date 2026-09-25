@@ -27,11 +27,14 @@ jobs:
   # each one to PDF headlessly. A non-zero exit or a PDF under 1 KB fails the job.
   #
   # T196 real-file corpus: before the tests run, tests/corpus/generate.mjs
-  # converts the seeds under tests/corpus/seeds to docx/doc/xlsx with the
+  # converts the seeds under tests/corpus/seeds to docx/doc/xlsx/pdf with the
   # same LibreOffice, so tests/corpus.test.ts redacts real converter output.
   # Every '*-redacted.*' file it writes is then converted to txt (Writer) or
   # csv (Calc, all sheets) and grepped for every manifest needle: a hit fails
   # the job. This is the independent-extractor check of plan v2 section 4.
+  # T218: every '*-redacted.pdf' (text-layer PDF writer output) is opened with
+  # poppler (pdftotext -layout, pdffonts) and the text grepped the same way; a
+  # pdftotext failure or a needle hit fails the job.
   # continue-on-error: required from 2026-10-08 (remove the flag then).
   office-open:
     runs-on: ubuntu-latest
@@ -44,11 +47,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install LibreOffice (writer + calc)
+      - name: Install LibreOffice (writer + calc), Liberation fonts and poppler
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc
+          sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc fonts-liberation poppler-utils
           soffice --version
+          pdftotext -v 2>&1 | head -1
       - run: npm ci
       - name: Generate the real-file corpus from the seeds
         run: node tests/corpus/generate.mjs
@@ -132,6 +136,57 @@ jobs:
           fi
           echo "checked $count extracted file(s) against $(wc -l < "$needles") needle(s)"
           exit "$failed"
+      - name: Extract every redacted PDF with poppler and grep the needles
+        run: |
+          set -u
+          shopt -s nullglob
+          out="$DOCCLOAK_WRITE_OUTPUTS"
+          textdir="$out/pdf-text"
+          needles="$out/corpus-needles.txt"
+          mkdir -p "$textdir"
+          if [ ! -s "$needles" ]; then
+            node tests/corpus/generate.mjs --needles > "$needles"
+          fi
+          if [ ! -s "$needles" ]; then
+            echo "no needles found in tests/corpus/seeds/*.json"; exit 1
+          fi
+          pdfs=("$out"/*-redacted.pdf)
+          if [ "${#pdfs[@]}" -eq 0 ]; then
+            echo "no *-redacted.pdf outputs were written to $out"; exit 1
+          fi
+          failed=0
+          corpus=0
+          for f in "${pdfs[@]}"; do
+            name="$(basename "$f")"
+            stem="${name%.pdf}"
+            # The output must open: a pdftotext or pdffonts failure is a failure of the writer.
+            if ! pdftotext -layout "$f" "$textdir/$stem.txt" 2>"$textdir/$stem.log"; then
+              echo "FAIL (pdftotext exit code) $name"; cat "$textdir/$stem.log"; failed=1; continue
+            fi
+            if ! pdffonts "$f" >"$textdir/$stem.fonts" 2>&1; then
+              echo "FAIL (pdffonts exit code) $name"; cat "$textdir/$stem.fonts"; failed=1; continue
+            fi
+            case "$name" in
+              pdf-*)
+                # Synthetic fixture output (tests/pdf-write-fixtures.test.ts). Its seeds
+                # live in tests/helpers/fixtures/pdf.ts, not in a corpus manifest, so it
+                # is only opened here; the sweep test scans it with assertNoTrace.
+                echo "ok   $name opens (fixture; seeds not grepped)"
+                continue;;
+            esac
+            corpus=$((corpus + 1))
+            if grep -F -n -f "$needles" "$textdir/$stem.txt"; then
+              echo "FAIL (needle survived in pdftotext extraction) $name"; failed=1
+            else
+              echo "ok   $name -> $stem.txt ($(wc -c < "$textdir/$stem.txt") B)"
+              sed 's/^/       /' "$textdir/$stem.fonts"
+            fi
+          done
+          if [ "$corpus" -eq 0 ]; then
+            echo "no corpus *-redacted.pdf was written (is tests/corpus/generated/pdf empty?)"; failed=1
+          fi
+          echo "checked $corpus corpus PDF(s) against $(wc -l < "$needles") needle(s)"
+          exit "$failed"
       - name: Refresh the part-name inventory (uploaded as an artifact, not committed)
         if: always()
         run: |
@@ -140,7 +195,7 @@ jobs:
           cp tests/corpus/part-inventory.json "$DOCCLOAK_WRITE_OUTPUTS/inventory/part-inventory.json"
           git --no-pager diff --stat -- tests/corpus/part-inventory.json
           git --no-pager diff -- tests/corpus/part-inventory.json
-      - name: Upload outputs, PDFs, extracted text and the generated corpus
+      - name: Upload outputs, PDFs, extracted text (LibreOffice and poppler) and the generated corpus
         if: always()
         uses: actions/upload-artifact@v4
         with:

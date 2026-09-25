@@ -16,6 +16,7 @@
 // bundle whose wasm exceeds Cloudflare Pages' 25 MiB per-file limit.
 import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
+import { throwIfAborted } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
 import type { ModelLoaderEnv, ModelVerification, TokenizerFiles } from '../model-loader.ts';
 import { evictModelFromCache, fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
@@ -264,7 +265,8 @@ export class BardsaiProvider implements DetectionProvider {
     this.loadError = null;
   }
 
-  async detect(text: string, onProgress?: (progress: number) => void): Promise<DetectedEntity[]> {
+  async detect(text: string, onProgress?: (progress: number) => void, signal?: AbortSignal): Promise<DetectedEntity[]> {
+    throwIfAborted(signal);
     if (!this.isLoaded()) await this.load();
     if (!this.session || !this.tokenizer) return [];
     if (!text.trim()) return [];
@@ -329,6 +331,8 @@ export class BardsaiProvider implements DetectionProvider {
     onProgress?.(0.1); // tokenization done
 
     while (i < words.length) {
+      // T222: a cancelled run stops here, before the next inference.
+      throwIfAborted(signal);
       let subtokenSum = 0;
       let end = i;
       while (end < words.length && subtokenSum + subtokenCounts[end] <= maxSubtokens) {

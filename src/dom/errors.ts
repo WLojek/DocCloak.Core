@@ -51,7 +51,10 @@ export function isUnsupportedDocumentError(err: unknown): err is UnsupportedDocu
 export interface UnredactablePart {
   /** Zip path of the part, e.g. 'word/embeddings/oleObject1.bin' */
   part: string;
-  kind: 'embedded-object' | 'macros' | 'html-chunk' | 'external-data' | 'printer-settings' | 'unknown';
+  kind:
+    | 'embedded-object' | 'macros' | 'html-chunk' | 'external-data' | 'printer-settings' | 'unknown'
+    // PDF (T210): a page that is only an image (scan) and text no decoder can read.
+    | 'scanned-page' | 'undecodable-text';
   /** Human-readable label for host UIs, e.g. 'embedded Excel sheet' */
   label: string;
 }

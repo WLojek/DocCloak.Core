@@ -59,7 +59,10 @@ ONNX Runtime also needs its WASM binaries at runtime; point
 ## API overview
 
 - **Engine** - `createEngine(env, initialSettings?, options?)` returns a
-  `DocCloakEngine`: `detect(text, signal?, onProgress?)`, `preload()`,
+  `DocCloakEngine`: `detect(text, signal?, onProgress?)` (an aborted
+  `signal` stops the model at the next inference chunk and rejects with
+  `DetectionAbortedError`; over the worker protocol the client sends
+  `cancelDetect` and rejects once the host has stopped), `preload()`,
   `switchProvider(id)`, `getSettings()` / `updateSettings(patch)`,
   `onDownloadProgress` / `onDetectionProgress`, `release()`. Settings persist
   through `env.kv`. `options.autoLoad` (default `true`) lets `detect()`
@@ -165,6 +168,89 @@ streams: { data, objectPool, macros } }` without throwing, so a host can show
 the same consent card for a .doc whose `ObjectPool` (embedded objects) or
 `Macros` (VBA) storage will be copied unchanged.
 
+## PDF: redaction that keeps the text layer
+
+`@doccloak/core/pdf` redacts PDFs without rasterizing them. The glyphs of a
+detected value are cut out of the content stream; the placeholder is written
+back as real text, in the document's own font whenever that font can show it
+(every character must map to a code whose glyph is proven present), else in
+a metrics-compatible Liberation face (Sans/Serif/Mono, matched by the font's
+style flags and name) embedded as a subset. Everything else on the page
+stays live text.
+
+```ts
+import { readPdf, writeAnonymizedPdfWithReport } from '@doccloak/core/pdf';
+
+const assets = {
+  pdfjsWorkerUrl: '/pdf/pdf.worker.mjs',       // node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs
+  cMapUrl: '/pdf/cmaps/',                       // node_modules/pdfjs-dist/cmaps/
+  standardFontDataUrl: '/pdf/standard_fonts/',  // node_modules/pdfjs-dist/standard_fonts/
+  fontsUrl: '/pdf/fonts/',                      // node_modules/@doccloak/core/fonts/liberation/
+};
+const extraction = await readPdf(file, { assets });     // extraction.plainText -> detect
+const entities = await engine.detect(extraction.plainText);
+const replacements = entities.map((e) => ({ start: e.start, end: e.end, replacement: session.anonymize(e.value, e.type) }));
+const { blob, warnings, removed, rasterizedPages } = await writeAnonymizedPdfWithReport(
+  extraction, replacements, session.getEntries(), { assets },
+);
+```
+
+Or go through `redactOfficeFile(file, { session, detect, pdf: { assets } })`,
+which now accepts `.pdf` next to `.docx` and `.xlsx`.
+
+**Placeholder fitting.** A placeholder rarely has the width of what it
+replaces. The writer keeps the original size when the placeholder fits the
+gap. Otherwise it first moves the rest of the line right, as far as the next
+column and the page's text edge (the farthest line end on the page, a proxy
+for the right margin) allow; only what still does not fit is shrunk down to
+75 % of the size, then condensed down to 80 % of its width (`Tz`), so a
+short word on a left-aligned line gets a full-size placeholder and a line
+that already reaches the margin (right-aligned, justified, a table cell)
+gets a smaller one (`fit` option: `minSizeRatio`, `minHorizontalScale`,
+`allowOverflow`). The page's text edge is a hard limit (Chrome and Word clip
+their content boxes, so text pushed past the margin would be cut); against
+it, as against a column, the placeholder gives up its floors (never below
+4 pt). Of a value wrapped over several lines, the widest part carries the
+placeholder and the other parts are excised, so "ul." at a line end never
+has to hold "[ADDRESS_1]". A placeholder narrower than the gap closes the slack, so
+"[PERSON_1], PESEL [ID_1], ..." reads without holes. Text on other lines and
+text separated by a tab-sized gap on the same line never moves. Every other
+occurrence of a session value is redacted too (layer zero, as for docx),
+matched with whitespace, soft hyphens and ligatures ignored: a name wrapped
+over a line end gets its placeholder on the first line, and the next line
+closes up over the removed part.
+
+**Safety.** Every show after an edited one in the same positioning scope is
+re-anchored with an absolute text matrix computed from the original
+geometry, so the surviving glyphs cannot encode what was removed. Text in
+form XObjects, tiling pattern cells and soft-mask groups is walked too, and
+glyphs are read in baseline order whatever the content order. Two
+independent extractors read every page (our decoder and pdf.js): a page
+whose text differs, or whose fonts cannot be read safely (CJK predefined
+CMaps, unreadable ToUnicode, vertical writing, unparsable content), is rasterized
+when it carries a redaction and blacked out in the pixels; such pages are
+listed in `rasterizedPages`. After writing, the output is re-read by both
+extractors and byte-scanned (every decoded stream and string, UTF-8, Latin-1,
+UTF-16 BE/LE, plus the removed code sequences); any trace throws
+`PdfVerifyError` and nothing is exported.
+
+**What is removed.** The output is rebuilt as a fresh single-revision file:
+document properties (`/Info`), XMP, bookmarks, interactive forms,
+annotations (comments, links, widgets), attachments, JavaScript, named
+destinations, page labels and the tagged-PDF structure tree are dropped and
+listed in `removed`; the input's incremental-update history cannot survive.
+ToUnicode maps of edited fonts are trimmed to the codes still used,
+`ActualText`/`Alt` marked-content properties are stripped, dates are set to
+2000-01-01 and the producer to `DocCloak`. Optional-content (layer)
+configuration is dropped as well, so content of hidden layers becomes
+visible (it is redacted like everything else).
+
+**Refusals.** Encrypted files (`'encrypted'`, pass `password`), files over
+50 MB or 500 pages (`'too-large'`), non-PDF bytes (`'invalid-package'`).
+Scanned pages (image without a text layer) and text no decoder can read are
+reported in `unredactable` (`'scanned-page'`, `'undecodable-text'`) and gate
+the export behind `allowUnredactable`, like Office packages.
+
 ## What is removed or normalised in Office packages
 
 Independently of what was detected, every exported .docx / .xlsx has:
@@ -200,6 +286,41 @@ Independently of what was detected, every exported .docx / .xlsx has:
 
 ## Known limits
 
+**PDF**
+
+- The width of a redacted region stays observable: the placeholder (or the
+  closed slack) tells how wide the original text was. This is inherent to
+  every layout-preserving redaction; only rasterizing or re-typesetting the
+  paragraph would hide it.
+- Subset fonts keep their glyph repertoire (which characters occurred
+  somewhere in the document), not the removed text.
+- Pages with predefined CJK CMaps, unreadable ToUnicode maps, vertical
+  writing or text our decoder cannot confirm against pdf.js are rasterized
+  when they carry a redaction (their text layer is gone on that page).
+  Type3 fonts are edited like other simple fonts (their text comes from the
+  encoding names); a placeholder is never drawn with a Type3 font unless the
+  font itself showed every character of it. Digital signatures are
+  invalidated by any change.
+- Images are copied unchanged; text inside pictures is not OCR-scanned.
+- Forms, annotations, bookmarks and attachments are dropped, not redacted.
+- Right-to-left text: pdf.js reports it in visual order, so the cross-check
+  compares the characters of such pages as a set; detection runs on our
+  logical-order text.
+- Placeholders are set in the document's font or a Liberation face: a
+  placeholder character neither can show (CJK, emoji) is written as `?`
+  and reported in `warnings`.
+- A page whose text only pdf.js can read, and only as glyph ids, controls or
+  replacement characters (fonts without a usable encoding or ToUnicode), is
+  reported as unredactable: no detector could find a value in it.
+- Limits: 50 MB, 500 pages, 1.5 million glyphs (`maxBytes`, `maxPages`,
+  `maxGlyphs`), 32 MB of decoded content and 20 000 form draws per page.
+  Memory: the glyph model of the whole file is held during write and verify
+  (a 200-page text-heavy file peaks around 0.8 GB of heap in Node).
+- A page whose content would make a viewer work forever (an exponential
+  chain of form XObjects, a decompression bomb) is never handed to pdf.js and
+  cannot be rasterized; pdf.js page operations time out after 60 s where it
+  runs in a worker (in Node's fake worker a hostile file can still block).
+
 **Office packages (.docx, .xlsx)**
 
 - Images inside documents (`media/*`) are copied unchanged; text in pictures
@@ -207,8 +328,9 @@ Independently of what was detected, every exported .docx / .xlsx has:
 - Embedded objects (`embeddings/*`), VBA projects, `altChunk` HTML fragments,
   external data connections, external links and printer settings cannot be
   redacted. They are reported in `extraction.unredactable` and exported
-  verbatim only with `allowUnredactable: true` (see above). Removing them is
-  planned for 0.13.0 (T199), gated on the real-file corpus (T196).
+  verbatim only with `allowUnredactable: true` (see above). Removing them
+  (instead of copying them) is planned for a later release (T199), gated on
+  the real-file corpus (T196); 0.13.0 keeps the report-and-ask behaviour.
 - Spreadsheets: sheet names with an entity are reported in `warnings`, not
   renamed; numeric and date cells, formula literals, defined names and data
   validation texts are not extracted yet (T176).
@@ -268,7 +390,7 @@ interface CoreEnv {
   fetch: typeof fetch;            // injectable for tests/proxies
   wasm: { paths: string; numThreads?: number };  // onnxruntime-web asset location
   buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
-  /** @deprecated since 0.12.0, removed in 0.13.0; used only when buildTokenizer is absent */
+  /** @deprecated since 0.12.0, removal planned for 0.14.0; used only when buildTokenizer is absent */
   loadTokenizer?(hfModelId: string): Promise<unknown>;
   hardware?: HardwareHints;       // deviceMemoryGB / isMobile, feeds provider default
   persistStorage?: () => Promise<boolean>;  // e.g. navigator.storage.persist()
@@ -302,11 +424,11 @@ With `buildTokenizer` the host never contacts the network for tokenizers, a
 warm `modelCache` works offline, and the only URLs fetched on a cold start
 are the three pinned `resolve/<commit>/...` files of the active provider.
 
-`loadTokenizer(hfModelId)` (0.11 and earlier) is still honoured when
-`buildTokenizer` is absent, with a one-time deprecation warning. It lets the
-host library probe the mutable `resolve/main` branch and keep an unverified
-second cache, so migrate before 0.13.0, where `buildTokenizer` becomes
-required and `loadTokenizer` is removed.
+`loadTokenizer(hfModelId)` (0.11 and earlier) is still honoured in 0.13.0
+when `buildTokenizer` is absent, with a one-time deprecation warning. It
+lets the host library probe the mutable `resolve/main` branch and keep an
+unverified second cache, so migrate now: the removal is planned for 0.14.0,
+where `buildTokenizer` becomes required.
 
 ### autoLoad and ModelNotLoadedError
 

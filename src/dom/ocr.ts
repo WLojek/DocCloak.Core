@@ -234,20 +234,113 @@ export function buildTextFromBlocks(blocks: BlockLike[]): OcrExtraction {
   return { text: text.trimEnd(), words };
 }
 
+type PixelBox = { x0: number; y0: number; x1: number; y1: number };
+
+/** Share of the smaller box height two boxes must overlap to sit on one line. */
+const SAME_LINE_OVERLAP = 0.5;
+
+/**
+ * A gap at most this share of the line's typical word gap is not a space:
+ * OCR split one token there and the lost glyph went into a neighbour's box.
+ */
+const TIGHT_GAP_SHARE = 0.3;
+
+/** Typical word gap as a share of the line's box height, for lines too short to measure. */
+const FALLBACK_GAP_SHARE = 0.4;
+
+/** Lines with fewer measured gaps than this use the height-based fallback. */
+const MIN_GAPS_FOR_MEDIAN = 3;
+
+/**
+ * Boxes taller than this multiple of the line's median height are OCR noise
+ * (a stray mark or a punctuation box spanning lines); they never join, so a
+ * split-token fix does not paint a bar across the neighbouring lines.
+ */
+const MAX_JOIN_HEIGHT_RATIO = 1.6;
+
+/** Whether `right` continues `left` on the same OCR line (adjacent in the text, overlapping vertically). */
+function continuesLine(left: OcrWord, right: OcrWord): boolean {
+  if (right.start !== left.end + 1) return false;
+  const a = left.bbox;
+  const b = right.bbox;
+  const minHeight = Math.min(a.y1 - a.y0, b.y1 - b.y0);
+  if (minHeight <= 0) return false;
+  const overlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  return overlap >= minHeight * SAME_LINE_OVERLAP && b.x1 > a.x1;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((x, y) => x - y);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/**
+ * For each pair of consecutive OCR words, whether they are really one token
+ * that OCR split by dropping a character. Tesseract reads the dot in
+ * "t.zielinski@firma.pl" as a space and returns "t" + "zielinski@firma.pl",
+ * with the dot's pixels inside the second box; the e-mail rule then matches
+ * only the second word, and without this the "t" would stay visible. Such a
+ * split leaves a sliver between the boxes, far narrower than a real space: a
+ * pair on the same line is one token when its gap is at most
+ * TIGHT_GAP_SHARE of the line's typical word gap (boxes that touch or
+ * overlap included). Boxes much taller than the line (MAX_JOIN_HEIGHT_RATIO)
+ * are OCR noise and never join, so the fix cannot paint a bar across
+ * neighbouring lines.
+ *
+ * Not covered: a lost glyph that stays in a normal-width gap (seen only on
+ * low-resolution images, around 120 dpi). Telling it from a glyph edge that
+ * Tesseract cut off its own box needs pixels and misfired on real scans
+ * ("w terminie", "nr wpisu"), so gap width alone decides.
+ *
+ * Returns an array of length words.length - 1: entry i joins words i and i+1.
+ * Exported for tests.
+ */
+export function findSplitTokens(words: OcrWord[]): boolean[] {
+  const joined = new Array<boolean>(Math.max(0, words.length - 1)).fill(false);
+  const height = (w: OcrWord) => w.bbox.y1 - w.bbox.y0;
+  let i = 0;
+  while (i < words.length - 1) {
+    if (!continuesLine(words[i], words[i + 1])) { i++; continue; }
+    let end = i + 1; // the line runs from word i to word end
+    while (end < words.length - 1 && continuesLine(words[end], words[end + 1])) end++;
+    const gaps: number[] = [];
+    for (let k = i; k < end; k++) gaps.push(words[k + 1].bbox.x0 - words[k].bbox.x1);
+    const lineHeight = median(words.slice(i, end + 1).map(height));
+    const typicalGap = gaps.length >= MIN_GAPS_FOR_MEDIAN ? median(gaps) : lineHeight * FALLBACK_GAP_SHARE;
+    const tightGap = Math.max(1, typicalGap * TIGHT_GAP_SHARE);
+    const maxHeight = lineHeight * MAX_JOIN_HEIGHT_RATIO;
+    for (let k = i; k < end; k++) {
+      joined[k] = gaps[k - i] <= tightGap
+        && height(words[k]) <= maxHeight
+        && height(words[k + 1]) <= maxHeight;
+    }
+    i = end;
+  }
+  return joined;
+}
+
 /**
  * Pick the bounding boxes of every OCR word that overlaps one of the given
  * character ranges. A word partially covered by a range is fully redacted
- * (over-redaction is safer than leaking half an identifier).
+ * (over-redaction is safer than leaking half an identifier). A selected
+ * word also pulls in the same-line neighbours OCR split off by dropping a
+ * character (findSplitTokens), so "t" + "zielinski@firma.pl" is redacted
+ * as one token.
  *
  * Exported for tests.
  */
 export function selectRedactionBoxes(
   words: OcrWord[],
   ranges: { start: number; end: number }[],
-): { x0: number; y0: number; x1: number; y1: number }[] {
-  return words
-    .filter((w) => ranges.some((r) => w.start < r.end && w.end > r.start))
-    .map((w) => w.bbox);
+): PixelBox[] {
+  const selected = words.map((w) => ranges.some((r) => w.start < r.end && w.end > r.start));
+  if (selected.some(Boolean)) {
+    const joined = findSplitTokens(words);
+    // Spread each selection across its split pieces, left to right then back.
+    for (let i = 0; i < joined.length; i++) if (joined[i] && selected[i]) selected[i + 1] = true;
+    for (let i = joined.length - 1; i >= 0; i--) if (joined[i] && selected[i + 1]) selected[i] = true;
+  }
+  return words.filter((_, i) => selected[i]).map((w) => w.bbox);
 }
 
 /** Encode a canvas as a PNG blob, whichever canvas flavor it is. */

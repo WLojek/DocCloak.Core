@@ -57,12 +57,17 @@ function runRule(rule: RegexRule, segment: TextSegment, out: DetectedEntity[]): 
       rule.pattern.lastIndex++;
       continue;
     }
-    if (rule.validate && !rule.validate(match[0])) continue;
+    // A class that admits whitespace (IBAN, phone) can end the match on a
+    // space before the next word; the replacement would then swallow it.
+    const lead = match[0].length - match[0].trimStart().length;
+    const value = match[0].trim();
+    if (value.length === 0) continue;
+    if (rule.validate && !rule.validate(value)) continue;
     out.push({
       type: rule.type,
-      value: match[0],
-      start: segment.offset + match.index,
-      end: segment.offset + match.index + match[0].length,
+      value,
+      start: segment.offset + match.index + lead,
+      end: segment.offset + match.index + lead + value.length,
       confidence: rule.confidence,
       detector: rule.detector,
     });
@@ -349,6 +354,71 @@ export function propagateEntities(text: string, entities: DetectedEntity[]): Det
 
 // ── detectEntities ─────────────────────────────────────────
 
+// ── splitCatchAlls ─────────────────────────────────────────
+
+/**
+ * Regex rules at or below this confidence are catch-alls (`universal:
+ * long_number`): they exist to cover digit runs no specific rule knows.
+ */
+const CATCH_ALL_CONFIDENCE = 0.5;
+/** Detections (ML or regex) a catch-all yields to when they overlap it. */
+const SPECIFIC_CONFIDENCE = 0.8;
+
+/**
+ * T230: a catch-all regex span yields to the specific detections it
+ * overlaps. `long_number` admits whitespace, so a PESEL cell followed by a
+ * phone cell ("90050598761 512 987 654") is one 23-character span that
+ * resolveOverlaps prefers (same start, longer) over PESEL 0.9 + PHONE 0.8:
+ * the row came out as one [SSN] and the phone "was not detected".
+ *
+ * Every catch-all that overlaps a specific span is replaced by its
+ * leftovers: the uncovered slices are re-run through the same rule, so an
+ * unknown long number next to a phone is still caught, and the specific
+ * spans then win. Catch-alls nothing specific overlaps are untouched, and
+ * so is everything else (the leak-averse "earlier start, longer span" order
+ * stays for all other overlaps).
+ */
+export function splitCatchAlls(text: string, entities: DetectedEntity[]): DetectedEntity[] {
+  const specific = entities.filter((e) => e.confidence >= SPECIFIC_CONFIDENCE);
+  if (specific.length === 0) return entities;
+  const out: DetectedEntity[] = [];
+  for (const entity of entities) {
+    const catchAll = entity.detector.startsWith('regex:') && entity.confidence <= CATCH_ALL_CONFIDENCE;
+    if (!catchAll) {
+      out.push(entity);
+      continue;
+    }
+    const covering = specific
+      .filter((s) => s.start < entity.end && s.end > entity.start)
+      .sort((a, b) => a.start - b.start);
+    if (covering.length === 0) {
+      out.push(entity);
+      continue;
+    }
+    const rule = ALL_REGEX_RULES.find((r) => r.detector === entity.detector);
+    let cursor = entity.start;
+    const gaps: Array<[number, number]> = [];
+    for (const s of covering) {
+      if (s.start > cursor) gaps.push([cursor, s.start]);
+      cursor = Math.max(cursor, s.end);
+    }
+    if (cursor < entity.end) gaps.push([cursor, entity.end]);
+    for (const [start, end] of gaps) {
+      if (rule) {
+        runRule(rule, { text: text.slice(start, end), offset: start }, out);
+      } else {
+        const slice = text.slice(start, end);
+        const lead = slice.length - slice.trimStart().length;
+        const value = slice.trim();
+        if (value.length > 0) {
+          out.push({ ...entity, value, start: start + lead, end: start + lead + value.length });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function detectEntities(
   text: string,
   mlEntities: DetectedEntity[],
@@ -358,7 +428,7 @@ export function detectEntities(
 
   const mlResults = filterFalsePositives(trimSpanPunctuation(mlEntities));
   const regexResults = regexEntities;
-  const initial = resolveOverlaps([...mlResults, ...regexResults]);
+  const initial = resolveOverlaps(splitCatchAlls(text, [...mlResults, ...regexResults]));
   const propagated = propagateEntities(text, initial);
   return resolveOverlaps([...initial, ...propagated]);
 }

@@ -12,6 +12,7 @@
 // bundle whose wasm exceeds Cloudflare Pages' 25 MiB per-file limit.
 import * as ort from 'onnxruntime-web/webgpu';
 import type { DetectedEntity, EntityType, DetectionProvider, ProgressCallback } from '../types.ts';
+import { throwIfAborted } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
 import type { ModelLoaderEnv, ModelVerification, TokenizerFiles } from '../model-loader.ts';
 import { evictModelFromCache, fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
@@ -317,7 +318,8 @@ export class GlinerProvider implements DetectionProvider {
     this.loadError = null;
   }
 
-  async detect(text: string, onProgress?: (progress: number) => void): Promise<DetectedEntity[]> {
+  async detect(text: string, onProgress?: (progress: number) => void, signal?: AbortSignal): Promise<DetectedEntity[]> {
+    throwIfAborted(signal);
     if (!this.isLoaded()) await this.load();
     if (!this.session || !this.tokenizer) return [];
 
@@ -351,6 +353,8 @@ export class GlinerProvider implements DetectionProvider {
       // Multiple overlapping chunks
       let chunksDone = 0;
       for (let chunkStart = 0; chunkStart < words.length; chunkStart += chunkSize - overlap) {
+        // T222: a cancelled run stops here, before the next inference.
+        throwIfAborted(signal);
         const chunkEnd = Math.min(chunkStart + chunkSize, words.length);
         const chunkWords = words.slice(chunkStart, chunkEnd);
         const chunkStarts = starts.slice(chunkStart, chunkEnd);

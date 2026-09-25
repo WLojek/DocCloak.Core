@@ -3,7 +3,8 @@
   "source": "en-sales-chart.fods",
   "language": "en",
   "formats": [
-    "xlsx"
+    "xlsx",
+    "pdf"
   ],
   "needles": [
     "Eleanor Whitcombe",

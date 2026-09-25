@@ -26,6 +26,24 @@ export interface DetectedEntity {
 export type ProgressCallback = (downloaded: number, total: number) => void;
 
 /**
+ * A detect call was cancelled through its AbortSignal (T222). Providers throw
+ * it between chunks, the engine before and after the ML pass, and the worker
+ * protocol client when the host acknowledges a `cancelDetect`.
+ */
+export class DetectionAbortedError extends Error {
+  constructor(message: string = 'Detection aborted') {
+    super(message);
+    this.name = 'DetectionAbortedError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/** Throw DetectionAbortedError when `signal` has been aborted. */
+export function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DetectionAbortedError();
+}
+
+/**
  * Interface for detection providers.
  * Implement this to add a new model/detection backend.
  * The engine only depends on this interface — swap providers without changing anything else.
@@ -46,8 +64,13 @@ export interface DetectionProvider {
   /** Register a callback for download progress updates */
   onProgress(callback: ProgressCallback): void;
 
-  /** Run detection on the given text. Optional progress callback (0-1). */
-  detect(text: string, onProgress?: (progress: number) => void): Promise<DetectedEntity[]>;
+  /**
+   * Run detection on the given text. Optional progress callback (0-1).
+   * `signal` (T222) is checked between inference chunks: an aborted signal
+   * makes the provider stop at the next chunk boundary and reject with
+   * DetectionAbortedError (work already done is discarded).
+   */
+  detect(text: string, onProgress?: (progress: number) => void, signal?: AbortSignal): Promise<DetectedEntity[]>;
 
   /** Set detection confidence threshold */
   setThreshold(value: number): void;

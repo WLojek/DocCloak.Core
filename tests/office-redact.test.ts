@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   analyzeOfficeFile,
   redactOfficeFile,
@@ -150,7 +152,7 @@ describe('officeFileKind and redactedFileName', () => {
     expect(officeFileKind('report.docx')).toBe('docx');
     expect(officeFileKind('Budget.XLSX')).toBe('xlsx');
     expect(officeFileKind('legacy.doc')).toBeNull();
-    expect(officeFileKind('scan.pdf')).toBeNull(); // PDF output is permanently out of scope
+    expect(officeFileKind('scan.pdf')).toBe('pdf'); // T215: PDF-to-PDF with the text layer kept
     expect(officeFileKind('noext')).toBeNull();
   });
 
@@ -171,7 +173,14 @@ describe('analyzeOfficeFile', () => {
   });
 
   it('rejects unsupported files', async () => {
+    const file = new File([new ArrayBuffer(4)], 'scan.txt');
+    await expect(analyzeOfficeFile(file, DETECT)).rejects.toThrow(/Unsupported/);
+  });
+
+  it('refuses a file that only pretends to be a PDF', async () => {
     const file = new File([new ArrayBuffer(4)], 'scan.pdf');
+    await expect(analyzeOfficeFile(file, DETECT, { pdf: {} })).rejects.toMatchObject({ name: 'UnsupportedDocumentError', code: 'invalid-package' });
+    // Without PDF options the host has no PDF support wired: refused like an unsupported format.
     await expect(analyzeOfficeFile(file, DETECT)).rejects.toThrow(/Unsupported/);
   });
 
@@ -541,5 +550,49 @@ describe('writeAnonymizedDocx options regression', () => {
     const doc = (await partContents(blob)).get('word/document.xml')!;
     expect(doc).toContain('<w:ins'); // tracked changes untouched by default
     expect(doc).toContain('<w:del');
+  });
+});
+
+
+describe('redactOfficeFile: PDF (T215)', () => {
+  const FIXTURE = join(__dirname, 'fixtures', 'pdf', 'baseline_text.pdf');
+  const FONTS = join(__dirname, '..', 'fonts', 'liberation');
+  const pdfOptions = { assets: { loadFont: async (file: string) => new Uint8Array(readFileSync(join(FONTS, file))) } };
+  const PDF_DETECT = fakeDetect([
+    ['Jan Kowalski', 'PERSON'],
+    ['jan.kowalski@example.com', 'EMAIL'],
+  ]);
+
+  function pdfFile(): File {
+    return new File([readFileSync(FIXTURE)], 'invoice.pdf', { type: 'application/pdf' });
+  }
+
+  it('analyzes a PDF through the same entry point as docx', async () => {
+    const analysis = await analyzeOfficeFile(pdfFile(), PDF_DETECT, { pdf: pdfOptions });
+    expect(analysis.kind).toBe('pdf');
+    expect(analysis.plainText).toContain('Nabywca: Jan Kowalski');
+    expect(analysis.entities.map((e) => e.value)).toContain('Jan Kowalski');
+    expect(analysis.unredactable).toEqual([]);
+    expect(analysis.removed).toEqual([]);
+  });
+
+  it('redacts a PDF with session placeholders and returns a PDF blob with no trace', async () => {
+    const session = new AnonymizationSession();
+    const result = await redactOfficeFile(pdfFile(), { session, detect: PDF_DETECT, pdf: pdfOptions });
+    expect(result.kind).toBe('pdf');
+    expect(result.suggestedName).toBe('invoice.redacted.pdf');
+    expect(result.blob.type).toBe('application/pdf');
+    expect(result.rasterizedPages).toEqual([]);
+    expect(result.redactedText).toContain('[PERSON_1]');
+    expect(session.getForward('Jan Kowalski')).toBe('[PERSON_1]');
+    const bytes = new Uint8Array(await blobToArrayBuffer(result.blob));
+    await assertNoTrace(bytes, ['Jan Kowalski', 'jan.kowalski@example.com']);
+    writeOutput('office-invoice-redacted.pdf', bytes);
+  });
+
+  it('raises StaleAnalysisError for entities that do not match the PDF text', async () => {
+    const session = new AnonymizationSession();
+    const stale: DetectedEntity[] = [{ value: 'Nobody Here', type: 'PERSON' as EntityType, start: 0, end: 11, score: 1, source: 'ml' } as unknown as DetectedEntity];
+    await expect(redactOfficeFile(pdfFile(), { session, entities: stale, pdf: pdfOptions })).rejects.toBeInstanceOf(StaleAnalysisError);
   });
 });

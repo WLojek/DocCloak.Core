@@ -4,7 +4,8 @@
   "language": "de",
   "formats": [
     "docx",
-    "doc"
+    "doc",
+    "pdf"
   ],
   "needles": [
     "Hans-Jürgen Müller",

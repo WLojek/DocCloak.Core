@@ -22,6 +22,7 @@ const SHAPES = {
       './restore-tokens': './src/restore-tokens.ts',
       './dom': './src/dom/index.ts',
       './worker-protocol': './src/worker-protocol.ts',
+      './pdf': './src/pdf/index.ts',
     },
   },
   dist: {
@@ -32,6 +33,7 @@ const SHAPES = {
       './restore-tokens': { types: './dist/restore-tokens.d.ts', default: './dist/restore-tokens.js' },
       './dom': { types: './dist/dom/index.d.ts', default: './dist/dom/index.js' },
       './worker-protocol': { types: './dist/worker-protocol.d.ts', default: './dist/worker-protocol.js' },
+      './pdf': { types: './dist/pdf/index.d.ts', default: './dist/pdf/index.js' },
     },
   },
 };

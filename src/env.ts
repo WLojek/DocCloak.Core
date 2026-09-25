@@ -42,12 +42,12 @@ export interface CoreEnv {
    * `new PreTrainedTokenizer(tokenizerJson, tokenizerConfig)` (or the class
    * named by `tokenizerConfig.tokenizer_class`). May return a promise.
    *
-   * Optional in 0.12.0 only so hosts still on loadTokenizer keep compiling;
-   * required from 0.13.0.
+   * Optional so hosts still on loadTokenizer keep compiling; required once
+   * loadTokenizer is removed (planned for 0.14.0).
    */
   buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
   /**
-   * @deprecated since 0.12.0, removed in 0.13.0. Used only when
+   * @deprecated since 0.12.0, removal planned for 0.14.0. Used only when
    * buildTokenizer is absent. Loading by Hugging Face model id lets the
    * host library probe mutable `resolve/main` and keep an unverified
    * second cache (security report S1/S3); implement buildTokenizer.

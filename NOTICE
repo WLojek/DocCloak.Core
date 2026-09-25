@@ -3,3 +3,8 @@ Copyright 2026 Witold Lojek
 
 This product includes software developed as part of the DocCloak project
 (https://github.com/WLojek).
+
+This product bundles the Liberation Fonts (fonts/liberation/), Copyright 2012
+Red Hat, Inc., licensed under the SIL Open Font License, Version 1.1
+(see fonts/liberation/LICENSE). The fonts are embedded as subsets into
+redacted PDF output; the Reserved Font Name "Liberation" is kept.

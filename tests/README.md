@@ -63,10 +63,15 @@ When the environment variable `DOCCLOAK_WRITE_OUTPUTS` points at a directory,
 `writeOutput(name, bytes)` from the package-scan helper writes the file there;
 without the variable it is a no-op. The fixture self-test writes every
 generated input, and writer tests should write their redacted outputs the same
-way. The CI job installs `libreoffice-writer` and `libreoffice-calc`, runs
-`npm test` with the variable set, then converts each written `.docx`, `.xlsx`
-and `.doc` to PDF with `soffice --headless --convert-to pdf`. A non-zero exit,
-a missing PDF or a PDF smaller than 1 KB fails the job. The job is
+way. The CI job installs `libreoffice-writer`, `libreoffice-calc`,
+`fonts-liberation` and `poppler-utils`, runs `npm test` with the variable
+set, then converts each written `.docx`, `.xlsx` and `.doc` to PDF with
+`soffice --headless --convert-to pdf`. A non-zero exit, a missing PDF or a
+PDF smaller than 1 KB fails the job. Every written `*-redacted.pdf` (the
+corpus PDFs and the `pdf-*` fixture outputs of `tests/pdf-write-fixtures.test.ts`)
+is opened with poppler's `pdftotext -layout` and `pdffonts`; a non-zero exit
+fails the job, and for the corpus PDFs the extracted text is grepped for every
+manifest needle (see `docs/testing-corpus.md`, "PDF in the corpus"). The job is
 `continue-on-error: true` until 2026-10-08, after which it becomes required.
 
 Run it locally:

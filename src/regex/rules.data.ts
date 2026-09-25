@@ -42,7 +42,7 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:universal:iban",
         "entityType": "IBAN",
-        "pattern": "\\b[A-Z]{2}\\s?\\d{2}[\\s]?[A-Z\\d\\s]{10,30}\\b",
+        "pattern": "\\b[A-Z]{2}\\s?\\d{2}\\s?[A-Z\\d\\s]{9,29}[A-Z\\d]\\b",
         "flags": "g",
         "confidence": 0.9,
         "domains": [
@@ -269,18 +269,19 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:universal:postal_city",
         "entityType": "ADDRESS",
-        "pattern": "\\b\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{L}][\\p{L}]+(?![\\p{L}\\p{N}])",
+        "pattern": "(?:^|\\s)(?!\\d{4}-(?:\\d{2}|\\d{4})\\s)\\d{2,5}[-\\s]?\\d{2,4}\\s+[\\p{Lu}][\\p{L}]+(?![\\p{L}\\p{N}])",
         "flags": "gu",
         "confidence": 0.65,
         "domains": [
           "contact"
         ],
-        "description": "Postal/zip code followed by city name (various country formats)",
+        "description": "Postal/zip code followed by a capitalised city name (various country formats); the code must not be glued to a preceding digit, slash, dot or hyphen",
         "examples": [
           "00-950 Warszawa",
-          "75008 Paris"
+          "75008 Paris",
+          "1010 Wien"
         ],
-        "falsePositiveNotes": "May match non-address number+word sequences"
+        "falsePositiveNotes": "May match non-address number+word sequences (a number followed by a capitalised word)"
       },
       {
         "id": "regex:universal:aws_access_key",
@@ -767,17 +768,21 @@ export const RULES_DATA: readonly RegionRulesJson[] = [
       {
         "id": "regex:pl:phone",
         "entityType": "PHONE",
-        "pattern": "\\b(?:\\+?48[\\s-]?)?\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
+        "pattern": "(?:\\+?48[\\s-]?)?(?:\\(\\d{2}\\)|\\b\\d{2})[\\s-]?\\d{3}[\\s-]?\\d{2}[\\s-]?\\d{2}\\b|(?:\\+?48[\\s-]?)?\\b\\d{3}[\\s-]?\\d{3}[\\s-]?\\d{3}\\b",
         "flags": "g",
         "confidence": 0.8,
         "domains": [
           "contact"
         ],
-        "description": "Polish phone number (9 digits, optionally with +48 prefix)",
+        "description": "Polish phone number: 9 digits as mobile 3-3-3 or landline 2-3-2-2 (area code optionally in brackets), optionally with +48 prefix",
         "examples": [
           "+48 600 123 456",
           "600-123-456",
-          "48 600123456"
+          "48 600123456",
+          "22 555 01 02",
+          "(22) 555-01-02",
+          "+48 22 555 01 02",
+          "22 5550102"
         ]
       },
       {

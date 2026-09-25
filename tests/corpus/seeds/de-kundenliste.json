@@ -3,7 +3,8 @@
   "source": "de-kundenliste.fods",
   "language": "de",
   "formats": [
-    "xlsx"
+    "xlsx",
+    "pdf"
   ],
   "needles": [
     "Hans-Jürgen Müller",

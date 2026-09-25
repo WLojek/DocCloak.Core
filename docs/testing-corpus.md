@@ -6,9 +6,13 @@ built by real office suites: LibreOffice in CI, and Word 365, Google Docs,
 Pages and Excel 365 through files saved by hand. Every corpus file is
 redacted through the public writers and must come out with zero traces of the
 seeded PII, checked twice: by our own byte scanner (`assertNoTrace`) and by
-LibreOffice as an extractor we did not write. The threshold is 100 percent;
-one failing file fails the `office-open` job. Plan reference:
-`documentation/security-remediation-plan-2026-09-v2.md`, section 4.
+an extractor we did not write (LibreOffice for docx/doc/xlsx, poppler's
+`pdftotext` for PDF). The threshold is 100 percent; one failing file fails
+the `office-open` job. Plan reference:
+`documentation/security-remediation-plan-2026-09-v2.md`, section 4. PDF
+joined the corpus with T218: every seed is also exported to PDF by
+LibreOffice and redacted through the text-layer writer of
+`@doccloak/core/pdf` (see "PDF in the corpus" below).
 
 ## Layout
 
@@ -16,9 +20,9 @@ one failing file fails the `office-open` job. Plan reference:
 tests/corpus/
   seeds/          hand-written sources (.fodt, .fods, .html) + <seed>.json manifests
   generated/      LibreOffice output of the seeds (gitignored; CI or local soffice)
-    docx/ doc/ xlsx/
+    docx/ doc/ xlsx/ pdf/
   handsaved/      files saved from Word 365, Google Docs, Pages, Excel 365 (committed)
-  generate.mjs    seed -> docx/doc/xlsx converter (needs soffice; exits 0 without it)
+  generate.mjs    seed -> docx/doc/xlsx/pdf converter (needs soffice; exits 0 without it)
   manifest.ts     shared loader: manifests, discovery, checksum helpers
   seeds.test.ts   seed self-test (runs everywhere)
   inventory.test.ts + part-inventory.json   part names seen per format (feeds T177)
@@ -43,7 +47,7 @@ The sibling `<seed>.json` manifest is the contract:
   "seed": "pl-employment-contract",
   "source": "pl-employment-contract.fodt",
   "language": "pl",
-  "formats": ["docx", "doc"],
+  "formats": ["docx", "doc", "pdf"],
   "needles": ["Katarzyna Wiśniewska", "85031412347", "..."],
   "where": ["body", "header", "table", "footnote", "comment", "meta"],
   "placements": { "Katarzyna Wiśniewska": ["body", "header", "table", "footnote", "meta"] },
@@ -61,12 +65,18 @@ The sibling `<seed>.json` manifest is the contract:
 - `optional`: needles a converter may legitimately drop from the generated
   input (a tracked deletion, an HTML comment, a chart title). They are still
   asserted absent from the output.
+- `optionalFor` (optional): the same per format, for example
+  `{ "pdf": ["ul. Długa 12/4, 31-147 Kraków"] }` when one converter drops or
+  reshapes a needle that the others keep. Merged with `optional` by
+  `requiredNeedles(manifest, ext)`.
 - `expectUnsupported`: an `UnsupportedDocumentError` code the reader must
   raise, for every format (`"fast-saved"`) or per format
   (`{ "doc": "encrypted" }`). Use it for seeds that exist to test a refusal.
 
 The current 17 seeds: 11 `.fodt`, 3 `.html` (docx and doc each), 3 `.fods`
-(xlsx), in Polish, English and German.
+(xlsx), in Polish, English and German. Every seed is also exported to PDF
+(`formats` lists `pdf`), so the corpus holds 17 PDFs: 14 from Writer, 3 from
+Calc.
 
 ## How the suite works
 
@@ -76,14 +86,17 @@ first `__`), and for each file:
 
 1. asserts the required needles are present in the input (raw bytes or
    extracted text), so the seed really tests what it claims;
-2. extracts with `readDocx` / `readXlsx` / `readDocText` and turns every exact
-   needle occurrence into an entity with a `[TYPE_n]` placeholder (no ML runs
-   here; the manifest is the entity list). Every manifest needle, found in
-   the text or not, also goes into the layer-zero value list built with
-   `layerZeroValueReplacements`, so sheet names, chart caches and document
-   properties are scrubbed too;
+2. extracts with `readDocx` / `readXlsx` / `readDocText` / `readPdf` and
+   turns every exact needle occurrence into an entity with a `[TYPE_n]`
+   placeholder (no ML runs here; the manifest is the entity list). Every
+   manifest needle, found in the text or not, also goes into the layer-zero
+   value list built with `layerZeroValueReplacements`, so sheet names, chart
+   caches and document properties are scrubbed too;
 3. writes through `writeAnonymizedDocxWithReport` (tracked changes
-   accepted), `writeAnonymizedXlsxWithReport` or `writeAnonymizedDoc`;
+   accepted), `writeAnonymizedXlsxWithReport`, `writeAnonymizedDoc` or
+   `writeAnonymizedPdfWithReport` (`allowUnredactable: true`, the Liberation
+   fallback fonts from `fonts/liberation/`, and the `@napi-rs/canvas` factory
+   from `tests/helpers/pdf-canvas.ts` for the raster fallback);
 4. `assertNoTrace(output, needles)`: no needle in any part, nested container
    or encoding;
 5. re-reads the output: it parses, holds the placeholders, holds no needle;
@@ -91,8 +104,57 @@ first `__`), and for each file:
    `paragraphBreaks` (determinism);
 7. counts placeholders in the re-extracted text: at least as many as
    occurrences replaced (for `.doc` a lower bound, because subdocument text is
-   overwritten in place rather than substituted);
+   overwritten in place rather than substituted; for PDF minus the occurrences
+   on pages the writer rasterized, whose box lives in the pixels);
 8. writes `<stem>-redacted.<ext>` to `DOCCLOAK_WRITE_OUTPUTS` for the CI job.
+
+The writer-warning check is format aware: docx/xlsx warnings name the
+unredactable part as `<part>: ...`, PDF warnings carry the part label
+(`page 3 is an image without a text layer ... (exported as is)`). For PDF a
+`page N: rasterized (...)` note is accepted (and required for every page in
+`rasterizedPages`); anything else unexpected fails.
+
+## PDF in the corpus (T218)
+
+`generate.mjs` exports every seed to `generated/pdf/<seed>.pdf` with the
+Writer (`pdf:writer_pdf_Export`, fodt and html) or Calc
+(`pdf:calc_pdf_Export`, fods, all sheets) filter at default options: fonts
+subset-embedded, links kept, comments and user-defined properties not
+exported, no tagged PDF. That is what the text-layer writer sees in the
+field: TJ kerning arrays, one text-showing operator per word or line, Type0
+fonts with ToUnicode CMaps, an Info dictionary with Author/Subject/Keywords.
+
+Not everything a seed plants reaches a PDF page. The placement labels in
+`PDF_HIDDEN_PLACEMENTS` (`tests/corpus/manifest.ts`: comment, comment-author,
+html-comment, change-author, meta, hyperlink-target(-urlencoded), sheet-name,
+formula-literal, tracked-deletion) are the ones a PDF export renders no glyphs
+for. `requiredNeedles(manifest, 'pdf')` therefore does not require a needle
+whose placements are all hidden; it is still asserted absent from the output
+(the Info dictionary is scanned by `assertNoTrace` and dropped by the writer).
+The input-presence check also accepts a needle whose internal space became a
+line break in the PDF (whitespace-folded comparison), because the raw-byte
+scan cannot see Type0 text and an address wrapped over two lines is still
+the same address. A wrapped occurrence is not matched as an entity, exactly as
+a real detector would not see it in one line; no false failure results
+either way, since neither the scanner nor `pdftotext` sees it in one piece.
+
+In CI, after `npm test`, the `office-open` job runs poppler over every
+`*-redacted.pdf` in `DOCCLOAK_WRITE_OUTPUTS`:
+
+- `pdftotext -layout` must exit 0 (the file opens with a reader we did not
+  write) and the text is grepped with `grep -F -f` against the union of all
+  manifest needles; a hit fails the job;
+- `pdffonts` must exit 0; its table (every font should be embedded and
+  subset) is printed into the log and kept under `pdf-text/<stem>.fonts` in
+  the `office-open-outputs` artifact together with the `.txt` files.
+
+The synthetic fixture outputs (`pdf-*-redacted.pdf` from
+`tests/pdf-write-fixtures.test.ts`) are written to the same directory. Their
+seeds live in `tests/helpers/fixtures/pdf.ts`, not in a manifest, so the job
+only proves they open; the sweep test already runs `assertNoTrace` and both
+extractors over them. Grepping them too would need the sweep test to write
+its seeds next to each output (a `<name>.needles.json` through `writeOutput`),
+which is a follow-up.
 
 If the reader throws `UnsupportedDocumentError`, the code is compared with
 the manifest's `expectUnsupported`; any other code, or a refusal the manifest
@@ -108,7 +170,8 @@ With LibreOffice installed (`brew install --cask libreoffice` on macOS,
 `apt-get install libreoffice-writer libreoffice-calc` on Debian/Ubuntu):
 
 ```sh
-node tests/corpus/generate.mjs            # seeds -> tests/corpus/generated/
+node tests/corpus/generate.mjs            # seeds -> tests/corpus/generated/ (docx, doc, xlsx, pdf)
+node tests/corpus/generate.mjs --format pdf --only pl-employment-contract   # one PDF only
 DOCCLOAK_WRITE_OUTPUTS=/tmp/doccloak-out npm test
 # optional: the same independent check CI runs
 for f in /tmp/doccloak-out/*-redacted.docx /tmp/doccloak-out/*-redacted.doc; do
@@ -116,19 +179,34 @@ for f in /tmp/doccloak-out/*-redacted.docx /tmp/doccloak-out/*-redacted.doc; do
 done
 node tests/corpus/generate.mjs --needles > /tmp/needles.txt
 grep -rFf /tmp/needles.txt /tmp/doccloak-out/text && echo LEAK
+# PDF outputs: poppler (brew install poppler / apt-get install poppler-utils)
+mkdir -p /tmp/doccloak-out/pdf-text
+for f in /tmp/doccloak-out/*-redacted.pdf; do
+  pdftotext -layout "$f" "/tmp/doccloak-out/pdf-text/$(basename "${f%.pdf}").txt" || echo "DOES NOT OPEN $f"
+  pdffonts "$f"
+done
+grep -rFf /tmp/needles.txt /tmp/doccloak-out/pdf-text && echo LEAK
 ```
+
+The PDF export needs no extra LibreOffice component: Writer exports the
+`.fodt`/`.html` seeds and Calc the `.fods` seeds. Without generated PDFs the
+PDF part of the suite is simply absent (discovery finds no file under
+`generated/pdf/`); the other formats run as usual.
 
 `generate.mjs` only reconverts seeds newer than their output; `--force`
 reconverts everything, `--only <seed>` and `--format <fmt>` narrow it, and
 `SOFFICE=/path/to/soffice` overrides discovery.
 
 In CI (`office-open` job in `.github/workflows/ci.yml`) the order is: install
-LibreOffice, `npm ci`, `node tests/corpus/generate.mjs`, `npm test` with
+LibreOffice, the Liberation fonts and poppler-utils, `npm ci`,
+`node tests/corpus/generate.mjs` (docx, doc, xlsx and pdf), `npm test` with
 `DOCCLOAK_WRITE_OUTPUTS` set, convert every written docx/xlsx/doc to PDF
 (exit 0 and PDF over 1 KB), then convert every `*-redacted.*` output to
 `txt:Text` (Writer) or csv with all sheets (Calc) and grep the union of all
 manifest needles over the extracted text and over the exported file names
-(sheet names land in csv file names). Any hit fails the job. The job then
+(sheet names land in csv file names), then run `pdftotext -layout` and
+`pdffonts` over every `*-redacted.pdf` and grep the same needles over the
+text. Any hit, or a PDF poppler cannot open, fails the job. The job then
 refreshes `part-inventory.json` and uploads it, together with the outputs,
 PDFs, extracted text and the generated corpus, as the `office-open-outputs`
 artifact. The job keeps `continue-on-error: true` until 2026-10-08, as T173
@@ -163,7 +241,8 @@ swapped for a seed's values.
 
 `tests/corpus/part-inventory.json` lists every package part name seen per
 format (zip entries for docx and xlsx, CFB streams and storages for doc)
-across the T173 fixtures and every corpus file, with digit runs folded to
+across the T173 fixtures and every corpus file (PDFs have no package parts
+and are skipped), with digit runs folded to
 `#` (`word/header#.xml`). `inventory.test.ts` fails when a file carries a
 part name that is not listed, which is the moment to classify that part in
 the T177 policy (text, structural, unredactable). To refresh the file:

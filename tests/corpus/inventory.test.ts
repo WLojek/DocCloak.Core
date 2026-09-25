@@ -19,9 +19,9 @@ import CFB from 'cfb';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { ALL_FIXTURES } from '../helpers/fixtures/index.ts';
 import { discoverCorpusFiles, INVENTORY_PATH } from './manifest.ts';
-import type { CorpusFormat } from './manifest.ts';
+import type { PackageCorpusFormat } from './manifest.ts';
 
-type Inventory = Record<CorpusFormat, string[]> & { note?: string };
+type Inventory = Record<PackageCorpusFormat, string[]> & { note?: string };
 
 const NOTE =
   'Package part names seen per format across the T173 synthetic fixtures and the T196 corpus ' +
@@ -72,13 +72,15 @@ function loadInventory(): Inventory {
   };
 }
 
-async function collectSeen(): Promise<Record<CorpusFormat, Set<string>>> {
-  const seen: Record<CorpusFormat, Set<string>> = { docx: new Set(), xlsx: new Set(), doc: new Set() };
+async function collectSeen(): Promise<Record<PackageCorpusFormat, Set<string>>> {
+  const seen: Record<PackageCorpusFormat, Set<string>> = { docx: new Set(), xlsx: new Set(), doc: new Set() };
   for (const fixture of ALL_FIXTURES) {
+    if (fixture.ext === 'pdf') continue; // PDF has no zip/CFB parts; inventoried by its own tests (T214)
     const bytes = await fixture.build();
     for (const name of await listPartNames(bytes)) seen[fixture.ext].add(normalizePartName(name));
   }
   for (const file of discoverCorpusFiles()) {
+    if (file.ext === 'pdf') continue; // no package parts (T218 corpus PDFs are checked by tests/corpus.test.ts)
     const bytes = new Uint8Array(readFileSync(file.path));
     for (const name of await listPartNames(bytes)) seen[file.ext].add(normalizePartName(name));
   }

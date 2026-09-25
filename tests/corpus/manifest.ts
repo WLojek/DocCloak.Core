@@ -7,7 +7,9 @@
 //
 // - tests/corpus/generated/<fmt>/<seed>.<fmt>: produced from the seeds by
 //   tests/corpus/generate.mjs (LibreOffice headless; CI only unless
-//   LibreOffice is installed locally). Gitignored.
+//   LibreOffice is installed locally). Gitignored. Every seed is also
+//   exported to PDF (T218), so the PDF text-layer writer meets real
+//   LibreOffice output: subset fonts, TJ kerning, links, Info dictionary.
 // - tests/corpus/handsaved/<seed>__<source>.<ext>: the same seed content
 //   saved by hand from Word 365, Google Docs, Pages or Excel 365. Committed.
 //
@@ -18,9 +20,37 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export type CorpusFormat = 'docx' | 'doc' | 'xlsx';
+export type CorpusFormat = 'docx' | 'doc' | 'xlsx' | 'pdf';
 
-export const CORPUS_FORMATS: readonly CorpusFormat[] = ['docx', 'doc', 'xlsx'];
+export const CORPUS_FORMATS: readonly CorpusFormat[] = ['docx', 'doc', 'xlsx', 'pdf'];
+
+/** Formats stored as a package (zip or CFB) whose part names the inventory tracks; PDF has no parts. */
+export type PackageCorpusFormat = Exclude<CorpusFormat, 'pdf'>;
+
+export const PACKAGE_FORMATS: readonly PackageCorpusFormat[] = ['docx', 'doc', 'xlsx'];
+
+/**
+ * Placement labels whose text never reaches the page text layer of a
+ * LibreOffice PDF export: comments and their authors are not exported by
+ * default, document properties land in the Info dictionary (which the
+ * writer drops) but user-defined ones not at all, hyperlink targets become
+ * link annotations, sheet names and formula literals are not rendered, and
+ * an HTML comment or a tracked deletion has no glyphs. A needle whose
+ * placements are all in this set is not required in the PDF input (see
+ * requiredNeedles); it is still asserted absent from the PDF output.
+ */
+export const PDF_HIDDEN_PLACEMENTS: ReadonlySet<string> = new Set([
+  'comment',
+  'comment-author',
+  'html-comment',
+  'change-author',
+  'meta',
+  'hyperlink-target',
+  'hyperlink-target-urlencoded',
+  'sheet-name',
+  'formula-literal',
+  'tracked-deletion',
+]);
 
 export interface CorpusManifest {
   /** Seed name, equal to the file stem of the source and the manifest. */
@@ -43,6 +73,12 @@ export interface CorpusManifest {
    * asserted absent from the output.
    */
   optional: string[];
+  /**
+   * Like `optional`, but for one format only: needles a specific converter
+   * drops from the generated input (a PDF export that wraps an address over
+   * two lines, for example). Merged with `optional` by requiredNeedles.
+   */
+  optionalFor?: Partial<Record<CorpusFormat, string[]>>;
   /**
    * Refusal expectation: an UnsupportedDocumentError code that the reader
    * must raise for this seed, either for every format (string) or per
@@ -106,10 +142,22 @@ export function allNeedles(manifests = loadManifests()): string[] {
   return [...seen];
 }
 
-/** Needles that must be present in the input (all needles minus optional). */
-export function requiredNeedles(manifest: CorpusManifest): string[] {
+/**
+ * Needles that must be present in the input: all needles minus `optional`,
+ * minus `optionalFor[ext]`, and for PDF minus the needles that live only in
+ * placements a PDF export does not render (PDF_HIDDEN_PLACEMENTS).
+ */
+export function requiredNeedles(manifest: CorpusManifest, ext?: CorpusFormat): string[] {
   const optional = new Set(manifest.optional ?? []);
-  return manifest.needles.filter((n) => !optional.has(n));
+  if (ext) for (const n of manifest.optionalFor?.[ext] ?? []) optional.add(n);
+  return manifest.needles.filter((n) => {
+    if (optional.has(n)) return false;
+    if (ext === 'pdf') {
+      const placements = manifest.placements[n] ?? [];
+      if (placements.length > 0 && placements.every((p) => PDF_HIDDEN_PLACEMENTS.has(p))) return false;
+    }
+    return true;
+  });
 }
 
 /** The refusal code the manifest expects for this format, if any. */

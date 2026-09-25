@@ -4,7 +4,8 @@
 // For every seed in tests/corpus/seeds/ (a <seed>.fodt, .fods or .html plus
 // a <seed>.json manifest) this runs LibreOffice headless and writes
 // tests/corpus/generated/<fmt>/<seed>.<fmt> for each format the manifest
-// lists (docx and doc from fodt/html, xlsx from fods). The generated folder
+// lists (docx and doc from fodt/html, xlsx from fods, pdf from all three
+// through the Writer or Calc PDF export filter, T218). The generated folder
 // is gitignored; tests/corpus.test.ts picks the files up automatically.
 //
 // Without LibreOffice on PATH (or in the usual install locations) the script
@@ -15,7 +16,7 @@
 //   node tests/corpus/generate.mjs              # convert what is stale
 //   node tests/corpus/generate.mjs --force      # convert everything again
 //   node tests/corpus/generate.mjs --only pl-cv # one seed
-//   node tests/corpus/generate.mjs --format doc # one output format
+//   node tests/corpus/generate.mjs --format doc # one output format (docx|doc|xlsx|pdf)
 //   node tests/corpus/generate.mjs --needles    # print every manifest needle
 //                                               # (one per line, no soffice)
 //   SOFFICE=/path/to/soffice node tests/corpus/generate.mjs
@@ -39,11 +40,24 @@ const FILTERS = {
   xlsx: 'xlsx:Calc MS Excel 2007 XML',
 };
 
-const SOURCE_FORMATS = {
-  '.fodt': ['docx', 'doc'],
-  '.html': ['docx', 'doc'],
-  '.fods': ['xlsx'],
+// PDF export is a per-application filter: Writer for fodt/html, Calc for fods
+// (Calc exports every sheet; the default options apply: no comments, no
+// tagged PDF, links and Info dictionary kept, fonts subset-embedded).
+const PDF_FILTERS = {
+  '.fodt': 'pdf:writer_pdf_Export',
+  '.html': 'pdf:writer_pdf_Export',
+  '.fods': 'pdf:calc_pdf_Export',
 };
+
+const SOURCE_FORMATS = {
+  '.fodt': ['docx', 'doc', 'pdf'],
+  '.html': ['docx', 'doc', 'pdf'],
+  '.fods': ['xlsx', 'pdf'],
+};
+
+function filterFor(fmt, sourceExt) {
+  return fmt === 'pdf' ? PDF_FILTERS[sourceExt] : FILTERS[fmt];
+}
 
 function parseArgs(argv) {
   const opts = { force: false, only: null, format: null, needles: false };
@@ -54,7 +68,7 @@ function parseArgs(argv) {
     else if (arg === '--only') opts.only = argv[++i];
     else if (arg === '--format') opts.format = argv[++i];
     else if (arg === '--help' || arg === '-h') {
-      console.log('usage: node tests/corpus/generate.mjs [--force] [--only <seed>] [--format docx|doc|xlsx] [--needles]');
+      console.log('usage: node tests/corpus/generate.mjs [--force] [--only <seed>] [--format docx|doc|xlsx|pdf] [--needles]');
       process.exit(0);
     } else {
       console.error(`unknown argument: ${arg}`);
@@ -147,7 +161,7 @@ function main() {
         }
         const args = ['--headless', '--norestore', '--nologo', '--nolockcheck', `-env:UserInstallation=${profileUrl}`];
         if (sourceExt === '.html') args.push('--infilter=HTML (StarWriter)');
-        args.push('--convert-to', FILTERS[fmt], '--outdir', outdir, source);
+        args.push('--convert-to', filterFor(fmt, sourceExt), '--outdir', outdir, source);
         const run = spawnSync(soffice, args, { encoding: 'utf8', timeout: 180_000 });
         const produced = existsSync(target) && statSync(target).size > 0 && !isStale(target, source);
         if (run.error || run.status !== 0 || !produced) {

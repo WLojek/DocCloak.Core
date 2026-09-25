@@ -1,0 +1,62 @@
+%PDF-1.7
+%µ¶
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 100 >>
+stream
+BT
+/F1 12 Tf
+16 TL
+72 770 Td
+(Raport kwartalny Q2 2026) Tj
+T*
+(Sprzedaz wzrosla o 12 procent.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 479 /Type /Metadata /Subtype /XML >>
+stream
+<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
+   <dc:creator><rdf:Seq><rdf:li>Anna Nowak</rdf:li></rdf:Seq></dc:creator>
+   <pdf:Keywords>anna.nowak@example.com</pdf:Keywords>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+endstream
+endobj
+7 0 obj
+<< /Author (Anna Nowak) /Creator (DocCloak Fixtures) >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000080 00000 n 
+0000000137 00000 n 
+0000000263 00000 n 
+0000000414 00000 n 
+0000000511 00000 n 
+0000001071 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /Info 7 0 R >>
+startxref
+1142
+%%EOF

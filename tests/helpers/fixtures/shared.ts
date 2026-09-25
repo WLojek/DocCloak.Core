@@ -20,7 +20,7 @@ export interface FixtureSpec {
   /** Stable id, also used as the output file name stem. */
   name: string;
   /** File extension of the produced package. */
-  ext: 'docx' | 'xlsx' | 'doc';
+  ext: 'docx' | 'xlsx' | 'doc' | 'pdf';
   /** The finding(s) from SECURITY_REPORT-2026-09 the fixture reproduces. */
   findings: string[];
   build: () => Promise<Uint8Array> | Uint8Array;
@@ -133,12 +133,20 @@ export function contentTypesXml(ct: ContentTypes): string {
 
 export type PackageEntries = Record<string, string | Uint8Array>;
 
-/** Deterministic zip: fixed mtime, STORE for binaries, DEFLATE for text. */
+/**
+ * Deterministic zip: fixed mtime, STORE for binaries, DEFLATE for text, and
+ * no implicit folder entries (JSZip stamps those with the current time, so two
+ * builds straddling a 2-second DOS-time boundary differed; OOXML needs none).
+ */
 export async function zipPackage(entries: PackageEntries): Promise<Uint8Array> {
   const zip = new JSZip();
   const date = new Date(Date.UTC(2020, 0, 1, 0, 0, 0));
   for (const [path, content] of Object.entries(entries)) {
-    zip.file(path, content, { date, compression: typeof content === 'string' ? 'DEFLATE' : 'STORE' });
+    zip.file(path, content, {
+      date,
+      createFolders: false,
+      compression: typeof content === 'string' ? 'DEFLATE' : 'STORE',
+    });
   }
   return zip.generateAsync({ type: 'uint8array', platform: 'UNIX' });
 }

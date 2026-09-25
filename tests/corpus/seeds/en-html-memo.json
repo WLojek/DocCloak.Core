@@ -4,7 +4,8 @@
   "language": "en",
   "formats": [
     "docx",
-    "doc"
+    "doc",
+    "pdf"
   ],
   "needles": [
     "Eleanor Whitcombe",

@@ -3,7 +3,8 @@
   "source": "pl-payroll-sheet.fods",
   "language": "pl",
   "formats": [
-    "xlsx"
+    "xlsx",
+    "pdf"
   ],
   "needles": [
     "Katarzyna Wiśniewska",
