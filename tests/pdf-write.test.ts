@@ -35,7 +35,9 @@ async function redact(name: string, values: Array<[string, string]>): Promise<{ 
   const replacements = values.flatMap(([v, r]) => spans(extraction.plainText, v, r));
   const result = await writeAnonymizedPdfWithReport(extraction, replacements, values.map(([value, replacement]) => ({ value, replacement })), { assets: TEST_ASSETS });
   const out = new Uint8Array(await result.blob.arrayBuffer());
-  writeOutput(`${name.replace(/\.pdf$/, '')}-redacted.pdf`, out);
+  // 'pdf-' prefix: these tests redact only some values on purpose, so the CI poppler step opens
+  // the output without grepping it for the corpus needles (a kept phone number is expected here).
+  writeOutput(`pdf-desktop-${name.replace(/\.pdf$/, '')}-redacted.pdf`, out);
   return { extraction, out, result };
 }
 

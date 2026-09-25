@@ -42,7 +42,10 @@ removed. The new PDF dependencies are pinned exactly like the others:
   in a narrow cell, "Pawlak-" / "Dudek"), so wrapped values are replaced
   and asserted absent instead of being counted as present and left alone;
   values that LibreOffice Calc clips at a cell border are listed under
-  `optionalFor.pdf` in two seeds.
+  `optionalFor.pdf` in two seeds. PDF outputs of tests that redact only
+  some values on purpose (the desktop fixtures, the office invoice) are
+  written as `pdf-*`, so the CI poppler step opens them without grepping
+  the corpus needles.
 
 ### OCR image redaction covers both halves of a token OCR split (T232)
 

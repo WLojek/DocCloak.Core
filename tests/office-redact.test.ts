@@ -587,7 +587,9 @@ describe('redactOfficeFile: PDF (T215)', () => {
     expect(session.getForward('Jan Kowalski')).toBe('[PERSON_1]');
     const bytes = new Uint8Array(await blobToArrayBuffer(result.blob));
     await assertNoTrace(bytes, ['Jan Kowalski', 'jan.kowalski@example.com']);
-    writeOutput('office-invoice-redacted.pdf', bytes);
+    // 'pdf-' prefix: only the name and e-mail are detected here, the phone stays on purpose, so the
+    // CI poppler step opens this output without grepping it for the corpus needles.
+    writeOutput('pdf-office-invoice-redacted.pdf', bytes);
   });
 
   it('raises StaleAnalysisError for entities that do not match the PDF text', async () => {

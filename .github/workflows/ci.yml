@@ -168,9 +168,11 @@ jobs:
             fi
             case "$name" in
               pdf-*)
-                # Synthetic fixture output (tests/pdf-write-fixtures.test.ts). Its seeds
-                # live in tests/helpers/fixtures/pdf.ts, not in a corpus manifest, so it
-                # is only opened here; the sweep test scans it with assertNoTrace.
+                # Synthetic fixture output (tests/pdf-write-fixtures.test.ts) and the
+                # desktop fixtures (tests/pdf-write.test.ts, pdf-desktop-*). Their seeds
+                # live in the test helpers, not in a corpus manifest, and some of those
+                # tests redact only part of the values on purpose, so the output is only
+                # opened here; the tests themselves check what must be gone.
                 echo "ok   $name opens (fixture; seeds not grepped)"
                 continue;;
             esac
