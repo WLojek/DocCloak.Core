@@ -12,7 +12,8 @@ describe('splitCatchAlls', () => {
   it('a PESEL cell followed by a phone cell gives SSN + PHONE, not one merged SSN', () => {
     const row = '2 Anna Nowak 90050598761 512 987 654 anna@x.pl Warszawa';
     expect(run(row)).toEqual(['SSN:90050598761', 'PHONE:512 987 654', 'EMAIL:anna@x.pl']);
-    // region all: the foreign phone/ID rules on the same spans change nothing
+    // region all: the foreign phone/ID rules on the same spans change nothing, and the Spanish street
+    // rule's "pl Warszawa" loses to the e-mail; its rest "Warszawa" is no street on its own (T233)
     expect(run(row, 'all')).toEqual(['SSN:90050598761', 'PHONE:512 987 654', 'EMAIL:anna@x.pl']);
   });
 

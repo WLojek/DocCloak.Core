@@ -810,17 +810,22 @@ function reemitRun(
   // Walk tokens, grouping kept glyph runs; emit absolute Tm before each kept group and each placeholder.
   // A shift planned after a segment applies to what lies to the RIGHT of that segment's gap (by
   // advance position), not to what comes later in the array: a TJ may jump back with a positive
-  // adjustment and draw earlier text to the left of the gap.
-  const gapShifts: Array<{ end: number; shift: number }> = [];
+  // adjustment and draw earlier text to the left of the gap. A kept glyph is on the right when it
+  // starts past the middle of the gap: kerning pulls the next glyph a little into the gap
+  // (LibreOffice writes "Müller" 40 ", wohnhaft"), and comparing with the gap end left that comma
+  // at its old position, inside the text that moved left to close a narrow placeholder's slack.
+  const gapShifts: Array<{ middle: number; shift: number }> = [];
   for (const s of segs) {
     if (!s.shiftAfter) continue;
     const last = run.glyphs[s.to - 1];
-    gapShifts.push({ end: t.advances[s.to - 1] + last.advance, shift: s.shiftAfter });
+    const start = t.advances[s.from];
+    const end = t.advances[s.to - 1] + last.advance;
+    gapShifts.push({ middle: (start + end) / 2, shift: s.shiftAfter });
   }
   const shiftAt = (glyphIndex: number): number => {
     let total = shift;
     const at = t.advances[glyphIndex];
-    for (const g of gapShifts) if (at + 1e-6 >= g.end) total += g.shift;
+    for (const g of gapShifts) if (at + 1e-6 >= g.middle) total += g.shift;
     return total;
   };
   let i = 0;

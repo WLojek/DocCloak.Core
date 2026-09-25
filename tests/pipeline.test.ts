@@ -44,10 +44,58 @@ describe('resolveOverlaps', () => {
     expect(result).toEqual([a, b]);
   });
 
-  it('prefers the earlier start among overlapping entities', () => {
+  it('prefers the earlier start among overlapping entities and keeps what the loser covers past it (T233)', () => {
+    // "John Smith": the winner stops at "John Sm"; the loser's "ith" would otherwise stay in clear.
     const early = entity('John Sm', 0);
     const late = entity('Smith', 5, { confidence: 0.99 });
-    expect(resolveOverlaps([late, early])).toEqual([early]);
+    expect(resolveOverlaps([late, early])).toEqual([early, entity('ith', 7, { confidence: 0.99 })]);
+  });
+
+  it('keeps the rest of an e-mail that an earlier span overlaps, re-matched by its rule (T233)', () => {
+    // A spreadsheet PDF glued a clipped cell to the next: "31-147 Krakók.wisniewska@firma.pl".
+    const text = 'Adres 31-147 Krakók.wisniewska@firma.pl';
+    const address = entity('31-147 Krakók', 6, { type: 'ADDRESS', confidence: 0.8, detector: 'bardsai:address' });
+    const email = entity('Krakók.wisniewska@firma.pl', 13, { type: 'EMAIL', confidence: 1, detector: 'regex:universal:email' });
+    const out = resolveOverlaps([email, address]);
+    // The e-mail rule runs again on the rest (".wisniewska@firma.pl") and matches all of it.
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual(address);
+    expect(out[1]).toMatchObject({ type: 'EMAIL', detector: 'regex:universal:email', value: '.wisniewska@firma.pl', start: 19, end: 39 });
+    expect(text.slice(out[1].start, out[1].end)).toBe('.wisniewska@firma.pl');
+  });
+
+  it('drops the rest of a regex match that its rule does not match on its own', () => {
+    // "IBAN DE89 ... 00 before 2025-12-31": date_word read "00 before 2025" (the IBAN's last group as
+    // a day). The IBAN wins the overlap; "before 2025" is no date, so it must not take "2025" away
+    // from the ISO date that follows.
+    const text = 'IBAN DE89 3704 0044 0532 0130 00 before 2025-12-31';
+    const iban = entity('DE89 3704 0044 0532 0130 00', 5, { type: 'IBAN', confidence: 0.9, detector: 'regex:universal:iban' });
+    const word = entity('00 before 2025', 30, { type: 'DATE', confidence: 0.8, detector: 'regex:universal:date_word' });
+    const iso = entity('2025-12-31', 40, { type: 'DATE', confidence: 0.8, detector: 'regex:universal:date_iso' });
+    for (const e of [iban, word, iso]) expect(text.slice(e.start, e.end)).toBe(e.value);
+    expect(resolveOverlaps([iso, word, iban]).map((e) => e.value)).toEqual(['DE89 3704 0044 0532 0130 00', '2025-12-31']);
+  });
+
+  it('drops a loser whose leftover is only punctuation or space', () => {
+    const winner = entity('Anna Nowak', 0);
+    const loser = entity('Nowak, ', 5, { type: 'ADDRESS' });
+    expect(resolveOverlaps([loser, winner])).toEqual([winner]);
+  });
+
+  it('resolves a leftover against later entities too, leaving no flagged character uncovered', () => {
+    // "Jan Kowalski ul. Polna 3": the leftover "owalski ul" (the trailing dot trimmed) starts first,
+    // so the address that begins inside it keeps only what lies past it.
+    const text = 'Jan Kowalski ul. Polna 3';
+    const a = entity('Jan K', 0);
+    const b = entity('Kowalski ul.', 4, { type: 'ADDRESS', confidence: 0.6 });
+    const c = entity('ul. Polna 3', 13, { type: 'ADDRESS', confidence: 0.9 });
+    const out = resolveOverlaps([c, b, a]);
+    expect(out.map((e) => [e.value, e.start, e.end])).toEqual([
+      ['Jan K', 0, 5],
+      ['owalski ul', 5, 15],
+      ['Polna 3', 17, 24],
+    ]);
+    for (const e of out) expect(text.slice(e.start, e.end)).toBe(e.value);
   });
 
   it('prefers the longer span when starts are equal', () => {

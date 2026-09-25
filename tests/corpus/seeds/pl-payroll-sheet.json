@@ -96,5 +96,11 @@
     ]
   },
   "optional": [],
-  "notes": "Spreadsheet: PII in a sheet name, cells, a numeric cell (PESEL stored as a number), a cell comment, a formula string literal, header/footer, meta."
+  "optionalFor": {
+    "pdf": [
+      "ul. Długa 12/4, 31-147 Kraków",
+      "os. Słoneczne 7 m. 21, 61-131 Poznań"
+    ]
+  },
+  "notes": "Spreadsheet: PII in a sheet name, cells, a numeric cell (PESEL stored as a number), a cell comment, a formula string literal, header/footer, meta. PDF: LibreOffice Calc clips a cell's text at the next non-empty cell, so these values are cut short in the exported PDF (\"Lindenallee 22, 80331 Münc\") and are listed under optionalFor.pdf; the clipped remainder is what detection sees in a real run."
 }

@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PDFDocument, StandardFonts } from '@cantoo/pdf-lib';
+import { PDFDocument, PDFName, StandardFonts } from '@cantoo/pdf-lib';
 import { readPdf, writeAnonymizedPdfWithReport } from '../src/pdf/index.ts';
 import type { PdfExtraction, PdfAssetPaths } from '../src/pdf/index.ts';
 
@@ -170,5 +170,41 @@ describe('placeholder fit: move before shrink (T225)', () => {
     expect(tail.endX).toBeLessThanOrEqual(400 - 1);
     expect(after.plainText).toContain('[ADDRESS_2]');
     expect(after.plainText).not.toContain('Kr 8');
+  });
+
+  it('a glyph kerned into the gap moves with the text after it (T233, LibreOffice "Müller" 40 ", wohnhaft")', async () => {
+    // One TJ as LibreOffice writes it: the value ends, a positive adjustment pulls the comma
+    // 0.48 pt to the left, and the comma opens the next string. The placeholder is narrower than
+    // the value, so the rest of the line closes the slack; the comma must go with it instead of
+    // staying at its old x inside "wohnhaft".
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const p = doc.addPage([600, 300]);
+    p.node.setFontDictionary(PDFName.of('F1'), font.ref);
+    const content = 'BT /F1 12 Tf 40 200 Td [(Vermieter und Hans-Juergen Mueller) 40 (, wohnhaft in Berlin, Mieter)] TJ ET';
+    p.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(new TextEncoder().encode(content))));
+    const bytes = await doc.save({ useObjectStreams: false });
+
+    const { after, result } = await redact(bytes, 'Hans-Juergen Mueller', '[PERSON_1]');
+    const xOf = (text: string): number => {
+      const at = after.plainText.indexOf(text);
+      expect(at, `"${text}" in ${JSON.stringify(after.plainText)}`).toBeGreaterThanOrEqual(0);
+      for (const r of after.runs) {
+        const k = r.textOffsets.indexOf(at);
+        if (k >= 0) return r.glyphs[k].x;
+      }
+      throw new Error(`no glyph starts at "${text}"`);
+    };
+    expect(after.plainText).toContain('[PERSON_1], wohnhaft');
+    const ph = where(after, '[PERSON_1]');
+    const comma = xOf(', wohnhaft');
+    const next = xOf('wohnhaft');
+    // Full size (the placeholder is narrower than the value), so it ends at x + its Helvetica
+    // width; the comma follows at that point minus the original 0.48 pt kern, before "wohnhaft".
+    expect(ph.size).toBeCloseTo(12, 1);
+    const phEnd = ph.x + font.widthOfTextAtSize('[PERSON_1]', 12);
+    expect(comma).toBeCloseTo(phEnd - 0.48, 1);
+    expect(next).toBeGreaterThan(comma + 3);
+    expect(result.rasterizedPages).toEqual([]);
   });
 });

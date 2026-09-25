@@ -10,11 +10,39 @@ PDF-to-PDF redaction that keeps the text layer (new `@doccloak/core/pdf`
 entry point, see "Added" below), cancelable detection, and detection fixes
 found while testing real PDFs: Polish landline phones, catch-all numbers
 that swallowed a PESEL and a phone, regex spans without surrounding
-whitespace, placeholder fitting, and OCR tokens split by a lost character.
+whitespace, placeholder fitting, OCR tokens split by a lost character,
+kerned punctuation after a redacted value, and overlapping detections that
+dropped part of a value.
 Host-facing additions are optional (`signal` on detect, `cancelDetect` in
 the worker protocol, the PDF entry point); nothing a 0.12.x host uses was
 removed. The new PDF dependencies are pinned exactly like the others:
 `@cantoo/pdf-lib` 2.11.1, `@cantoo/fontkit` 2.0.12, `pdfjs-dist` 6.3.289.
+
+### Found by the first CI corpus run on real LibreOffice PDFs (T233)
+
+- **PDF writer: kerned punctuation after a redacted value.** LibreOffice
+  writes `[(... Müller) 40 (, wohnhaft)] TJ`: the comma is pulled 0.48 pt
+  into the value's span. When a narrower placeholder closed the slack, the
+  rest of the line moved left but the comma, starting just before the end
+  of the removed span, counted as "left of the gap" and kept its old x,
+  landing inside "wohnhaft" ("wohn,haft", "[PHO,NE_1]"). A kept glyph now
+  moves with the text after a gap when it starts past the gap's middle; a
+  TJ that really jumps back still draws its text before the gap.
+- **Overlap resolution keeps what a losing entity covers past the winner.**
+  `resolveOverlaps` dropped the loser whole. In a PDF exported from a
+  spreadsheet a clipped cell is glued to the next one ("31-147
+  Krakók.wisniewska@firma.pl"): the model took "31-147 Krakók", the e-mail
+  rule the whole token, and ".wisniewska@firma.pl" stayed in clear. Now the
+  rest of a regex match is re-run through its rule and kept where it still
+  matches (the e-mail does; "before 2025" left over from a bogus
+  "00 before 2025" date does not), and the rest of a model span is kept
+  without its edge punctuation. Detection never covers less than before.
+- Tests: the corpus matches needles in PDFs across the line breaks a PDF
+  export puts inside a value (a space turned newline, a long e-mail broken
+  in a narrow cell, "Pawlak-" / "Dudek"), so wrapped values are replaced
+  and asserted absent instead of being counted as present and left alone;
+  values that LibreOffice Calc clips at a cell border are listed under
+  `optionalFor.pdf` in two seeds.
 
 ### OCR image redaction covers both halves of a token OCR split (T232)
 

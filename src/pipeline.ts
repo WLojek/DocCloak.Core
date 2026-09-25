@@ -115,16 +115,56 @@ export function resolveOverlaps(entities: DetectedEntity[]): DetectedEntity[] {
   });
 
   const resolved: DetectedEntity[] = [];
+  const remainders: DetectedEntity[] = [];
   for (const entity of sorted) {
-    const overlaps = resolved.some(
-      (existing) => entity.start < existing.end && entity.end > existing.start
-    );
-    if (!overlaps) {
-      resolved.push(entity);
+    let coveredTo = -1;
+    for (const existing of resolved) {
+      if (entity.start < existing.end && entity.end > existing.start) coveredTo = Math.max(coveredTo, existing.end);
     }
+    if (coveredTo < 0) {
+      resolved.push(entity);
+      continue;
+    }
+    // The entity loses to the spans it overlaps, but what it covers past them may still be a value:
+    // keep it (remainderFrom) so it is not left in clear (T233). A PDF exported from a spreadsheet
+    // glued a clipped cell to the next one ("31-147 Krakók.wisniewska@firma.pl"): the model took
+    // "31-147 Krakók", the e-mail rule the whole token, and dropping the e-mail left
+    // ".wisniewska@firma.pl" in the output.
+    remainders.push(...remainderFrom(entity, coveredTo));
   }
 
-  return resolved;
+  // Each remainder is strictly shorter than its entity, so this terminates.
+  return remainders.length > 0 ? resolveOverlaps([...resolved, ...remainders]) : resolved;
+}
+
+const REMAINDER_LEAD = /^[\s.,;:!?\-–—/()[\]{}"'«»“”‘’„]+/u;
+const REMAINDER_TRAIL = /[\s,.;:!?)\]}"'»”’]+$/u;
+const HAS_TEXT = /[\p{L}\p{N}]/u;
+
+/**
+ * What `entity` covers from `from` on, as entities. A regex match only means something whole
+ * ("00 before 2025" is a date because "00" reads as a day), so its rule runs again on the rest and
+ * only what it matches there survives ("wisniewska@firma.pl" does, "before 2025" does not). A model
+ * span has no rule to re-run: its rest is kept without the punctuation at its edges ("ith" of a
+ * "Smith" the winner cut at "Sm").
+ */
+function remainderFrom(entity: DetectedEntity, from: number): DetectedEntity[] {
+  if (from >= entity.end) return [];
+  const raw = entity.value.slice(from - entity.start);
+  if (entity.detector.startsWith('regex:')) {
+    const rule = ALL_REGEX_RULES.find((r) => r.detector === entity.detector);
+    if (rule) {
+      const out: DetectedEntity[] = [];
+      runRule(rule, { text: raw, offset: from }, out);
+      return out;
+    }
+  }
+  const lead = REMAINDER_LEAD.exec(raw)?.[0].length ?? 0;
+  const trail = REMAINDER_TRAIL.exec(raw.slice(lead))?.[0].length ?? 0;
+  const value = raw.slice(lead, raw.length - trail);
+  if (!HAS_TEXT.test(value)) return [];
+  const start = from + lead;
+  return [{ ...entity, value, start, end: start + value.length }];
 }
 
 // ── trimSpanPunctuation ────────────────────────────────────

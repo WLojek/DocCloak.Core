@@ -62,10 +62,31 @@ const PDF_ASSETS: PdfAssetPaths = { loadFont: async (file) => new Uint8Array(rea
 /** Reading a multi-page LibreOffice PDF twice through pdf.js takes seconds, not the default 5 s. */
 const PDF_TIMEOUT = 120_000;
 
-/** Whitespace-insensitive containment, for a PDF whose line wrap turned a space in a needle into a newline. */
-function containsIgnoringWhitespace(text: string, needle: string): boolean {
-  const fold = (s: string) => s.replace(/\s+/g, ' ');
-  return fold(text).includes(fold(needle));
+/**
+ * A needle as it can appear in a PDF's text layer: a space may have become a
+ * line break, and a narrow table cell may break a long word anywhere
+ * ("k.wisniewska@prz" / "yklad-firma.pl", "Pawlak-" / "Dudek"). Each space in
+ * the needle matches any whitespace run; between two other characters an
+ * optional line break (with the spaces around it) is allowed.
+ */
+function wrappedNeedlePattern(needle: string): RegExp {
+  const chars = [...needle];
+  let source = '';
+  chars.forEach((ch, i) => {
+    if (/\s/.test(ch)) {
+      if (!/\s/.test(chars[i - 1] ?? '')) source += '\\s+';
+      return;
+    }
+    source += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const next = chars[i + 1];
+    if (next !== undefined && !/\s/.test(next)) source += '(?:[ \\t]*\\n[ \\t]*)?';
+  });
+  return new RegExp(source, 'g');
+}
+
+/** Containment for a PDF whose line wrap split a needle (see wrappedNeedlePattern). */
+function containsWrapped(text: string, needle: string): boolean {
+  return wrappedNeedlePattern(needle).test(text);
 }
 
 interface Occurrence {
@@ -85,11 +106,14 @@ interface NeedlePlan {
 }
 
 /**
- * Exact needle matching against the plain text. Longer needles win: an
- * occurrence that overlaps one already taken is dropped, so a surname that
- * is also part of a full name is not matched twice.
+ * Needle matching against the plain text: exact, or for a PDF (`wrapped`)
+ * tolerant of the line breaks a PDF export puts inside a value, so a wrapped
+ * value is replaced (and exercises the writer's two-line path) instead of
+ * being counted as present and left alone. Longer needles win: an occurrence
+ * that overlaps one already taken is dropped, so a surname that is also part
+ * of a full name is not matched twice.
  */
-function planNeedles(plainText: string, manifest: CorpusManifest): NeedlePlan {
+function planNeedles(plainText: string, manifest: CorpusManifest, wrapped = false): NeedlePlan {
   const placeholders = new Map<string, string>();
   const counters = new Map<string, number>();
   for (const needle of manifest.needles) {
@@ -104,17 +128,18 @@ function planNeedles(plainText: string, manifest: CorpusManifest): NeedlePlan {
   const byLength = [...manifest.needles].sort((a, b) => b.length - a.length);
   for (const needle of byLength) {
     if (needle.length === 0) continue;
-    let from = 0;
-    for (;;) {
-      const idx = plainText.indexOf(needle, from);
-      if (idx === -1) break;
-      const end = idx + needle.length;
+    const matches: Array<[number, number]> = [];
+    if (wrapped) {
+      for (const m of plainText.matchAll(wrappedNeedlePattern(needle))) matches.push([m.index!, m.index! + m[0].length]);
+    } else {
+      for (let idx = plainText.indexOf(needle); idx !== -1; idx = plainText.indexOf(needle, idx + 1)) matches.push([idx, idx + needle.length]);
+    }
+    for (const [idx, end] of matches) {
       const overlaps = taken.some(([s, e]) => idx < e && end > s);
       if (!overlaps) {
         taken.push([idx, end]);
         occurrences.push({ start: idx, end, value: needle, replacement: placeholders.get(needle)! });
       }
-      from = idx + 1;
     }
   }
   occurrences.sort((a, b) => a.start - b.start);
@@ -259,7 +284,7 @@ async function redact(file: CorpusFile, manifest: CorpusManifest, bytes: ArrayBu
     // through with a warning, and the Node canvas factory backs the raster
     // fallback for pages the surgery cannot edit safely.
     const extraction: PdfExtraction = await readPdf(new Uint8Array(bytes), { assets: PDF_ASSETS });
-    const plan = planNeedles(extraction.plainText, manifest);
+    const plan = planNeedles(extraction.plainText, manifest, true);
     const input = { plainText: extraction.plainText, breaks: extraction.pages.map((p) => p.textStart) };
     const result = await writeAnonymizedPdfWithReport(
       extraction,
@@ -363,7 +388,8 @@ describe('real-file corpus', () => {
         // raw-byte miss is not conclusive; the extracted text is checked too.
         // For PDF the raw scan only sees Info strings and simple-font text
         // (subset Type0 fonts store glyph ids), so the text layer decides;
-        // a needle wrapped over two lines still counts as present.
+        // a needle wrapped over two lines still counts as present (and is
+        // replaced as one value, see planNeedles).
         const required = requiredNeedles(manifest, file.ext);
         const raw = await findTraces(new Uint8Array(bytes), required);
         const inRaw = new Set(raw.map((t) => t.needle));
@@ -371,7 +397,7 @@ describe('real-file corpus', () => {
         if (!refusalCode) {
           text = run!.input.plainText;
         }
-        const inText = (n: string) => text.includes(n) || (file.ext === 'pdf' && containsIgnoringWhitespace(text, n));
+        const inText = (n: string) => text.includes(n) || (file.ext === 'pdf' && containsWrapped(text, n));
         const missing = required.filter((n) => !inRaw.has(n) && !inText(n));
         expect(
           missing,
@@ -397,6 +423,9 @@ describe('real-file corpus', () => {
         if (!run) return ctx.skip();
         for (const needle of manifest.needles) {
           expect(run.outputText, `needle ${JSON.stringify(needle)} in re-extracted output text`).not.toContain(needle);
+          if (file.ext === 'pdf') {
+            expect(containsWrapped(run.outputText, needle), `needle ${JSON.stringify(needle)} wrapped over lines in re-extracted output text`).toBe(false);
+          }
         }
         // The legacy .doc writer overwrites text outside the main story
         // (frames, text boxes, headers, footnotes) in place, without a

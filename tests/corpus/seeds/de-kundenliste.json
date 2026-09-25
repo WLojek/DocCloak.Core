@@ -72,5 +72,12 @@
     ]
   },
   "optional": [],
-  "notes": "German customer list on two sheets: umlauts in cells, a comment, a formula string literal, footer and meta subject."
+  "optionalFor": {
+    "pdf": [
+      "DE89 3704 0044 0532 0130 00",
+      "Lindenallee 22, 80331 München",
+      "DE44 5001 0517 5407 3249 31"
+    ]
+  },
+  "notes": "German customer list on two sheets: umlauts in cells, a comment, a formula string literal, footer and meta subject. PDF: LibreOffice Calc clips a cell's text at the next non-empty cell, so these values are cut short in the exported PDF (\"Lindenallee 22, 80331 Münc\") and are listed under optionalFor.pdf; the clipped remainder is what detection sees in a real run."
 }
