@@ -17,12 +17,13 @@ import { PDFDocument } from '@cantoo/pdf-lib';
 import type { PDFContext, PDFObject } from './objects.ts';
 import {
   PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream,
-  StreamDecodeError, decodeStream, getArray, getDict, getName, getNumber, getStream, inheritedPageValue, itemsOf, numbersOf,
+  StreamDecodeError, decodeStream, getArray, getBool, getDict, getName, getNumber, getStream, inheritedPageValue, itemsOf, numbersOf,
   pageContentStreams, pageResources, refKey, resolve, stringText,
 } from './objects.ts';
 import { lexContent, TEXT_SHOW_OPS } from './lexer.ts';
 import type { ContentOp, Operand } from './lexer.ts';
 import { StateMachine, adjustmentAdvance, apply, glyphAdvance, initialState, mul, matrixFromOperands } from './textstate.ts';
+import type { ExtGStateAlpha } from './textstate.ts';
 import { loadFont } from './fonts.ts';
 import type { LoadedFont } from './fonts.ts';
 import type { Glyph, GlyphRun, PdfPageInfo, RemovedPart, RunLocalState } from './types.ts';
@@ -68,6 +69,8 @@ export interface PageRecord {
   /** Our decoder's runs and text of a raster-only page (kept for blacking out with our geometry too). */
   ownRuns?: GlyphRun[];
   ownText?: string;
+  /** Highest effective resolution of the images drawn on the page (pixels per inch; 0 without images). */
+  imageDpi: number;
 }
 
 export interface PdfModel {
@@ -180,11 +183,12 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
       index: p,
       dict: pageDict,
       ref: pageRef,
-      info: { index: p, width, height, rotate, hasImages: false, imageOnly: false, textStart: text.length, textEnd: text.length },
+      info: { index: p, width, height, rotate, hasImages: false, imageOnly: false, ocrText: false, textStart: text.length, textEnd: text.length },
       streams: [],
       issues: [],
       hiddenGlyphs: 0,
       oracleText: false,
+      imageDpi: 0,
     };
     model.pages.push(record);
     const pageTextStart = text.length;
@@ -231,8 +235,11 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
       throw new UnsupportedDocumentError('too-large', `PDF holds more than ${maxGlyphs} glyphs; the limit protects the host's memory`, [String(glyphCount)]);
     }
 
+    walker.markOcrText(runs, pageRunStart);
     record.info.hasImages = walker.sawImage;
     record.info.imageOnly = walker.sawImage && walker.visibleGlyphs === 0;
+    record.info.ocrText = walker.ocrGlyphs > 0;
+    record.imageDpi = walker.imageDpi();
 
     let oracleGarbage = false;
     if (options.oracle && !record.hostile) {
@@ -272,16 +279,21 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
           runs.length = pageRunStart;
           appendOracleRuns(p, items, runs, text);
           if (items.some((it) => it.str.trim() !== '')) record.info.imageOnly = false;
+          // The oracle's runs replace ours and carry no OCR marks: the page is blacked out as a raster-only page.
+          record.info.ocrText = false;
         }
       }
     }
     record.info.textEnd = text.length;
-    if (record.info.imageOnly) {
+    if (record.info.imageOnly && record.info.ocrText) {
+      // A scan with an OCR text layer: detection reads the layer, and the writer paints the
+      // placeholders into the picture where the layer says the values are.
+    } else if (record.info.imageOnly) {
       unredactable.push({
         part: `page ${p + 1}`,
         kind: 'scanned-page',
         label: record.hiddenGlyphs > 0
-          ? `page ${p + 1} is a scanned image with a hidden OCR text layer: the text layer is redacted, the picture keeps the original`
+          ? `page ${p + 1} is a scanned image with a hidden text layer that is not over the picture: the text layer is redacted, the picture keeps the original`
           : `page ${p + 1} is an image without a text layer (scanned page); its content cannot be redacted`,
       });
     } else if (walker.sawImage) {
@@ -642,9 +654,27 @@ function appendOracleRuns(page: number, items: OracleTextItem[], runs: GlyphRun[
 /* Content walker                                                      */
 /* ------------------------------------------------------------------ */
 
+/** An image painted on the page: its user-space bounding box, resolution and paint order. */
+interface PlacedImage extends Box {
+  /** Effective pixels per inch along the denser axis (0 when the pixel size is unknown). */
+  dpi: number;
+  /** True when every pixel is painted opaquely (no mask, soft mask, stencil or constant alpha). */
+  opaque: boolean;
+  order: number;
+}
+
+/** Constant alpha below this paints nothing a reader can see. */
+const MIN_VISIBLE_ALPHA = 0.02;
+
 class Walker {
   sawImage = false;
   visibleGlyphs = 0;
+  /** Glyphs of text hidden over an image (an OCR layer), counted by markOcrText. */
+  ocrGlyphs = 0;
+  private readonly images: PlacedImage[] = [];
+  /** Paint order of text runs and images on this page (text drawn before an opaque image is covered by it). */
+  private order = 0;
+  private readonly runOrder = new Map<GlyphRun, number>();
   undecodableGlyphs = 0;
   /** A composite font without a usable CMap/ToUnicode showed text: pdf.js's reading of it is a guess (glyph ids), never trusted. */
   unreadableCompositeFont = false;
@@ -672,6 +702,12 @@ class Walker {
     const { ctx } = this.model;
     const fontsDict = getDict(ctx, stream.resources, 'Font');
     const resolveFont = (name: string): LoadedFont | undefined => loadFont(ctx, fontsDict, name, this.model.fonts);
+    const statesDict = getDict(ctx, stream.resources, 'ExtGState');
+    const resolveGState = (name: string): ExtGStateAlpha | undefined => {
+      const d = resolve(ctx, statesDict?.get(PDFName.of(name)));
+      if (!(d instanceof PDFDict)) return undefined;
+      return { fillAlpha: getNumber(ctx, d, 'ca'), strokeAlpha: getNumber(ctx, d, 'CA') };
+    };
     const sm = new StateMachine(base);
     // Text can also live in tiling pattern cells and soft-mask groups of this stream's resources.
     this.walkAuxiliary(stream, base, depth, active);
@@ -684,17 +720,19 @@ class Walker {
       }
       if (TEXT_SHOW_OPS.has(op.op)) {
         // ' and " move to the next line (and set spacing) before showing.
-        if (op.op === "'" || op.op === '"') sm.update(op, resolveFont);
+        if (op.op === "'" || op.op === '"') sm.update(op, resolveFont, resolveGState);
         this.show(stream, i, op, sm, resolveFont);
         continue;
       }
       if (op.op === 'Do') {
-        sm.update(op, resolveFont);
+        sm.update(op, resolveFont, resolveGState);
         this.doXObject(stream, op, sm, depth, active);
         continue;
       }
       if (op.op === 'BI') {
         this.sawImage = true;
+        // Inline images are small (the format caps them at 4 KB in practice): placed, never trusted as opaque.
+        this.placeImage(sm, 0, 0, false);
         continue;
       }
       if (op.op === 'd0' || op.op === 'd1') {
@@ -703,7 +741,59 @@ class Walker {
       if (op.op === 'sh') {
         // Shading is drawing, not text; nothing to do.
       }
-      sm.update(op, resolveFont);
+      sm.update(op, resolveFont, resolveGState);
+    }
+  }
+
+  /** Record an image painted at the current CTM (it fills the unit square of image space). */
+  private placeImage(sm: StateMachine, widthPx: number, heightPx: number, opaque: boolean): void {
+    const m = sm.state.ctm;
+    const corners = [apply(m, 0, 0), apply(m, 1, 0), apply(m, 0, 1), apply(m, 1, 1)];
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    // Pixels per inch along each image axis: the axis spans |row| user units (1/72 in).
+    const alongX = Math.hypot(m[0], m[1]) / 72;
+    const alongY = Math.hypot(m[2], m[3]) / 72;
+    const dpi = Math.max(alongX > 0 ? widthPx / alongX : 0, alongY > 0 ? heightPx / alongY : 0);
+    this.images.push({
+      x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys),
+      dpi: Number.isFinite(dpi) ? dpi : 0,
+      opaque: opaque && sm.state.fillAlpha >= 1,
+      order: this.order++,
+    });
+  }
+
+  /** Highest effective resolution of the images on the page. */
+  imageDpi(): number {
+    let dpi = 0;
+    for (const im of this.images) dpi = Math.max(dpi, im.dpi);
+    return dpi;
+  }
+
+  /**
+   * After the walk: text hidden over an image is an OCR layer (`ocr`), the reading of what the
+   * picture shows. Text painted BEFORE an opaque image that covers it is hidden too ("text under
+   * the page image", another common OCR layout), so it counts as hidden and as OCR text.
+   */
+  markOcrText(runs: GlyphRun[], from: number): void {
+    if (this.images.length === 0) return;
+    for (let r = from; r < runs.length; r++) {
+      const run = runs[r];
+      if (run.space || run.oracle) continue;
+      const order = this.runOrder.get(run) ?? -1;
+      const shown = run.glyphs.filter((g) => g.unicode.trim() !== '');
+      if (shown.length === 0) continue;
+      const within = (im: PlacedImage): boolean => shown.filter((g) => glyphInside(im, g, run)).length * 2 >= shown.length;
+      if (!run.hidden) {
+        if (!this.images.some((im) => im.opaque && im.order > order && within(im))) continue;
+        run.hidden = true;
+        this.visibleGlyphs -= shown.length;
+        this.page.hiddenGlyphs += run.glyphs.length;
+      } else if (!this.images.some(within)) {
+        continue;
+      }
+      run.ocr = true;
+      this.ocrGlyphs += shown.length;
     }
   }
 
@@ -800,6 +890,10 @@ class Walker {
     const subtype = getName(ctx, xobj.dict, 'Subtype');
     if (subtype === 'Image') {
       this.sawImage = true;
+      const d = xobj.dict;
+      const masked = getBool(ctx, d, 'ImageMask') === true || d.get(PDFName.of('SMask')) !== undefined
+        || d.get(PDFName.of('Mask')) !== undefined || (getNumber(ctx, d, 'SMaskInData') ?? 0) !== 0;
+      this.placeImage(sm, getNumber(ctx, d, 'Width') ?? 0, getNumber(ctx, d, 'Height') ?? 0, !masked);
       return;
     }
     if (subtype !== 'Form') return;
@@ -844,6 +938,8 @@ class Walker {
     inner.text = { ...sm.state.text };
     inner.fillLuminance = sm.state.fillLuminance;
     inner.strokeLuminance = sm.state.strokeLuminance;
+    inner.fillAlpha = sm.state.fillAlpha;
+    inner.strokeAlpha = sm.state.strokeAlpha;
     active.add(key);
     this.walk(record, inner, depth + 1, active);
     active.delete(key);
@@ -903,9 +999,14 @@ class Walker {
     const emY: [number, number] = [trm0[2], trm0[3]];
     const hiddenByMode = t.renderMode === 3 || t.renderMode === 7;
     const hiddenByColor = t.renderMode === 0 && sm.state.fillLuminance !== null && sm.state.fillLuminance > 0.97;
+    // Fully transparent paint (ExtGState /ca, /CA): the OCR layer of many scanners.
+    const fills = [0, 2, 4, 6].includes(t.renderMode);
+    const strokes = [1, 2, 5, 6].includes(t.renderMode);
+    const hiddenByAlpha = (fills || strokes)
+      && (!fills || sm.state.fillAlpha < MIN_VISIBLE_ALPHA) && (!strokes || sm.state.strokeAlpha < MIN_VISIBLE_ALPHA);
     const sizeUser = Math.hypot(trm0[2], trm0[3]);
     const tiny = sizeUser < 0.5;
-    const hidden = hiddenByMode || hiddenByColor || tiny;
+    const hidden = hiddenByMode || hiddenByColor || hiddenByAlpha || tiny;
 
     const glyphs: Glyph[] = [];
     const textOffsets: number[] = [];
@@ -982,7 +1083,18 @@ class Walker {
       ...(this.space ? { space: this.space } : {}),
     };
     this.runs.push(run);
+    this.runOrder.set(run, this.order++);
   }
+}
+
+/** True when the middle of glyph `g` (half an advance along, a third of an em up) lies inside `b`. */
+function glyphInside(b: Box, g: Glyph, run: GlyphRun): boolean {
+  const exLen = Math.hypot(run.emX[0], run.emX[1]) || 1;
+  const eyLen = Math.hypot(run.emY[0], run.emY[1]) || 1;
+  const w = g.advance * (exLen / (run.local.fontSize * run.local.hscale || 1));
+  const x = g.x + (run.emX[0] / exLen) * (w / 2) + (run.emY[0] / eyLen) * (g.fontSize / 3);
+  const y = g.y + (run.emX[1] / exLen) * (w / 2) + (run.emY[1] / eyLen) * (g.fontSize / 3);
+  return insideBox(b, x, y);
 }
 
 /**

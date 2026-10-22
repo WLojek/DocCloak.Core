@@ -194,6 +194,8 @@ export interface OfficeRedactionResult {
   removed?: RemovedPart[];
   /** PDF only: 0-based pages that were rasterized because they could not be edited safely. */
   rasterizedPages?: number[];
+  /** PDF only: 0-based scan pages whose OCR-found values were painted over in the picture. */
+  scanPages?: number[];
 }
 
 /** "report.docx" -> "report.redacted.docx"; extensionless names get a suffix. */
@@ -286,7 +288,7 @@ export async function redactOfficeFile(
     redactedText = redactedText.slice(0, repl.start) + repl.replacement + redactedText.slice(repl.end);
   }
 
-  let written: { blob: Blob; warnings: string[]; removed?: RemovedPart[]; rasterizedPages?: number[] };
+  let written: { blob: Blob; warnings: string[]; removed?: RemovedPart[]; rasterizedPages?: number[]; scanPages?: number[] };
   if (kind === 'docx') {
     written = await writeAnonymizedDocxWithReport(extraction as DocxExtraction, replacements, valueReplacements, {
       acceptTrackedChanges: options.acceptTrackedChanges ?? true,
@@ -315,5 +317,6 @@ export async function redactOfficeFile(
     unredactable: extraction.unredactable,
     removed: written.removed,
     rasterizedPages: written.rasterizedPages,
+    scanPages: written.scanPages,
   };
 }

@@ -190,7 +190,7 @@ const assets = {
 const extraction = await readPdf(file, { assets });     // extraction.plainText -> detect
 const entities = await engine.detect(extraction.plainText);
 const replacements = entities.map((e) => ({ start: e.start, end: e.end, replacement: session.anonymize(e.value, e.type) }));
-const { blob, warnings, removed, rasterizedPages } = await writeAnonymizedPdfWithReport(
+const { blob, warnings, removed, rasterizedPages, scanPages } = await writeAnonymizedPdfWithReport(
   extraction, replacements, session.getEntries(), { assets },
 );
 ```
@@ -245,11 +245,28 @@ ToUnicode maps of edited fonts are trimmed to the codes still used,
 configuration is dropped as well, so content of hidden layers becomes
 visible (it is redacted like everything else).
 
+**Scanned pages with an OCR text layer.** A scan with OCR shows a picture;
+its text layer is invisible (render mode 3, fully transparent paint through
+an ExtGState `/ca 0`, or text painted under the picture). Editing that layer
+alone would leave every value visible in the picture, so the reader marks
+such text (`GlyphRun.ocr`, `PdfPageInfo.ocrText`) and the writer renders a
+page whose OCR text holds a redacted value at the scan's own resolution (at
+least `rasterDpi`, at most 300 dpi) and paints the value over in the
+picture: a cover in the paper colour, grown along the line to where the
+value's ink really ends (OCR letters rarely have the scan's widths), and the
+placeholder label in its place, on the value's baseline, sized from the
+value's ink and fitted to the value's width (squeezed, then shrunk). The
+page is exported as a lossless image (gray for a gray scan) without a text
+layer and listed in `scanPages`. Pages of the same file without any text are
+not touched.
+
 **Refusals.** Encrypted files (`'encrypted'`, pass `password`), files over
 50 MB or 500 pages (`'too-large'`), non-PDF bytes (`'invalid-package'`).
-Scanned pages (image without a text layer) and text no decoder can read are
+Scanned pages without a text layer (no OCR) and text no decoder can read are
 reported in `unredactable` (`'scanned-page'`, `'undecodable-text'`) and gate
-the export behind `allowUnredactable`, like Office packages.
+the export behind `allowUnredactable`, like Office packages; with it they
+are exported as they are. A file whose pages hold no text at all reads as
+`empty`.
 
 ## What is removed or normalised in Office packages
 

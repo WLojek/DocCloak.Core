@@ -4,6 +4,59 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-10-22
+
+Scanned PDF pages with an OCR text layer are redacted where a reader sees
+them: in the picture. Additive for hosts (`PdfPageInfo.ocrText`,
+`GlyphRun.ocr`, `PdfWriteResult.scanPages`, `scanPages` from
+`redactOfficeFile`); one behaviour change: such pages are no longer reported
+as unredactable `'scanned-page'` parts, because they are now redacted.
+`CoreEnv.loadTokenizer` still works with its deprecation warning; its
+removal, announced for this release, moves to a later one.
+
+### Scanned pages with an OCR text layer are redacted in the picture (T235)
+
+Reported in DocCloak.Core#1: a court judgment scanned with an OCR text layer
+(Lutecia / 3-Heights: the text sits in a form XObject under an ExtGState
+with `/ca 0`) was "redacted" in its invisible text layer only; the picture,
+which is what a reader sees, still showed every name.
+
+- **Transparent text is hidden text.** The state machine follows `gs` and
+  keeps the fill and stroke alpha (`ca` / `CA`); text painted at alpha below
+  0.02 counts as hidden, like render mode 3 and white text. Text painted
+  before an opaque image that covers it ("text under the page image") is
+  hidden too.
+- **OCR text.** Hidden text over an image is marked `GlyphRun.ocr`, and its
+  page `PdfPageInfo.ocrText`. A scan page with OCR text is no longer an
+  unredactable part; a scan page without any text still is
+  (`'scanned-page'`, exported as is with `allowUnredactable`), and a file
+  without any text still reads as `empty`.
+- **Painted placeholders.** A page whose OCR text holds a redacted value is
+  rendered at the scan's resolution (from the images' size and placement, at
+  least `rasterDpi`, at most 300 dpi, within a 40 Mpx budget). Each value is
+  covered in the paper colour (median of the pixels around it) and its
+  placeholder is painted on the value's baseline. The cover grows along the
+  line to where the value's ink ends (stopping at a word space, at most one
+  em), because OCR layers set letters in their own font and a value's last
+  letters can run past the layer's end; its height and the label's size come
+  from the value's ink, because OCR layers often stretch their font size to
+  the line height. The label fits the value's width: squeezed down to 60 %,
+  then shrunk. Pieces of a value on one line join under one label; a value
+  wrapped to the next line is covered there without a label. All covers are
+  painted before any label, so a cover never clips the line above.
+- The page is embedded as a lossless Flate image (gray when the page is
+  gray), not a PNG: page 1 of the reported file stays the size of the scan.
+  It has no text layer. The writer lists it in the new
+  `PdfWriteResult.scanPages` (and `redactOfficeFile` in `scanPages`), with
+  a warning; `rasterizedPages` keeps meaning pages blacked out because
+  their text could not be edited safely.
+- Text-layer PDFs are unchanged: the founder's kit files 01-08 read
+  identically (text, pages, parts, warnings) to 0.13.0.
+- Tests: `pdf-scan.test.ts` (synthetic scans with values painted red: alpha,
+  render mode 3 and text-under-image layers, OCR letters narrower than the
+  scan, a mixed scan / picture-only / text file; transparent text without an
+  image; alpha in the state machine; cover growth; mark joining).
+
 ## [0.13.0] - 2026-09-25
 
 PDF-to-PDF redaction that keeps the text layer (new `@doccloak/core/pdf`

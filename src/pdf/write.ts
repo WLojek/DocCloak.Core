@@ -16,11 +16,13 @@
  *    attachments, JavaScript, named destinations, structure tree and the
  *    incremental-update history of the input never reach the output;
  * 6. pages that cannot be edited safely are rendered by pdf.js and replaced
- *    by an image with the redacted regions blacked out in the pixels;
+ *    by an image with the redacted regions blacked out in the pixels; scan
+ *    pages whose OCR text layer holds a redacted value are rendered at the
+ *    scan's resolution with each value covered and its placeholder painted in;
  * 7. verify the output with both extractors and a byte scan; refuse on any trace.
  */
 
-import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString } from '@cantoo/pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from '@cantoo/pdf-lib';
 import { PDFRef } from '@cantoo/pdf-lib';
 import { UnsupportedDocumentError } from '../dom/errors.ts';
 import type { ValueReplacement } from '../docx.ts';
@@ -33,7 +35,8 @@ import { getDict, getStream, refOf, resolve } from './objects.ts';
 import type { PDFObject } from './objects.ts';
 import { findOccurrences, openWithOracle, searchIndex } from './oracle.ts';
 import type { CanvasFactory, OracleDocument } from './oracle.ts';
-import { rasterizePage } from './raster.ts';
+import { rasterizePage, rasterizeScanPage } from './raster.ts';
+import type { PaintMark } from './raster.ts';
 import { serializeToUnicode } from './cmap.ts';
 import type { ToUnicodeEntry } from './cmap.ts';
 import { planEdits, rewriteStream, segmentsFor } from './surgery.ts';
@@ -42,6 +45,11 @@ import type { GlyphRun, PdfWriteOptions, PdfWriteResult, Rect } from './types.ts
 import { PdfVerifyError, verifyPdf } from './verify.ts';
 import type { PdfExtraction } from './read.ts';
 import { lexContent } from './lexer.ts';
+
+/** Scan pages render at the scan's own resolution, up to this. */
+const MAX_SCAN_DPI = 300;
+/** Pixel budget of one rendered scan page (a 300 dpi A3 page fits; larger pages render coarser). */
+const MAX_SCAN_PIXELS = 40_000_000;
 
 /** Same normalised date the docx writer stamps. */
 export const NORMALISED_PDF_DATE = new Date('2000-01-01T00:00:00Z');
@@ -138,9 +146,14 @@ export async function writeAnonymizedPdfWithReport(
         if (!editedPages.has(page.index)) continue;
         if (page.issues.length > 0 || page.oracleText) rasterPages.add(page.index);
       }
+      // Scan pages: an edit in an OCR text layer would leave the value in the picture under it, so the
+      // page is rendered and the value painted over where the layer says it is.
+      const scanPages = new Set<number>();
+      for (const s of segments) if (s.run.ocr && !rasterPages.has(s.run.page)) scanPages.add(s.run.page);
+      const paintedPages = new Set([...rasterPages, ...scanPages]);
       // Text in a pattern cell or soft-mask group cannot be blacked out in a raster (the cell is tiled
       // over its fill area, the group sits behind a mask): such a page must be edited in place or not at all.
-      const hostile = [...rasterPages].filter((p) => model.pages[p]?.hostile);
+      const hostile = [...paintedPages].filter((p) => model.pages[p]?.hostile);
     if (hostile.length > 0) {
       throw new UnsupportedDocumentError(
         'unredactable-parts',
@@ -148,7 +161,7 @@ export async function writeAnonymizedPdfWithReport(
         hostile.map((p) => `page ${p + 1}`),
       );
     }
-    const rasterWithAux = [...rasterPages].filter((p) => segments.some((sg) => sg.run.page === p && sg.run.space));
+    const rasterWithAux = [...paintedPages].filter((p) => segments.some((sg) => sg.run.page === p && sg.run.space));
       if (rasterWithAux.length > 0) {
         throw new UnsupportedDocumentError(
           'unredactable-parts',
@@ -178,8 +191,8 @@ export async function writeAnonymizedPdfWithReport(
       for (const key of streamsToRewrite) {
         const stream = model.streams.get(key);
         if (!stream) continue;
-        if ([...stream.pages].every((p) => rasterPages.has(p))) continue;
-        const segs = (plan.byStream.get(key) ?? []).filter((s) => !rasterPages.has(s.run.page));
+        if ([...stream.pages].every((p) => paintedPages.has(p))) continue;
+        const segs = (plan.byStream.get(key) ?? []).filter((s) => !paintedPages.has(s.run.page));
         const result = rewriteStream(model, stream, runsByStreamOp.get(key) ?? new Map(), segs, plan.shiftedRuns);
         for (const [k, codes] of result.usedCodes) mergeCodes(usedCodes, k, codes);
         removedSequences.push(...result.removedSequences);
@@ -198,13 +211,39 @@ export async function writeAnonymizedPdfWithReport(
       scrubSourceSideChannels(model);
 
       // 5. Rebuild into the fresh document.
-      const keptIndexes = model.pages.map((p) => p.index).filter((i) => !rasterPages.has(i));
+      const keptIndexes = model.pages.map((p) => p.index).filter((i) => !paintedPages.has(i));
       const copied = keptIndexes.length > 0 ? await outDoc.copyPages(model.doc, keptIndexes) : [];
       const copiedByIndex = new Map<number, (typeof copied)[number]>();
       keptIndexes.forEach((idx, k) => copiedByIndex.set(idx, copied[k]));
 
       const rasterized: number[] = [];
+      const scanned: number[] = [];
+      const sortedReplacements = [...all].sort((a, b) => a.start - b.start || a.end - b.end); // segmentsFor's order
       for (const page of model.pages) {
+        if (scanPages.has(page.index)) {
+          const marks = paintMarksForPage(segments, page.index, sortedReplacements);
+          let raster: Awaited<ReturnType<typeof rasterizeScanPage>>;
+          try {
+            raster = await rasterizeScanPage(oracle, page.index, marks, { dpi: scanDpi(page, options.rasterDpi), canvasFactory: options.canvasFactory });
+          } catch (err) {
+            throw new UnsupportedDocumentError('unredactable-parts', `page ${page.index + 1} cannot be rendered: ${(err as Error).message ?? String(err)}`, [`page ${page.index + 1}`]);
+          }
+          // Raw pixels in a Flate image (gray for a gray scan): lossless, and far smaller than an RGBA PNG.
+          const image = outDoc.context.register(outDoc.context.flateStream(raster.pixels, {
+            Type: 'XObject',
+            Subtype: 'Image',
+            Width: raster.widthPx,
+            Height: raster.heightPx,
+            ColorSpace: raster.channels === 1 ? 'DeviceGray' : 'DeviceRGB',
+            BitsPerComponent: 8,
+          }));
+          const newPage = outDoc.addPage([raster.widthPt, raster.heightPt]);
+          const name = newPage.node.newXObject('Scan', image);
+          newPage.pushOperators(pushGraphicsState(), concatTransformationMatrix(raster.widthPt, 0, 0, raster.heightPt, 0, 0), drawObject(name), popGraphicsState());
+          scanned.push(page.index);
+          warnings.push(`page ${page.index + 1}: scan with an OCR text layer; the values are painted over in the picture with their placeholders and the page is exported as an image (its text layer is gone)`);
+          continue;
+        }
         if (rasterPages.has(page.index)) {
           const boxes = boxesForPage(segments, page.index, fresh.runs, page, [...needles]);
           const dpi = options.rasterDpi ?? 150;
@@ -245,7 +284,7 @@ export async function writeAnonymizedPdfWithReport(
       stampMetadata(outDoc);
 
       const bytes = await outDoc.save({ useObjectStreams: false, updateFieldAppearances: false, addDefaultPage: false });
-      return { bytes, needles: [...needles], removedSequences, rasterized, shiftedLines: plan.shiftedLines, removed: fresh.removed, placeholders: [...new Set(all.map((r) => r.replacement))] };
+      return { bytes, needles: [...needles], removedSequences, rasterized, scanned, shiftedLines: plan.shiftedLines, removed: fresh.removed, placeholders: [...new Set(all.map((r) => r.replacement))] };
     } finally {
       await oracle.close();
     }
@@ -268,6 +307,7 @@ export async function writeAnonymizedPdfWithReport(
     warnings: [...new Set(warnings)],
     removed: produced.removed,
     rasterizedPages: produced.rasterized,
+    scanPages: produced.scanned,
     shiftedLines: produced.shiftedLines,
   };
 }
@@ -549,6 +589,69 @@ function stampMetadata(outDoc: PDFDocument): void {
   outDoc.setCreator('DocCloak');
   outDoc.setCreationDate(NORMALISED_PDF_DATE);
   outDoc.setModificationDate(NORMALISED_PDF_DATE);
+}
+
+/** Resolution for a scan page: the scan's own (at least `base`, at most 300 dpi), within the pixel budget. */
+function scanDpi(page: PageRecord, base = 150): number {
+  const dpi = Math.max(base, Math.min(MAX_SCAN_DPI, Math.round(page.imageDpi)));
+  const squareInches = Math.max(1e-6, (page.info.width / 72) * (page.info.height / 72));
+  return Math.max(36, Math.min(dpi, Math.floor(Math.sqrt(MAX_SCAN_PIXELS / squareInches))));
+}
+
+/**
+ * Where each redacted value sits on a scan page, for painting: one mark per line a value
+ * occupies (the pieces of a value on one line, split across operators, join into one), the
+ * placeholder on the value's first line and a blank cover on the lines it wraps onto.
+ * Whitespace glyphs at either end of a piece are left out.
+ */
+export function paintMarksForPage(segments: Segment[], page: number, replacements: Replacement[]): PaintMark[] {
+  const marks: PaintMark[] = [];
+  let lastIndex = -1;
+  for (const s of segments) {
+    const run = s.run;
+    if (run.page !== page || run.space) continue;
+    let from = s.from;
+    let to = s.to;
+    while (from < to && run.glyphs[from].unicode.trim() === '') from++;
+    while (to > from && run.glyphs[to - 1].unicode.trim() === '') to--;
+    if (from >= to) continue;
+    const exLen = Math.hypot(run.emX[0], run.emX[1]) || 1;
+    const eyLen = Math.hypot(run.emY[0], run.emY[1]) || 1;
+    const ux = run.emX[0] / exLen;
+    const uy = run.emX[1] / exLen;
+    const vx = run.emY[0] / eyLen;
+    const vy = run.emY[1] / eyLen;
+    const scale = exLen / (run.local.fontSize * run.local.hscale || 1);
+    const first = run.glyphs[from];
+    let lo = 0;
+    let hi = 0;
+    let size = 0;
+    for (let i = from; i < to; i++) {
+      const g = run.glyphs[i];
+      const along = (g.x - first.x) * ux + (g.y - first.y) * uy;
+      lo = Math.min(lo, along);
+      hi = Math.max(hi, along + g.advance * scale);
+      size = Math.max(size, g.fontSize);
+    }
+    const x = first.x + ux * lo;
+    const y = first.y + uy * lo;
+    const prev = marks[marks.length - 1];
+    if (prev && s.replacementIndex === lastIndex) {
+      // Same value: join when this piece continues the previous one's line.
+      const across = (x - prev.x) * prev.vx + (y - prev.y) * prev.vy;
+      const along = (x - prev.x) * prev.ux + (y - prev.y) * prev.uy;
+      const lineSize = Math.max(prev.size, size);
+      if (Math.abs(across) < 0.4 * lineSize && along > -0.5 * lineSize && along < prev.length + 2 * lineSize) {
+        prev.length = Math.max(prev.length, along + (hi - lo));
+        prev.size = lineSize;
+        continue;
+      }
+    }
+    const label = s.replacementIndex === lastIndex ? '' : replacements[s.replacementIndex]?.replacement ?? '';
+    marks.push({ x, y, ux, uy, vx, vy, length: hi - lo, size, label });
+    lastIndex = s.replacementIndex;
+  }
+  return marks;
 }
 
 /**

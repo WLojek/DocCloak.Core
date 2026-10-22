@@ -89,8 +89,13 @@ export interface GlyphRun {
   glyphs: Glyph[];
   /** Text render mode at the time of showing (3 and 7 paint nothing: invisible OCR layers). */
   renderMode: number;
-  /** True when the run is not visible (render mode 3/7, or fully outside the page). */
+  /** True when the run is not visible (render mode 3/7, white, fully transparent, tiny, or painted under an opaque image). */
   hidden: boolean;
+  /**
+   * Hidden text over an image: an OCR layer, the reading of what a scanned picture shows. A
+   * redaction that touches it is painted into the picture (the page is exported as an image).
+   */
+  ocr?: boolean;
   /** Flat-text offset of each glyph's first character (parallel to glyphs). */
   textOffsets: number[];
   /** User-space vector of one em (1000 glyph units) along the baseline, at this run's transform. */
@@ -144,6 +149,11 @@ export interface PdfPageInfo {
   hasImages: boolean;
   /** True when the page shows images but no glyph at all (scanned page). */
   imageOnly: boolean;
+  /**
+   * True when hidden text lies over an image on the page (a scan with an OCR text layer).
+   * Redacted values in it are painted over in the picture, and the page is exported as an image.
+   */
+  ocrText: boolean;
   /** Flat-text range of the page. */
   textStart: number;
   textEnd: number;
@@ -197,9 +207,9 @@ export interface PdfWriteOptions {
   allowUnredactable?: boolean;
   /** Placeholder fitting policy. */
   fit?: PlaceholderFit;
-  /** Rasterize pages whose text cannot be edited safely instead of refusing the file. Default true. */
+  /** Rasterize pages whose text cannot be edited safely instead of refusing the file. Default true. Scan pages are always rendered. */
   rasterizeUnsafePages?: boolean;
-  /** DPI for rasterized pages. Default 150. */
+  /** DPI for rasterized pages. Default 150; scan pages use the scan's own resolution (at least this, at most 300). */
   rasterDpi?: number;
   /** Skip the post-write verification (tests only; never in hosts). */
   skipVerify?: boolean;
@@ -211,8 +221,13 @@ export interface PdfWriteResult {
   warnings: string[];
   /** Parts dropped from the output (annotations, forms, ...). */
   removed: RemovedPart[];
-  /** 0-based indexes of pages that were rasterized. */
+  /** 0-based indexes of pages that were rasterized because their text could not be edited safely (black boxes). */
   rasterizedPages: number[];
+  /**
+   * 0-based indexes of scan pages with an OCR text layer whose values were painted over in the
+   * picture (placeholder labels at the values' places); each is exported as an image.
+   */
+  scanPages: number[];
   /** Placeholders whose fit needed a line shift (informational). */
   shiftedLines: number;
 }

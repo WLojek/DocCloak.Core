@@ -43,7 +43,7 @@ export interface CoreEnv {
    * named by `tokenizerConfig.tokenizer_class`). May return a promise.
    *
    * Optional so hosts still on loadTokenizer keep compiling; required once
-   * loadTokenizer is removed (planned for 0.14.0).
+   * loadTokenizer is removed (planned for a later release).
    */
   buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
   /**

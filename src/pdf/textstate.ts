@@ -3,7 +3,8 @@
  *
  * Tracks the subset of the graphics state that positions glyphs (ISO 32000-1
  * 8.4, 9.3, 9.4): CTM, text state parameters, text matrix and line matrix,
- * fill colour (to spot white-on-white text), and the q/Q stack. The same
+ * fill colour (to spot white-on-white text), constant alpha from ExtGState
+ * (to spot fully transparent text, a common OCR layer), and the q/Q stack. The same
  * class is used by the extractor (to compute glyph origins) and by the
  * surgery (to know the state at any operator).
  */
@@ -77,10 +78,20 @@ export interface GraphicsState {
   fillLuminance: number | null;
   /** Stroke luminance, for render modes that only stroke. */
   strokeLuminance: number | null;
+  /** Constant alpha (ExtGState /ca) for filling, 0..1. */
+  fillAlpha: number;
+  /** Constant alpha (ExtGState /CA) for stroking, 0..1. */
+  strokeAlpha: number;
+}
+
+/** The alpha entries of a named ExtGState (absent when the dictionary does not set them). */
+export interface ExtGStateAlpha {
+  fillAlpha?: number;
+  strokeAlpha?: number;
 }
 
 function cloneState(s: GraphicsState): GraphicsState {
-  return { ctm: s.ctm, text: { ...s.text }, fillLuminance: s.fillLuminance, strokeLuminance: s.strokeLuminance };
+  return { ctm: s.ctm, text: { ...s.text }, fillLuminance: s.fillLuminance, strokeLuminance: s.strokeLuminance, fillAlpha: s.fillAlpha, strokeAlpha: s.strokeAlpha };
 }
 
 export function initialState(ctm: Matrix = IDENTITY): GraphicsState {
@@ -89,6 +100,8 @@ export function initialState(ctm: Matrix = IDENTITY): GraphicsState {
     text: { font: null, fontName: '', fontSize: 0, charSpacing: 0, wordSpacing: 0, hscale: 1, leading: 0, rise: 0, renderMode: 0 },
     fillLuminance: 0,
     strokeLuminance: 0,
+    fillAlpha: 1,
+    strokeAlpha: 1,
   };
 }
 
@@ -138,10 +151,11 @@ export class StateMachine {
 
   /**
    * Apply one operator's effect on the state. `resolveFont` maps a resource
-   * name to a LoadedFont (undefined when unknown). Returns false when the
-   * operator is a text-showing operator (caller handles it).
+   * name to a LoadedFont (undefined when unknown); `resolveGState` maps an
+   * ExtGState resource name to its alpha entries (without it `gs` is ignored).
+   * Text-showing operators are not handled here (caller handles them).
    */
-  update(op: ContentOp, resolveFont: (name: string) => LoadedFont | undefined): void {
+  update(op: ContentOp, resolveFont: (name: string) => LoadedFont | undefined, resolveGState?: (name: string) => ExtGStateAlpha | undefined): void {
     const s = this.state;
     const o = op.operands;
     switch (op.op) {
@@ -226,6 +240,13 @@ export class StateMachine {
       case 'SC': case 'SCN': {
         const nums = o.filter((x) => x.kind === 'number').map((x) => num(x));
         s.strokeLuminance = this.strokeSpace && nums.length === o.length ? luminanceOf(nums, this.strokeSpace) : null;
+        break;
+      }
+      case 'gs': {
+        const nameOp = o[0];
+        const alpha = nameOp && nameOp.kind === 'name' ? resolveGState?.(nameOp.value) : undefined;
+        if (alpha?.fillAlpha !== undefined) s.fillAlpha = clamp01(alpha.fillAlpha);
+        if (alpha?.strokeAlpha !== undefined) s.strokeAlpha = clamp01(alpha.strokeAlpha);
         break;
       }
       default:
