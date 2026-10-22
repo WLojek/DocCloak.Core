@@ -4,6 +4,28 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [0.14.1] - 2026-10-22
+
+Two fixes found by the acceptance run of web 0.15.0 on the preview (T237).
+
+- **Long values on scans whose OCR letters are narrower than the print.** A
+  cover grew at most one em past the OCR layer's end. A layer 15 % narrower
+  than the print ends about 2 em short of a 13 em e-mail address, so its
+  last letters (".com") stayed visible. The cover may now grow by one em or
+  35 % of the value's length, whichever is more, still stopping at the first
+  word space. Measured on synthetic scans with two long values: clean down to
+  OCR letters at 75 % of the print's width (at 70 % a fragment remains).
+- **The verifier no longer searches picture pixels for values.** It scanned
+  the decoded bytes of every stream not compressed with an image codec,
+  pixels of Flate pictures included, so a short value (the street number
+  "36") could match two neighbouring gray levels (51, 54) by chance and
+  refuse the export. Painted scan pages are such pictures, and so are Flate
+  logos and scans in any PDF. Image samples are skipped; the image
+  dictionary's strings are still searched.
+- Tests: a long e-mail on the narrow-OCR scan; the verifier ignores a value's
+  bytes in an image's samples and finds them in the image dictionary and in
+  another stream.
+
 ## [0.14.0] - 2026-10-22
 
 Scanned PDF pages with an OCR text layer are redacted where a reader sees

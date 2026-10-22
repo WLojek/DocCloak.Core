@@ -5,8 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PDFDocument, PDFDict, PDFName, PDFRawStream } from '@cantoo/pdf-lib';
-import { readPdf, writeAnonymizedPdfWithReport, extractPdf } from '../src/pdf/index.ts';
+import { PDFDocument, PDFDict, PDFName, PDFRawStream, PDFString } from '@cantoo/pdf-lib';
+import { readPdf, writeAnonymizedPdfWithReport, extractPdf, verifyPdf } from '../src/pdf/index.ts';
 import type { PdfAssetPaths } from '../src/pdf/index.ts';
 import { decodeStream, getDict, getName, getNumber } from '../src/pdf/objects.ts';
 import { StateMachine, initialState } from '../src/pdf/textstate.ts';
@@ -27,8 +27,10 @@ const LINES = [
   ['Umowa', 'zawarta', 'z', 'Kowalski', 'Jan,', 'Warszawa.'],
   ['Telefon', 'kontaktowy', '600123456', 'w', 'godzinach', 'pracy.'],
   ['Podpisano', 'przez', 'Nowak', 'Anna', 'dnia', 'dzisiejszego.'],
+  // A long value: with OCR letters narrower than the print, the layer ends well short of its ink.
+  ['Kontakt:', 'jan.kowalski@example.com', 'lub', 'biuro.'],
 ];
-const VALUES = ['Kowalski', '600123456', 'Nowak', 'Anna'];
+const VALUES = ['Kowalski', '600123456', 'Nowak', 'Anna', 'jan.kowalski@example.com'];
 
 function scanPage(layer: ScanPageSpec['layer'], ocrScale?: number): ScanPageSpec {
   return { kind: 'scan', lines: LINES, values: VALUES, layer, ...(ocrScale ? { ocrScale } : {}) };
@@ -41,7 +43,7 @@ function spans(text: string, value: string, replacement: string): Array<{ start:
   return out;
 }
 
-const PLACEHOLDERS: Record<string, string> = { Kowalski: '[PERSON_1]', '600123456': '[PHONE_1]', Nowak: '[PERSON_2]', Anna: '[PERSON_3]' };
+const PLACEHOLDERS: Record<string, string> = { Kowalski: '[PERSON_1]', '600123456': '[PHONE_1]', Nowak: '[PERSON_2]', Anna: '[PERSON_3]', 'jan.kowalski@example.com': '[EMAIL_1]' };
 
 async function redactScan(bytes: Uint8Array, name: string) {
   const extraction = await readPdf(bytes, { assets: ASSETS });
@@ -206,6 +208,28 @@ describe('transparent text (ExtGState alpha)', () => {
     expect([sm.state.fillAlpha, sm.state.strokeAlpha]).toEqual([0, 0.25]);
     sm.update(ops[3], () => undefined, resolve);
     expect([sm.state.fillAlpha, sm.state.strokeAlpha]).toEqual([1, 1]);
+  });
+});
+
+describe('verifier and image samples', () => {
+  it('a value that occurs in an image\'s pixel bytes is not a trace; in the image dictionary or another stream it is', async () => {
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    const page = doc.addPage([200, 200]);
+    // Gray levels 40 51 54 40 (dark anti-aliased edge pixels) spell "(36(" in bytes: the street number "36".
+    const pixels = new Uint8Array(64 * 64).fill(255);
+    pixels.set([40, 51, 54, 40], 1000);
+    const image = doc.context.register(doc.context.flateStream(pixels, { Type: 'XObject', Subtype: 'Image', Width: 64, Height: 64, ColorSpace: 'DeviceGray', BitsPerComponent: 8 }));
+    const name = page.node.newXObject('Im', image);
+    page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(new TextEncoder().encode(`q 200 0 0 200 0 0 cm /${name.decodeText()} Do Q`))));
+    const clean = await doc.save({ useObjectStreams: false });
+    expect(await verifyPdf({ bytes: clean, needles: ['36'] })).toEqual([]);
+
+    const titled = await PDFDocument.load(clean, { updateMetadata: false });
+    const img = [...titled.context.enumerateIndirectObjects()].map(([, o]) => o).find((o) => o instanceof PDFRawStream && o.dict.get(PDFName.of('Subtype'))?.toString() === '/Image') as PDFRawStream;
+    img.dict.set(PDFName.of('Alt'), PDFString.of('ul. Długa 36'));
+    titled.context.register(titled.context.flateStream(new TextEncoder().encode('note: 36 left here'), { Type: 'Note' }));
+    const findings = await verifyPdf({ bytes: await titled.save({ useObjectStreams: false }), needles: ['36'] });
+    expect(findings.map((f) => f.pass).sort()).toEqual(['stream-bytes', 'string-bytes']);
   });
 });
 

@@ -119,6 +119,13 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
     for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
       if (obj instanceof PDFRawStream) {
         if (isImageEncoded(ctx, obj)) continue;
+        // Image samples (a Flate or uncompressed picture, a scan page we painted) are pixels, not
+        // text: a short value turns up in them by chance ("36" in a gray ramp 51, 54). Only the
+        // image dictionary's strings are searched.
+        if (namesOf(ctx, obj.dict.get(PDFName.of('Subtype')))[0] === 'Image') {
+          scanStrings(obj.dict, ref.objectNumber, encodedNeedles, findings, new Set());
+          continue;
+        }
         let decoded: Uint8Array;
         try { decoded = decodeStream(ctx, obj); } catch { continue; }
         if (isFontProgram(ctx, obj) || looksLikeFontProgram(decoded)) {
@@ -174,7 +181,7 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
     }
   }
   // No whole-file byte pass: every object pdf-lib writes is either a stream (scanned decoded above,
-  // font programs and image codecs excepted) or a dict/array/string (scanned above). A raw scan would
+  // font programs, image codecs and image samples excepted) or a dict/array/string (scanned above). A raw scan would
   // only add false positives from font names ("Roman", "Georgia") inside embedded font programs.
   return dedupe(findings);
 }

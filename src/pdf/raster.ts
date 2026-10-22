@@ -169,15 +169,18 @@ const INK_REACH_BELOW = 0.45;
 const INK_REACH_ABOVE = 1.1;
 /**
  * OCR layers place words well but size letters from their own font, so a value's ink can run
- * past the layer's ends. A cover grows along the baseline to the end of the ink it touches: the
- * search starts this far inside the value, stops at a blank gap of WORD_GAP (a word space is
- * about 0.28 em, gaps between letters stay under about 0.12 em) and never grows by more than
- * MAX_GROWTH; ink is looked for in the band of the letters' bodies only, so the lines above and
- * below do not count. All in em of the value's font size.
+ * past the layer's ends, by a share of the value's length (a layer 15 % narrower than the print
+ * ends 2 em short of a 13 em e-mail address). A cover grows along the baseline to the end of the
+ * ink it touches: the search starts this far inside the value, stops at a blank gap of WORD_GAP
+ * (a word space is about 0.28 em, gaps between letters stay under about 0.12 em) and never grows
+ * by more than MAX_GROWTH em or MAX_GROWTH_SHARE of the value's length, whichever is more; ink is
+ * looked for in the band of the letters' bodies only, so the lines above and below do not count.
+ * In em of the value's font size unless said otherwise.
  */
 const INK_SEARCH_INSIDE = 0.25;
 const WORD_GAP = 0.16;
 const MAX_GROWTH = 1;
+const MAX_GROWTH_SHARE = 0.35;
 const INK_BAND_BELOW = 0.12;
 const INK_BAND_ABOVE = 0.68;
 /** A pixel is ink when its luminance is below this fraction of the paper's. */
@@ -364,7 +367,7 @@ export function inkRows(
  * How far the ink of a value really reaches along its baseline (user units from the mark's
  * start; `start` <= 0 and `end` >= length when the ink runs past the OCR layer's ends). Walks
  * outwards pixel by pixel from inside the value and stops at the first blank gap of a word
- * space, or after MAX_GROWTH.
+ * space, or after MAX_GROWTH em / MAX_GROWTH_SHARE of the value's length.
  */
 export function inkExtent(
   rgba: Uint8ClampedArray,
@@ -392,6 +395,7 @@ export function inkExtent(
   };
   const inside = Math.min(INK_SEARCH_INSIDE * m.size, m.length / 2);
   const gap = WORD_GAP * m.size;
+  const growth = Math.max(MAX_GROWTH * m.size, MAX_GROWTH_SHARE * m.length);
   const reach = (from: number, dir: 1 | -1, limit: number): number => {
     let last = from;
     for (let along = from; dir > 0 ? along <= limit : along >= limit; along += dir * step) {
@@ -401,8 +405,8 @@ export function inkExtent(
     return last + dir * step;
   };
   return {
-    start: Math.min(0, reach(inside, -1, -MAX_GROWTH * m.size)),
-    end: Math.max(m.length, reach(m.length - inside, 1, m.length + MAX_GROWTH * m.size)),
+    start: Math.min(0, reach(inside, -1, -growth)),
+    end: Math.max(m.length, reach(m.length - inside, 1, m.length + growth)),
   };
 }
 
