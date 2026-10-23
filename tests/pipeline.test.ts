@@ -531,6 +531,17 @@ describe('propagateEntities (T181 boundaries and case)', () => {
     ]);
   });
 
+  it('propagates a capitalised value glued to an elision whose apostrophe OCR dropped ("dALTAMIR")', () => {
+    const text = "ALTAMIR répond. Cette rémunération dALTAMIR GERANCE, lAltamir et quALTAMIR; McAltamir, mALTAMIRE et daltamir restent.";
+    const detected = [entity('ALTAMIR', 0, { type: 'COMPANY', detector: 'gliner:company' })];
+    const result = propagateEntities(text, detected);
+    expect(result.map((e) => [e.value, e.start])).toEqual([
+      ['ALTAMIR', at(text, 'ALTAMIR', 1)],
+      ['Altamir', at(text, 'Altamir')],
+      ['ALTAMIR', at(text, 'ALTAMIR', 2)],
+    ]);
+  });
+
   it('escapes regex metacharacters in terms', () => {
     const text = 'Acme (EU) Ltd. signed. Acme (EU) Ltd. again.';
     const detected = [entity('Acme (EU) Ltd.', 0, { type: 'COMPANY', detector: 'gliner:company' })];

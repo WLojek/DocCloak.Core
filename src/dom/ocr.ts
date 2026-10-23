@@ -192,6 +192,98 @@ export async function recognizeCanvas(
   }
 }
 
+/** One line Tesseract read: its baseline and words, each word with its letters' boxes (pixels) and its confidence (0..100). */
+export interface OcrLine {
+  baseline: { x0: number; y0: number; x1: number; y1: number };
+  words: Array<{
+    text: string;
+    bbox: { x0: number; y0: number; x1: number; y1: number };
+    confidence?: number;
+    symbols: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }>;
+  }>;
+}
+
+/**
+ * One Tesseract worker for the pages of a document: starting one loads the engine and the language
+ * data, which costs about a second, so the pages of a PDF are read by the same worker. The host
+ * releases it when the document is read (releaseOcrWorker).
+ */
+let shared: { key: string; worker: Promise<Tesseract.Worker> } | null = null;
+
+function sharedWorker(langs: string[], assets: TesseractAssetPaths): Promise<Tesseract.Worker> {
+  const key = `${langs.join('+')}|${assets.workerPath}|${assets.corePath}|${assets.langPath}`;
+  if (shared && shared.key === key) return shared.worker;
+  void releaseOcrWorker();
+  const worker = Tesseract.createWorker(langs, 1, { workerPath: assets.workerPath, corePath: assets.corePath, langPath: assets.langPath });
+  shared = { key, worker };
+  // A worker that failed to start is not kept: the next call tries again.
+  worker.catch(() => { if (shared?.worker === worker) shared = null; });
+  return worker;
+}
+
+/** Terminate the worker recognizeCanvasLines keeps between calls (after the last page of a document). */
+export async function releaseOcrWorker(): Promise<void> {
+  const current = shared;
+  shared = null;
+  if (!current) return;
+  try {
+    await (await current.worker).terminate();
+  } catch {
+    /* never started, or already gone */
+  }
+}
+
+/**
+ * OCR a canvas holding part of a page and return its lines with baselines, words and letter
+ * boxes. Used on the parts of a scanned PDF page whose OCR layer has no text: cropped to such a
+ * part, a table that full-page segmentation turned into junk reads cleanly. Tesseract's page
+ * segmentation is picky about a crop (the same table reads in one mode and gives nothing in
+ * another), so the automatic, single-column and single-block modes are tried in turn and the
+ * reading with the most letters wins.
+ */
+export async function recognizeCanvasLines(
+  canvas: OcrCanvas,
+  uiLanguage: string,
+  assets: TesseractAssetPaths,
+  dpi?: number,
+  options: { wholePage?: boolean } = {},
+): Promise<OcrLine[]> {
+  const worker = await sharedWorker(buildLangList(uiLanguage), assets);
+  let best: OcrLine[] = [];
+  let bestLetters = 0;
+  // A whole page is what automatic segmentation is made for; the other modes are for crops.
+  const modes = options.wholePage ? [Tesseract.PSM.AUTO] : [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_COLUMN, Tesseract.PSM.SINGLE_BLOCK];
+  for (const mode of modes) {
+    // The resolution is known (a rendered page): Tesseract does not have to guess it (and log the guess).
+    await worker.setParameters({ tessedit_pageseg_mode: mode, ...(dpi ? { user_defined_dpi: String(Math.round(dpi)) } : {}) });
+    const { data } = await worker.recognize(canvas, {}, { blocks: true });
+    const lines = linesOf(data.blocks ?? []);
+    const letters = lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.text.length, 0), 0);
+    if (letters > bestLetters) { best = lines; bestLetters = letters; }
+  }
+  return best;
+}
+
+function linesOf(blocks: unknown[]): OcrLine[] {
+  const lines: OcrLine[] = [];
+  for (const block of blocks as Array<{ paragraphs?: Array<{ lines?: Array<Record<string, unknown>> }> }>) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        const words = ((line.words ?? []) as Array<{ text?: string; bbox: OcrLine['baseline']; confidence?: number; symbols?: Array<{ text?: string; bbox: OcrLine['baseline'] }> }>)
+          .filter((w) => (w.text ?? '').trim() !== '')
+          .map((w) => ({
+            text: (w.text ?? '').trim(),
+            bbox: w.bbox,
+            ...(typeof w.confidence === 'number' ? { confidence: w.confidence } : {}),
+            symbols: (w.symbols ?? []).filter((x) => (x.text ?? '').trim() !== '').map((x) => ({ text: x.text ?? '', bbox: x.bbox })),
+          }));
+        if (words.length > 0) lines.push({ baseline: line.baseline as OcrLine['baseline'], words });
+      }
+    }
+  }
+  return lines;
+}
+
 interface BlockLike {
   paragraphs: {
     lines: {

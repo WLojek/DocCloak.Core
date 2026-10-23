@@ -6,7 +6,7 @@
  * widths from the AFM metrics vendored by @cantoo/pdf-lib.
  */
 
-import { Font as AfmFont } from '@cantoo/pdf-lib/standard-fonts';
+import { Encodings, Font as AfmFont } from '@cantoo/pdf-lib/standard-fonts';
 
 export type StandardFontName =
   | 'Courier' | 'Courier-Bold' | 'Courier-Oblique' | 'Courier-BoldOblique'
@@ -82,4 +82,25 @@ export function loadStandardMetrics(name: StandardFontName): StandardMetrics {
     descender: font.Descender ?? -207,
     capHeight: font.CapHeight ?? 718,
   };
+}
+
+/**
+ * Helvetica advance of one character in 1/1000 em: a stand-in for the proportions of a sans-serif
+ * print (Arial and Liberation Sans share them). Letters WinAnsi cannot encode take their base
+ * letter's width ("ł" as "l"), anything else the width of a digit.
+ */
+export function helveticaWidth(ch: string): number {
+  const metrics = loadStandardMetrics('Helvetica');
+  for (const candidate of [ch, ch.normalize('NFD').charAt(0)]) {
+    const cp = candidate.codePointAt(0);
+    if (cp === undefined) continue;
+    try {
+      const glyph = Encodings.WinAnsi.encodeUnicodeCodePoint(cp);
+      const w = metrics.widthOfGlyph(glyph.name);
+      if (w !== undefined) return w;
+    } catch {
+      // not in WinAnsi: try the base letter
+    }
+  }
+  return 556;
 }

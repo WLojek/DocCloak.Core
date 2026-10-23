@@ -137,10 +137,33 @@ export interface PaintMark {
   vy: number;
   /** Length of the value along the baseline, user units. */
   length: number;
+  /**
+   * How far along the baseline the value's letters may still reach (an OCR show stretched over its
+   * word box): ink between `length` and here is covered even across a gap. Absent: `length`.
+   */
+  reach?: number;
+  /**
+   * The value starts or ends inside a word of the OCR layer ("2026" of "2026/03/017"): on that side
+   * the cover grows only by IN_WORD_GROWTH, so the rest of the word stays readable.
+   */
+  startsInWord?: boolean;
+  endsInWord?: boolean;
   /** Font size of the value's text, user units. */
   size: number;
-  /** Placeholder to show; '' only covers (the rest of a value wrapped onto the next line). */
+  /**
+   * Placeholder to show from the cover's start, with any punctuation glued to the value that the
+   * cover takes in ("[PHONE_1],"); on the rest of a value wrapped onto the next line only the
+   * punctuation glued before it, often '' (the cover alone).
+   */
   label: string;
+  /** On the rest of a wrapped value: the punctuation glued after it, painted up to the cover's end, where it was printed. */
+  labelEnd?: string;
+  /**
+   * The text column along this mark's baseline (user units from its start): a label growing into
+   * blank paper beside a short value stays between the two. Absent: no room is taken.
+   */
+  columnStart?: number;
+  columnEnd?: number;
 }
 
 /** A rendered scan page: raw pixels, 1 (gray) or 3 (RGB) bytes each, row-major. */
@@ -151,6 +174,8 @@ export interface ScanRaster {
   heightPx: number;
   widthPt: number;
   heightPt: number;
+  /** pdf.js viewport transform of the render: source user space to these pixels. */
+  transform: number[];
 }
 
 /**
@@ -179,6 +204,17 @@ const INK_REACH_ABOVE = 1.1;
  */
 const INK_SEARCH_INSIDE = 0.25;
 const WORD_GAP = 0.16;
+/**
+ * On a side where the value continues as the same word (its letters placed by real proportions),
+ * the cover ends in the blank valley between two letters nearest the estimate on the side away
+ * from the value, searched up to IN_WORD_SEARCH outwards and IN_WORD_INSIDE inwards: OCR letter
+ * boxes can sit half a letter off ("d'ALTAMIR" read with the "A" starting in its middle), and a
+ * cover that takes one letter too many keeps the value hidden where one letter too few shows it.
+ * Without a valley (touching letters) it ends IN_WORD_GROWTH past the estimate.
+ */
+const IN_WORD_SEARCH = 0.8;
+const IN_WORD_INSIDE = 0.05;
+const IN_WORD_GROWTH = 0.06;
 const MAX_GROWTH = 1;
 const MAX_GROWTH_SHARE = 0.35;
 const INK_BAND_BELOW = 0.12;
@@ -191,8 +227,29 @@ const INK_LUMINANCE = 0.65;
  * horizontally down to LABEL_MIN_SQUEEZE to fit the value's width, then shrunk.
  */
 const INK_TOP_EM = 0.76;
+/**
+ * Marks standing apart above the letters (the dot of "Ż", the accent of "ó" over a word with no
+ * ascender, the dot of an "i"): a shape of ink within DIACRITIC_GAP of the letters' top, no taller
+ * than DIACRITIC_HEIGHT and no wider than DIACRITIC_WIDTH, that does not run on past
+ * DIACRITIC_WINDOW above that top (the line above's descenders do) or out of the cover's sides,
+ * gets a cover of its own. In em of the letters' measured size (their top is INK_TOP_EM of it).
+ */
+const DIACRITIC_GAP = 0.2;
+const DIACRITIC_HEIGHT = 0.3;
+const DIACRITIC_WIDTH = 0.6;
+const DIACRITIC_WINDOW = 0.5;
 const LABEL_SIZE = 0.8;
 const LABEL_MIN_SQUEEZE = 0.6;
+/**
+ * A label longer than its value's width first takes the blank paper after the value (a line end,
+ * a wide gap), then before it (a right-aligned line), up to LABEL_ROOM_GAP em before the next ink
+ * and inside the text column (PaintMark.columnStart / columnEnd), so a short value's placeholder
+ * ("ul.", "557") stays readable; only then is it squeezed and shrunk. The paper must be blank from
+ * LABEL_ROOM_BELOW below the baseline to LABEL_ROOM_ABOVE above it (brackets reach that far).
+ */
+const LABEL_ROOM_GAP = 0.35;
+const LABEL_ROOM_BELOW = 0.25;
+const LABEL_ROOM_ABOVE = 0.85;
 const LABEL_FONT = '"Liberation Sans", Arial, Helvetica, sans-serif';
 
 /** Where one mark is painted, in its own baseline frame (user units): along [start, end], up [bottom, top]. */
@@ -208,6 +265,8 @@ interface Cover {
   paper: [number, number, number];
   /** Gray level of the value's ink (the label is painted in it, so it reads like the scan's print), or null. */
   ink: number | null;
+  /** Small covers over marks standing apart above the letters (diacritics), in the same frame. */
+  marks: Array<{ start: number; end: number; bottom: number; top: number }>;
 }
 
 /**
@@ -240,14 +299,18 @@ export async function rasterizeScanPage(
     const paper = paperColour(before, page.widthPx, page.heightPx, quadOf(at, -pad, m.length + pad, -COVER_BELOW * m.size, COVER_ABOVE * m.size));
     const inkBelow = luminance(paper) * INK_LUMINANCE;
     const along = inkExtent(before, page.widthPx, page.heightPx, at, m, inkBelow);
-    const start = Math.min(0, along.start) - pad;
-    const end = Math.max(m.length, along.end) + pad;
+    // Inside a word the cover stops in the valley between two letters: a pixel of margin, not the pad.
+    const onePxAlong = 1 / (Math.hypot(...sub(at(1, 0), at(0, 0))) || 1);
+    const start = (m.startsInWord ? along.start : Math.min(0, along.start)) - (m.startsInWord ? onePxAlong : pad);
+    const end = (m.endsInWord ? along.end : Math.max(m.length, along.end)) + (m.endsInWord ? onePxAlong : pad);
     const rows = inkRows(before, page.widthPx, page.heightPx, at, m, start, end, inkBelow);
     const onePx = 1 / (Math.hypot(...sub(at(0, 1), at(0, 0))) || 1);
     const bottom = rows ? Math.min(-COVER_CORE_BELOW * m.size, rows.bottom - 1.5 * onePx) : -COVER_BELOW * m.size;
     const top = rows ? Math.max(COVER_CORE_ABOVE * m.size, rows.top + 1.5 * onePx) : COVER_ABOVE * m.size;
     const ink = rows ? inkColour(before, page.widthPx, page.heightPx, at, start, end, rows.bottom, rows.top, inkBelow) : null;
-    return { mark: m, at, start, end, bottom, top, inkTop: rows ? rows.top : null, paper, ink };
+    const marksAbove = rows && rows.top > 0 ? diacriticsAbove(before, page.widthPx, page.heightPx, at, start, end, rows.top, rows.top / INK_TOP_EM, inkBelow) : [];
+    const marks = marksAbove.map((d) => ({ start: d.start - 1.5 * onePxAlong, end: d.end + 1.5 * onePxAlong, bottom: top - onePx, top: d.top + 1.5 * onePx }));
+    return { mark: m, at, start, end, bottom, top, inkTop: rows ? rows.top : null, paper, ink, marks };
   });
 
   ctx.save();
@@ -255,54 +318,95 @@ export async function rasterizeScanPage(
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   for (const cv of covers) {
-    const quad = quadOf(cv.at, cv.start, cv.end, cv.bottom, cv.top);
     const fill = `rgb(${cv.paper[0]}, ${cv.paper[1]}, ${cv.paper[2]})`;
     ctx.fillStyle = fill;
     ctx.strokeStyle = fill;
     ctx.lineWidth = 2; // the stroke grows the cover by a pixel on every side (anti-aliased glyph edges)
-    ctx.beginPath();
-    ctx.moveTo(quad[0][0], quad[0][1]);
-    for (let i = 1; i < 4; i++) ctx.lineTo(quad[i][0], quad[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  }
-  for (const cv of covers) {
-    const m = cv.mark;
-    if (!m.label) continue;
-    const pad = COVER_PAD_ALONG * m.size;
-    const [x0, y0] = cv.at(cv.start + pad, 0);
-    const [x1, y1] = cv.at(cv.start + pad + 1, 0);
-    const [xu, yu] = cv.at(cv.start + pad, 1);
-    const pxPerUnit = Math.hypot(x1 - x0, y1 - y0);
-    const pxPerUnitUp = Math.hypot(xu - x0, yu - y0);
-    const available = (cv.end - cv.start - 2 * pad) * pxPerUnit;
-    const em = cv.inkTop !== null && cv.inkTop > 0 ? cv.inkTop / INK_TOP_EM : LABEL_SIZE * m.size;
-    let fontPx = Math.min(em, 1.2 * m.size) * pxPerUnitUp;
-    if (!(fontPx > 0) || !(available > 0)) continue;
-    ctx.font = `${fontPx}px ${LABEL_FONT}`;
-    const natural = ctx.measureText(m.label).width;
-    let squeeze = natural > available ? available / natural : 1;
-    if (squeeze < LABEL_MIN_SQUEEZE) {
-      fontPx *= squeeze / LABEL_MIN_SQUEEZE;
-      squeeze = LABEL_MIN_SQUEEZE;
-      ctx.font = `${fontPx}px ${LABEL_FONT}`;
+    for (const box of [cv, ...cv.marks]) {
+      const quad = quadOf(cv.at, box.start, box.end, box.bottom, box.top);
+      ctx.beginPath();
+      ctx.moveTo(quad[0][0], quad[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(quad[i][0], quad[i][1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     }
-    ctx.save();
-    ctx.translate(x0, y0);
-    ctx.rotate(Math.atan2(y1 - y0, x1 - x0));
-    ctx.scale(squeeze, 1);
-    ctx.fillStyle = cv.ink !== null ? `rgb(${cv.ink}, ${cv.ink}, ${cv.ink})` : luminance(cv.paper) > 0.45 ? '#000000' : '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(m.label, 0, 0);
-    ctx.restore();
   }
+  // How far each label may reach past its cover into blank paper: half the gap to the next (and
+  // the previous) cover on the same line, so two neighbours never claim the same room.
+  const reach = covers.map((a) => {
+    let right = Infinity;
+    let left = Infinity;
+    const am = a.mark;
+    for (const b of covers) {
+      if (b === a) continue;
+      const bm = b.mark;
+      const across = (bm.x - am.x) * am.vx + (bm.y - am.y) * am.vy;
+      if (Math.abs(across) > 0.5 * Math.max(am.size, bm.size) || am.ux * bm.ux + am.uy * bm.uy < 0.99) continue;
+      const along = (t: number): number => (bm.x + bm.ux * t - am.x) * am.ux + (bm.y + bm.uy * t - am.y) * am.uy;
+      const bs = along(b.start);
+      const be = along(b.end);
+      if (bs >= a.end) right = Math.min(right, (bs - a.end) / 2);
+      else if (be <= a.start) left = Math.min(left, (a.start - be) / 2);
+    }
+    return { right, left };
+  });
+  covers.forEach((cv, k) => {
+    const m = cv.mark;
+    // The label from the cover's start; the punctuation of a wrapped value's rest up to its end.
+    for (const [text, alignEnd] of [[m.label, false], [m.labelEnd ?? '', true]] as const) {
+      if (!text) continue;
+      const pad = COVER_PAD_ALONG * m.size;
+      let from = alignEnd ? cv.end - pad : cv.start + pad;
+      const [ox, oy] = cv.at(from, 0);
+      const [ax, ay] = cv.at(from + 1, 0);
+      const [ux, uy] = cv.at(from, 1);
+      const pxPerUnit = Math.hypot(ax - ox, ay - oy);
+      const pxPerUnitUp = Math.hypot(ux - ox, uy - oy);
+      let available = (cv.end - cv.start - 2 * pad) * pxPerUnit;
+      const em = cv.inkTop !== null && cv.inkTop > 0 ? cv.inkTop / INK_TOP_EM : LABEL_SIZE * m.size;
+      let fontPx = Math.min(em, 1.2 * m.size) * pxPerUnitUp;
+      if (!(fontPx > 0) || !(available > 0)) continue;
+      ctx.font = `${fontPx}px ${LABEL_FONT}`;
+      const natural = ctx.measureText(text).width;
+      if (!alignEnd && natural > available) {
+        // Blank paper after the value first, then before it (a right-aligned line, a line start).
+        const inkBelow = cv.ink !== null ? luminance(cv.paper) * INK_LUMINANCE : 0;
+        // Never past the text column: no room without it.
+        const columnRight = Math.max(0, (m.columnEnd ?? -Infinity) - (cv.end - pad));
+        const columnLeft = Math.max(0, (cv.start + pad) - (m.columnStart ?? Infinity));
+        const after = blankAfter(before, page.widthPx, page.heightPx, cv.at, cv.end - pad, Math.min((natural - available) / pxPerUnit, reach[k].right + pad, columnRight), em, inkBelow);
+        available += after * pxPerUnit;
+        if (natural > available) {
+          const beforeRoom = blankAfter(before, page.widthPx, page.heightPx, cv.at, cv.start + pad, Math.min((natural - available) / pxPerUnit, reach[k].left + pad, columnLeft), em, inkBelow, -1);
+          available += beforeRoom * pxPerUnit;
+          from -= beforeRoom;
+        }
+      }
+      const [x0, y0] = cv.at(from, 0);
+      const [x1, y1] = cv.at(from + 1, 0);
+      let squeeze = natural > available ? available / natural : 1;
+      if (squeeze < LABEL_MIN_SQUEEZE) {
+        fontPx *= squeeze / LABEL_MIN_SQUEEZE;
+        squeeze = LABEL_MIN_SQUEEZE;
+        ctx.font = `${fontPx}px ${LABEL_FONT}`;
+      }
+      ctx.save();
+      ctx.translate(x0, y0);
+      ctx.rotate(Math.atan2(y1 - y0, x1 - x0));
+      ctx.scale(squeeze, 1);
+      ctx.fillStyle = cv.ink !== null ? `rgb(${cv.ink}, ${cv.ink}, ${cv.ink})` : luminance(cv.paper) > 0.45 ? '#000000' : '#ffffff';
+      ctx.textAlign = alignEnd ? 'right' : 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    }
+  });
   ctx.restore();
 
   const rgba = page.canvas.getImageData();
   const { pixels, channels } = packPixels(rgba);
-  return { pixels, channels, widthPx: page.widthPx, heightPx: page.heightPx, widthPt: page.widthPt, heightPt: page.heightPt };
+  return { pixels, channels, widthPx: page.widthPx, heightPx: page.heightPx, widthPt: page.widthPt, heightPt: page.heightPt, transform: page.transform };
 }
 
 function sub(p: [number, number], q: [number, number]): [number, number] {
@@ -364,6 +468,106 @@ export function inkRows(
 }
 
 /**
+ * Blank paper from `from` along a mark's baseline (user units; `dir` 1 after it, -1 before it), up
+ * to `want`: the run of columns with no ink from LABEL_ROOM_BELOW below the baseline to
+ * LABEL_ROOM_ABOVE above it (in `em`), ending LABEL_ROOM_GAP em before the next ink. The picture's
+ * edge ends it too. 0 without an ink threshold (no ink was measured, so blank cannot be told from print).
+ */
+export function blankAfter(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  at: (along: number, up: number) => [number, number],
+  from: number,
+  want: number,
+  em: number,
+  inkBelow: number,
+  dir: 1 | -1 = 1,
+): number {
+  if (!(want > 0) || !(em > 0) || !(inkBelow > 0)) return 0;
+  const pxAlong = Math.hypot(...sub(at(1, 0), at(0, 0)));
+  const pxUp = Math.hypot(...sub(at(0, 1), at(0, 0)));
+  if (!(pxAlong > 0) || !(pxUp > 0)) return 0;
+  const stepAlong = 1 / pxAlong;
+  const stepUp = 1 / pxUp;
+  const gap = LABEL_ROOM_GAP * em;
+  for (let d = 0; d <= want + gap; d += stepAlong) {
+    for (let up = -LABEL_ROOM_BELOW * em; up <= LABEL_ROOM_ABOVE * em; up += stepUp) {
+      const lum = lumAt(rgba, width, height, at(from + dir * d, up));
+      if (lum === null || lum < inkBelow) return Math.max(0, Math.min(want, d - gap));
+    }
+  }
+  return want;
+}
+
+/**
+ * Marks of ink standing apart above a value's letters, whose `top` is the letters' measured top
+ * and `em` their size (see DIACRITIC_*): each as its extent in the mark's frame (user units).
+ * The window above the letters is sampled pixel by pixel and split into 8-connected shapes; a
+ * shape that reaches the window's top or sides belongs to something else (the line above, the
+ * next word) and is left alone.
+ */
+export function diacriticsAbove(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  at: (along: number, up: number) => [number, number],
+  start: number,
+  end: number,
+  top: number,
+  em: number,
+  inkBelow: number,
+): Array<{ start: number; end: number; top: number }> {
+  const pxAlong = Math.hypot(...sub(at(1, 0), at(0, 0)));
+  const pxUp = Math.hypot(...sub(at(0, 1), at(0, 0)));
+  if (!(pxAlong > 0) || !(pxUp > 0) || !(em > 0) || !(end > start)) return [];
+  const stepAlong = 1 / pxAlong;
+  const stepUp = 1 / pxUp;
+  const cols = Math.min(4000, Math.ceil((end - start) / stepAlong) + 1);
+  const rows = Math.min(400, Math.ceil((DIACRITIC_WINDOW * em) / stepUp));
+  if (rows < 2 || cols < 2) return [];
+  const ink = new Uint8Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const lum = lumAt(rgba, width, height, at(start + i * stepAlong, top + (j + 1) * stepUp));
+      if (lum !== null && lum < inkBelow) ink[j * cols + i] = 1;
+    }
+  }
+  const seen = new Uint8Array(cols * rows);
+  const out: Array<{ start: number; end: number; top: number }> = [];
+  const stack: number[] = [];
+  for (let p0 = 0; p0 < ink.length; p0++) {
+    if (!ink[p0] || seen[p0]) continue;
+    seen[p0] = 1;
+    stack.push(p0);
+    let i0 = cols, i1 = 0, j0 = rows, j1 = 0;
+    while (stack.length > 0) {
+      const p = stack.pop()!;
+      const i = p % cols;
+      const j = (p - i) / cols;
+      if (i < i0) i0 = i;
+      if (i > i1) i1 = i;
+      if (j < j0) j0 = j;
+      if (j > j1) j1 = j;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const ni = i + di;
+          const nj = j + dj;
+          if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
+          const q = nj * cols + ni;
+          if (ink[q] && !seen[q]) { seen[q] = 1; stack.push(q); }
+        }
+      }
+    }
+    if (j1 === rows - 1 || i0 === 0 || i1 === cols - 1) continue;
+    if ((j0 + 1) * stepUp > DIACRITIC_GAP * em) continue;
+    if ((j1 - j0 + 1) * stepUp > DIACRITIC_HEIGHT * em || (i1 - i0 + 1) * stepAlong > DIACRITIC_WIDTH * em) continue;
+    out.push({ start: start + i0 * stepAlong, end: start + (i1 + 1) * stepAlong, top: top + (j1 + 1) * stepUp });
+  }
+  return out;
+}
+
+/**
  * How far the ink of a value really reaches along its baseline (user units from the mark's
  * start; `start` <= 0 and `end` >= length when the ink runs past the OCR layer's ends). Walks
  * outwards pixel by pixel from inside the value and stops at the first blank gap of a word
@@ -396,6 +600,11 @@ export function inkExtent(
   const inside = Math.min(INK_SEARCH_INSIDE * m.size, m.length / 2);
   const gap = WORD_GAP * m.size;
   const growth = Math.max(MAX_GROWTH * m.size, MAX_GROWTH_SHARE * m.length);
+  // Ink up to `reach` belongs to the value whatever the gaps: the search for the end starts there.
+  let end = m.length;
+  if (m.reach !== undefined && m.reach > m.length) {
+    for (let along = m.length; along <= m.reach; along += step) if (isInk(along)) end = along + step;
+  }
   const reach = (from: number, dir: 1 | -1, limit: number): number => {
     let last = from;
     for (let along = from; dir > 0 ? along <= limit : along >= limit; along += dir * step) {
@@ -404,10 +613,29 @@ export function inkExtent(
     }
     return last + dir * step;
   };
-  return {
-    start: Math.min(0, reach(inside, -1, -growth)),
-    end: Math.max(m.length, reach(m.length - inside, 1, m.length + growth)),
+  // The blank column run nearest `at` on the `outward` side (-1 before the value, 1 after it): the
+  // valley between two letters.
+  const valley = (at: number, outward: 1 | -1): number | null => {
+    const lo = outward < 0 ? at - IN_WORD_SEARCH * m.size : at - IN_WORD_INSIDE * m.size;
+    const hi = outward < 0 ? at + IN_WORD_INSIDE * m.size : at + IN_WORD_SEARCH * m.size;
+    let best: number | null = null;
+    let runStart: number | null = null;
+    for (let along = lo; along <= hi + step; along += step) {
+      if (!isInk(along) && along <= hi) {
+        if (runStart === null) runStart = along;
+        continue;
+      }
+      if (runStart !== null) {
+        const centre = (runStart + along - step) / 2;
+        if (best === null || Math.abs(centre - at) < Math.abs(best - at)) best = centre;
+        runStart = null;
+      }
+    }
+    return best;
   };
+  const startAt = m.startsInWord ? (valley(0, -1) ?? -IN_WORD_GROWTH * m.size) : Math.min(0, reach(inside, -1, -growth));
+  const endAt = m.endsInWord ? (valley(m.length, 1) ?? m.length + IN_WORD_GROWTH * m.size) : Math.max(end, reach(end - inside, 1, end + growth));
+  return { start: startAt, end: endAt };
 }
 
 /**

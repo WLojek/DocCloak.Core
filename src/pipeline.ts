@@ -312,6 +312,20 @@ function startsUppercase(value: string): boolean {
   return first !== '' && first !== first.toLowerCase();
 }
 
+/** French and Italian elisions ("d'", "l'", "qu'") written before a word. */
+const ELISION_PREFIXES = ['qu', 'c', 'd', 'j', 'l', 'm', 'n', 's', 't'];
+
+/**
+ * An elision glued to a capitalised hit ("dALTAMIR", "lEtat"): OCR often drops the apostrophe of
+ * "d'ALTAMIR". The lowercase prefix then counts as the word boundary when it starts a word itself.
+ */
+function elidedBefore(text: string, idx: number, found: string): boolean {
+  if (!startsUppercase(found)) return false;
+  return ELISION_PREFIXES.some((p) => idx >= p.length
+    && text.slice(idx - p.length, idx) === p
+    && !WORD_CHAR.test(codePointBefore(text, idx - p.length)));
+}
+
 /**
  * Find every further occurrence of each detected value (and of the words of
  * multi-word values) in the text and emit it as a 'propagated' entity.
@@ -323,7 +337,8 @@ function startsUppercase(value: string): boolean {
  * are exact even after characters whose lowercase form has a different
  * length (Turkish dotted İ). A hit needs a non-letter, non-digit neighbour
  * on both sides ([\p{L}\p{N}] complement), except on a side where the term
- * itself ends in an unspaced script (CJK, Thai).
+ * itself ends in an unspaced script (CJK, Thai), and before a capitalised hit
+ * glued to an elision whose apostrophe OCR dropped ("dALTAMIR").
  */
 export function propagateEntities(text: string, entities: DetectedEntity[]): DetectedEntity[] {
   const propagated: DetectedEntity[] = [];
@@ -367,7 +382,7 @@ export function propagateEntities(text: string, entities: DetectedEntity[]): Det
       pattern.lastIndex = idx + 1;
       const key = `${idx}:${end}`;
       if (seen.has(key)) continue;
-      if (needsBoundaryBefore && WORD_CHAR.test(codePointBefore(text, idx))) continue;
+      if (needsBoundaryBefore && WORD_CHAR.test(codePointBefore(text, idx)) && !elidedBefore(text, idx, found)) continue;
       if (needsBoundaryAfter && WORD_CHAR.test(codePointAt(text, end))) continue;
       if (
         type === 'PERSON'

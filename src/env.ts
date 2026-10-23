@@ -47,7 +47,7 @@ export interface CoreEnv {
    */
   buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
   /**
-   * @deprecated since 0.12.0, removal planned for 0.14.0. Used only when
+   * @deprecated since 0.12.0, removal planned for a later release. Used only when
    * buildTokenizer is absent. Loading by Hugging Face model id lets the
    * host library probe mutable `resolve/main` and keep an unverified
    * second cache (security report S1/S3); implement buildTokenizer.

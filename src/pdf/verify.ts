@@ -143,12 +143,15 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
         }
         const type = namesOf(ctx, obj.dict.get(PDFName.of('Type')))[0];
         const subtype = namesOf(ctx, obj.dict.get(PDFName.of('Subtype')))[0];
-        const isContent = type === undefined || type === 'Pattern' || (type === 'XObject' && subtype === 'Form');
+        const cmap = looksLikeCMap(decoded);
+        const isContent = !cmap && (type === undefined || type === 'Pattern' || (type === 'XObject' && subtype === 'Form'));
         if (isContent) contentStreams.push(decoded);
         // A content stream shows text only through its string operands: numbers, names and
-        // operators ("/F1 12 Tf", coordinates) are not text a viewer displays. Other streams
-        // (XMP, CMaps, anything unknown) are scanned whole.
-        const haystack = haystackOf(isContent ? stringOperandsOf(decoded) : decoded);
+        // operators ("/F1 12 Tf", coordinates) are not text a viewer displays. A CMap's hex codes
+        // are character codes and code points ("<004A> <2019>" maps a code to the apostrophe), not
+        // text: a four-digit value turns up in them by chance; the rest of the CMap is searched.
+        // Other streams (XMP, anything unknown) are scanned whole.
+        const haystack = haystackOf(isContent ? stringOperandsOf(decoded) : cmap ? withoutHexStrings(decoded) : decoded);
         if (isContent) contentStrings.push(haystack);
         for (const n of encodedNeedles) {
           if (containsBytes(haystack, n)) findings.push({ pass: 'stream-bytes', needle: n.raw, where: `obj ${ref.objectNumber} (${n.encoding})` });
@@ -410,4 +413,24 @@ function hex(bytes: Uint8Array): string {
   let s = '';
   for (const b of bytes) s += b.toString(16).padStart(2, '0');
   return s;
+}
+
+/** A CMap (a ToUnicode map, an embedded CID CMap): its program begins the CMap resource. */
+function looksLikeCMap(decoded: Uint8Array): boolean {
+  const head = new TextDecoder('latin1').decode(decoded.subarray(0, Math.min(decoded.length, 600)));
+  return /\bbegincmap\b/.test(head) || /\/CIDInit\b/.test(head);
+}
+
+/** The bytes of a CMap without its hex strings ("<004A>"), each replaced by one space. */
+function withoutHexStrings(decoded: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  for (let i = 0; i < decoded.length; i++) {
+    if (decoded[i] === 0x3c /* < */ && decoded[i + 1] !== 0x3c) {
+      let j = i + 1;
+      while (j < decoded.length && decoded[j] !== 0x3e /* > */ && /[0-9A-Fa-f\s]/.test(String.fromCharCode(decoded[j]))) j++;
+      if (j < decoded.length && decoded[j] === 0x3e) { out.push(0x20); i = j; continue; }
+    }
+    out.push(decoded[i]);
+  }
+  return new Uint8Array(out);
 }

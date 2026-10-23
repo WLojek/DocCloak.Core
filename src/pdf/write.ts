@@ -37,6 +37,7 @@ import { findOccurrences, openWithOracle, searchIndex } from './oracle.ts';
 import type { CanvasFactory, OracleDocument } from './oracle.ts';
 import { rasterizePage, rasterizeScanPage } from './raster.ts';
 import type { PaintMark } from './raster.ts';
+import { helveticaWidth } from './standard-metrics.ts';
 import { serializeToUnicode } from './cmap.ts';
 import type { ToUnicodeEntry } from './cmap.ts';
 import { planEdits, rewriteStream, segmentsFor } from './surgery.ts';
@@ -45,6 +46,8 @@ import type { GlyphRun, PdfWriteOptions, PdfWriteResult, Rect } from './types.ts
 import { PdfVerifyError, verifyPdf } from './verify.ts';
 import type { PdfExtraction } from './read.ts';
 import { lexContent } from './lexer.ts';
+import { mul } from './textstate.ts';
+import type { Matrix } from './types.ts';
 
 /** Scan pages render at the scan's own resolution, up to this. */
 const MAX_SCAN_DPI = 300;
@@ -95,7 +98,7 @@ export async function writeAnonymizedPdfWithReport(
     const oracle = await openWithOracle(extraction.bytes, assets, extraction.password);
     let fresh: ExtractionResult;
     try {
-      fresh = await extractPdf(extraction.bytes, { oracle, password: extraction.password, maxBytes: Number.MAX_SAFE_INTEGER, maxPages: Number.MAX_SAFE_INTEGER });
+      fresh = await extractPdf(extraction.bytes, { oracle, password: extraction.password, maxBytes: Number.MAX_SAFE_INTEGER, maxPages: Number.MAX_SAFE_INTEGER, extraOcr: extraction.extraOcr });
     } catch (err) {
       await oracle.close();
       throw err;
@@ -221,7 +224,7 @@ export async function writeAnonymizedPdfWithReport(
       const sortedReplacements = [...all].sort((a, b) => a.start - b.start || a.end - b.end); // segmentsFor's order
       for (const page of model.pages) {
         if (scanPages.has(page.index)) {
-          const marks = paintMarksForPage(segments, page.index, sortedReplacements);
+          const marks = withTextColumn(paintMarksForPage(segments, page.index, sortedReplacements), extraction.runs, page.index);
           let raster: Awaited<ReturnType<typeof rasterizeScanPage>>;
           try {
             raster = await rasterizeScanPage(oracle, page.index, marks, { dpi: scanDpi(page, options.rasterDpi), canvasFactory: options.canvasFactory });
@@ -240,8 +243,20 @@ export async function writeAnonymizedPdfWithReport(
           const newPage = outDoc.addPage([raster.widthPt, raster.heightPt]);
           const name = newPage.node.newXObject('Scan', image);
           newPage.pushOperators(pushGraphicsState(), concatTransformationMatrix(raster.widthPt, 0, 0, raster.heightPt, 0, 0), drawObject(name), popGraphicsState());
+          // The page stays searchable: its text, values replaced by their placeholders, as an
+          // invisible layer over the picture (as the scan's own OCR layer was).
+          // Source user space -> picture pixels (the render) -> the picture page's user space.
+          const [ta, tb, tc, td, te, tf] = raster.transform;
+          const sx = raster.widthPt / raster.widthPx;
+          const sy = raster.heightPt / raster.heightPx;
+          const toPage: Matrix = [sx * ta, -sy * tb, sx * tc, -sy * td, sx * te, raster.heightPt - sy * tf];
+          const layer = await searchableTextLayer(fresh.runs, segments, page.index, sortedReplacements, embedder, toPage);
+          if (layer) {
+            newPage.node.setFontDictionary(PDFName.of(layer.fontName), layer.fontRef);
+            newPage.node.addContentStream(outDoc.context.register(outDoc.context.flateStream(layer.content)));
+          }
           scanned.push(page.index);
-          warnings.push(`page ${page.index + 1}: scan with an OCR text layer; the values are painted over in the picture with their placeholders and the page is exported as an image (its text layer is gone)`);
+          warnings.push(`page ${page.index + 1}: scan with an OCR text layer; the values are painted over in the picture with their placeholders and the page is exported as an image, with its text (placeholders in place of the values) as an invisible layer`);
           continue;
         }
         if (rasterPages.has(page.index)) {
@@ -591,9 +606,143 @@ function stampMetadata(outDoc: PDFDocument): void {
   outDoc.setModificationDate(NORMALISED_PDF_DATE);
 }
 
-/** Resolution for a scan page: the scan's own (at least `base`, at most 300 dpi), within the pixel budget. */
+/**
+ * Along-baseline [start, end] of every letter of a one-word OCR show whose letters all have the same
+ * width (Tesseract's invisible font), from Helvetica proportions spread over the whole show (Tesseract
+ * stretches the word and its trailing space over the printed word). Offsets are from the show's
+ * first glyph. Null for any other run.
+ */
+function proportionalLetters(run: GlyphRun, ux: number, uy: number, scale: number): Array<[number, number]> | null {
+  const g = run.glyphs;
+  if (!run.ocr || g.length < 2) return null;
+  let k = g.length;
+  while (k > 0 && g[k - 1].unicode.trim() === '') k--;
+  if (k < 2 || g.slice(0, k).some((x) => x.unicode.trim() === '')) return null;
+  const a0 = g[0].advance;
+  if (!(a0 > 0) || g.slice(0, k).some((x) => Math.abs(x.advance - a0) > 0.01 * a0)) return null;
+  const last = g[g.length - 1];
+  const showEnd = (last.x - g[0].x) * ux + (last.y - g[0].y) * uy + last.advance * scale;
+  const widths = g.slice(0, k).map((x) => [...x.unicode].reduce((sum, ch) => sum + helveticaWidth(ch), 0) || 556);
+  const total = widths.reduce((a, b) => a + b, 0);
+  const spans: Array<[number, number]> = [];
+  let at = 0;
+  for (const w of widths) {
+    const next = at + (w / total) * showEnd;
+    spans.push([at, next]);
+    at = next;
+  }
+  for (let i = k; i < g.length; i++) spans.push([showEnd, showEnd]);
+  return spans;
+}
+
+/** True when every glyph of the run has the same advance: an invisible OCR font (Tesseract's GlyphLessFont). */
+function equalAdvances(run: GlyphRun): boolean {
+  const a0 = run.glyphs[0]?.advance ?? 0;
+  return a0 > 0 && run.glyphs.length >= 2 && run.glyphs.every((g) => Math.abs(g.advance - a0) <= 0.01 * a0);
+}
+
+/** Punctuation and symbols that can stick to a value inside one OCR word ("616," "(+48" "12/4."). */
+const GLUED_PUNCTUATION = /^[\p{P}\p{S}]+$/u;
+
+/** Text shows have no business holding more than this horizontal stretch (Tz %); beyond it a run is left out. */
+const MAX_LAYER_STRETCH = 1000;
+
+/**
+ * Invisible text layer for a painted scan page: every text run of the page, with each redacted
+ * value replaced by its placeholder (on the value's first piece, nothing on the pieces it wraps
+ * onto), shown in render mode 3 in the Liberation Sans fallback face on the run's own baseline and
+ * stretched (Tz) over the run's width, so a reader can search and select the page as before and
+ * the selection sits over the picture. `toPage` maps the source page's user space to the picture
+ * page's (rotation and crop box included).
+ */
+async function searchableTextLayer(
+  runs: GlyphRun[], segments: Segment[], page: number, replacements: Replacement[], embedder: FallbackFontEmbedder, toPage: Matrix,
+): Promise<{ content: Uint8Array; fontName: string; fontRef: PDFRef } | null> {
+  const pageRuns = runs.filter((r) => r.page === page && !r.space && r.glyphs.length > 0);
+  if (pageRuns.length === 0) return null;
+  const font = await embedder.ensure(faceFor({ family: 'sans', bold: false, italic: false }));
+  const segsByRun = new Map<GlyphRun, Segment[]>();
+  const labelled = new Set<number>();
+  for (const s of segments) {
+    if (s.run.page !== page) continue;
+    const list = segsByRun.get(s.run) ?? [];
+    list.push(s);
+    segsByRun.set(s.run, list);
+  }
+  // Where each glyph ends along its run's baseline, in user space.
+  const glyphEnd = (run: GlyphRun, i: number): { x: number; y: number } => {
+    const len = Math.hypot(run.emX[0], run.emX[1]) || 1;
+    const k = len / (run.local.fontSize * run.local.hscale || 1);
+    const g = run.glyphs[i];
+    return { x: g.x + (run.emX[0] / len) * g.advance * k, y: g.y + (run.emX[1] / len) * g.advance * k };
+  };
+  const ops: string[] = ['q BT 3 Tr'];
+  for (const run of pageRuns) {
+    const segs = segsByRun.get(run) ?? [];
+    let text = '';
+    // The show starts at the first glyph that puts text in it: after the end of a value that began
+    // in an earlier show (Tesseract writes one show per word), the rest sits where it is printed.
+    let first = -1;
+    let labelAtEnd: Segment | null = null;
+    for (let i = 0; i < run.glyphs.length; i++) {
+      const seg = segs.find((s) => i >= s.from && i < s.to);
+      if (!seg) {
+        if (first < 0) first = i;
+        text += run.glyphs[i].unicode;
+        if (run.glyphs[i].unicode.trim() !== '') labelAtEnd = null;
+        continue;
+      }
+      if (i === seg.from && !labelled.has(seg.replacementIndex)) {
+        labelled.add(seg.replacementIndex);
+        if (first < 0) first = i;
+        text += replacements[seg.replacementIndex]?.replacement ?? '';
+        labelAtEnd = seg;
+      }
+    }
+    text = [...text.replace(/\s+/g, ' ')].map((ch) => (font.canShow(ch) ? ch : '?')).join('');
+    if (first < 0 || text.trim() === '') continue;
+    const exLen = Math.hypot(run.emX[0], run.emX[1]) || 1;
+    const eyLen = Math.hypot(run.emY[0], run.emY[1]) || 1;
+    const ux = run.emX[0] / exLen;
+    const uy = run.emX[1] / exLen;
+    const vx = run.emY[0] / eyLen;
+    const vy = run.emY[1] / eyLen;
+    const g0 = run.glyphs[first];
+    const along = (p: { x: number; y: number }): number => (p.x - g0.x) * ux + (p.y - g0.y) * uy;
+    const size = Math.max(...run.glyphs.map((g) => g.fontSize));
+    let width = along(glyphEnd(run, run.glyphs.length - 1));
+    // A placeholder that ends the show while its value runs on into the next shows of the line
+    // spans the whole value, so it selects as one word with whatever follows it.
+    if (labelAtEnd) {
+      for (const s of segments) {
+        if (s.replacementIndex !== labelAtEnd.replacementIndex || s.run === run || s.run.page !== page || s.to <= s.from) continue;
+        const end = glyphEnd(s.run, s.to - 1);
+        const across = (end.x - g0.x) * vx + (end.y - g0.y) * vy;
+        if (Math.abs(across) < 0.4 * size) width = Math.max(width, along(end));
+      }
+    }
+    const natural = font.measure(text, size);
+    if (!(width > 0) || !(natural > 0) || !(size > 0)) continue;
+    const tz = (100 * width) / natural;
+    if (tz > MAX_LAYER_STRETCH) continue;
+    const hex = [...font.encode(text)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const n = (v: number): string => (Math.abs(v) < 1e-6 ? '0' : v.toFixed(4).replace(/\.?0+$/, ''));
+    // The run's text matrix, carried into the picture page's user space.
+    const tm = mul([ux * size, uy * size, vx * size, vy * size, g0.x, g0.y], toPage);
+    ops.push(`/${font.resourceName} 1 Tf ${n(tz)} Tz ${tm.map(n).join(' ')} Tm <${hex}> Tj`);
+  }
+  if (ops.length === 1) return null;
+  ops.push('ET Q');
+  return { content: new TextEncoder().encode(ops.join('\n')), fontName: font.resourceName, fontRef: font.pdfFont.ref };
+}
+
+/**
+ * Resolution for a scan page: the scan's own (at least `base`, at most 300 dpi), within the pixel
+ * budget. A text page painted for a value inside one of its images is rendered at 300 dpi: its
+ * text is sharp at any size, the image's resolution says nothing about it.
+ */
 function scanDpi(page: PageRecord, base = 150): number {
-  const dpi = Math.max(base, Math.min(MAX_SCAN_DPI, Math.round(page.imageDpi)));
+  const dpi = page.info.imageOnly ? Math.max(base, Math.min(MAX_SCAN_DPI, Math.round(page.imageDpi))) : MAX_SCAN_DPI;
   const squareInches = Math.max(1e-6, (page.info.width / 72) * (page.info.height / 72));
   return Math.max(36, Math.min(dpi, Math.floor(Math.sqrt(MAX_SCAN_PIXELS / squareInches))));
 }
@@ -615,6 +764,32 @@ export function paintMarksForPage(segments: Segment[], page: number, replacement
     while (from < to && run.glyphs[from].unicode.trim() === '') from++;
     while (to > from && run.glyphs[to - 1].unicode.trim() === '') to--;
     if (from >= to) continue;
+    // An OCR layer knows where its words end, not where their letters do (Tesseract gives every
+    // glyph of its invisible font the same width): a value that stops at punctuation glued to it
+    // ("616," "12/4,") would end at a guessed point inside its last letter. Such punctuation is
+    // covered with the value, so the cover ends where the word does, and painted again as part of
+    // the label ("[PHONE_1],"), so the picture reads like the redacted text.
+    let after = to;
+    let trail = '';
+    while (after < run.glyphs.length && run.glyphs[after].unicode.trim() !== '') after++;
+    if (after > to && run.glyphs.slice(to, after).every((g) => GLUED_PUNCTUATION.test(g.unicode))) {
+      trail = run.glyphs.slice(to, after).map((g) => g.unicode).join('');
+      to = after;
+    }
+    let before = from;
+    let lead = '';
+    while (before > 0 && run.glyphs[before - 1].unicode.trim() !== '') before--;
+    if (before < from && run.glyphs.slice(before, from).every((g) => GLUED_PUNCTUATION.test(g.unicode))) {
+      lead = run.glyphs.slice(before, from).map((g) => g.unicode).join('');
+      from = before;
+    }
+    // Tesseract writes each word with its trailing space in an invisible font whose letters all have
+    // the same width, and stretches both over the word's box: the letters may reach the end of the
+    // show, past the last letter's own advance. When only whitespace follows the value in such a show,
+    // the end of the show is where its ink may still be (`reach`). A layer set in a real font is not
+    // stretched: its trailing space is the gap before the next word and never belongs to the value.
+    let measureTo = to;
+    if (run.ocr && to < run.glyphs.length && run.glyphs.slice(to).every((g) => g.unicode.trim() === '') && equalAdvances(run)) measureTo = run.glyphs.length;
     const exLen = Math.hypot(run.emX[0], run.emX[1]) || 1;
     const eyLen = Math.hypot(run.emY[0], run.emY[1]) || 1;
     const ux = run.emX[0] / exLen;
@@ -625,13 +800,28 @@ export function paintMarksForPage(segments: Segment[], page: number, replacement
     const first = run.glyphs[from];
     let lo = 0;
     let hi = 0;
+    let hiReach = 0;
     let size = 0;
-    for (let i = from; i < to; i++) {
+    for (let i = from; i < measureTo; i++) {
       const g = run.glyphs[i];
       const along = (g.x - first.x) * ux + (g.y - first.y) * uy;
+      hiReach = Math.max(hiReach, along + g.advance * scale);
+      if (i >= to) continue;
       lo = Math.min(lo, along);
       hi = Math.max(hi, along + g.advance * scale);
       size = Math.max(size, g.fontSize);
+    }
+    const startsInWord = from > 0 && run.glyphs[from - 1].unicode.trim() !== '';
+    const endsInWord = to < run.glyphs.length && run.glyphs[to].unicode.trim() !== '';
+    // Inside a Tesseract word every letter has the same width: a value that is only part of the word
+    // ("2026" of "2026/03/017") is placed by real letter proportions over the printed word instead.
+    const spans = (startsInWord || endsInWord) ? proportionalLetters(run, ux, uy, scale) : null;
+    if (spans) {
+      // Offsets stay relative to the value's first glyph origin, as above.
+      const firstAlong = (first.x - run.glyphs[0].x) * ux + (first.y - run.glyphs[0].y) * uy;
+      lo = spans[from][0] - firstAlong;
+      hi = spans[to - 1][1] - firstAlong;
+      hiReach = hi;
     }
     const x = first.x + ux * lo;
     const y = first.y + uy * lo;
@@ -643,15 +833,74 @@ export function paintMarksForPage(segments: Segment[], page: number, replacement
       const lineSize = Math.max(prev.size, size);
       if (Math.abs(across) < 0.4 * lineSize && along > -0.5 * lineSize && along < prev.length + 2 * lineSize) {
         prev.length = Math.max(prev.length, along + (hi - lo));
+        prev.reach = Math.max(prev.reach ?? prev.length, along + (hiReach - lo));
         prev.size = lineSize;
+        if (endsInWord) prev.endsInWord = true;
+        else delete prev.endsInWord;
+        if (prev.labelEnd !== undefined) prev.labelEnd += trail;
+        else prev.label += trail;
         continue;
       }
     }
-    const label = s.replacementIndex === lastIndex ? '' : replacements[s.replacementIndex]?.replacement ?? '';
-    marks.push({ x, y, ux, uy, vx, vy, length: hi - lo, size, label });
+    // The rest of a value wrapped onto the next line shows only the punctuation glued to it, each
+    // side where it was printed.
+    const rest = s.replacementIndex === lastIndex;
+    const label = rest ? lead : lead + (replacements[s.replacementIndex]?.replacement ?? '') + trail;
+    marks.push({
+      x, y, ux, uy, vx, vy, length: hi - lo, ...(hiReach > hi ? { reach: hiReach - lo } : {}), size, label,
+      ...(rest ? { labelEnd: trail } : {}),
+      ...(startsInWord ? { startsInWord } : {}), ...(endsInWord ? { endsInWord } : {}),
+    });
     lastIndex = s.replacementIndex;
   }
   return marks;
+}
+
+/**
+ * Share of a page's words that may start before / end after the text column: a margin note runs to
+ * a few percent of a page's words; on the right, past ragged line ends, only a page number or a
+ * stamp, so the end takes in nearly every line.
+ */
+const COLUMN_START_OUTLIERS = 0.05;
+const COLUMN_END_OUTLIERS = 0.02;
+
+/**
+ * The text column each mark's line sits in, along its baseline (`columnStart`, `columnEnd`, user
+ * units from the mark's start): where the page's words start and end, without the outlying
+ * COLUMN_START_OUTLIERS / COLUMN_END_OUTLIERS, over the words running the same way. A label growing into blank
+ * paper beside a short value stays inside it: never into the margin.
+ */
+export function withTextColumn(marks: PaintMark[], runs: GlyphRun[], page: number): PaintMark[] {
+  const words: Array<{ x0: number; y0: number; x1: number; y1: number; ux: number; uy: number }> = [];
+  for (const run of runs) {
+    if (run.page !== page || run.space || run.glyphs.length === 0) continue;
+    const len = Math.hypot(run.emX[0], run.emX[1]) || 1;
+    const k = len / (run.local.fontSize * run.local.hscale || 1);
+    const ux = run.emX[0] / len;
+    const uy = run.emX[1] / len;
+    let first = -1;
+    for (let i = 0; i <= run.glyphs.length; i++) {
+      const blank = i === run.glyphs.length || run.glyphs[i].unicode.trim() === '';
+      if (!blank && first < 0) first = i;
+      if (blank && first >= 0) {
+        const a = run.glyphs[first];
+        const b = run.glyphs[i - 1];
+        words.push({ x0: a.x, y0: a.y, x1: b.x + ux * b.advance * k, y1: b.y + uy * b.advance * k, ux, uy });
+        first = -1;
+      }
+    }
+  }
+  const quantile = (values: number[], q: number): number => {
+    const sorted = [...values].sort((p, r) => p - r);
+    return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))))];
+  };
+  return marks.map((m) => {
+    const same = words.filter((w) => w.ux * m.ux + w.uy * m.uy > 0.99);
+    if (same.length === 0) return m;
+    const starts = same.map((w) => (w.x0 - m.x) * m.ux + (w.y0 - m.y) * m.uy);
+    const ends = same.map((w) => (w.x1 - m.x) * m.ux + (w.y1 - m.y) * m.uy);
+    return { ...m, columnStart: quantile(starts, COLUMN_START_OUTLIERS), columnEnd: quantile(ends, 1 - COLUMN_END_OUTLIERS) };
+  });
 }
 
 /**

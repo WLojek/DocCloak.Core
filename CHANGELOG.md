@@ -4,7 +4,68 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
-## [0.14.1] - 2026-10-22
+## [0.15.0] - 2026-10-23
+
+0.14.1 was tagged but never published to npm, so this is the first release
+on npm after 0.14.0 and it carries the 0.14.1 changes too (listed under
+0.14.1 below). New `readPdf` options (`ocrImagePages`, `onOcrProgress`),
+hence the minor version; nothing a 0.14.0 host uses was removed.
+
+Each PDF page is handled by what it holds (T239). The founder's mixed scan
+had a picture page without any text layer between two OCR scans: its
+personal data came out untouched.
+
+- **Pages without a text layer are read with the host's OCR.** With a
+  `recognizeText`, `readPdf` reads a picture page that has no text at all on
+  the whole page (Tesseract's automatic segmentation only). A page with fewer
+  than three words read with 30 % confidence or more (a photo, a stamp,
+  noise) stays as it is, still listed as a scanned page. Otherwise every word
+  read is kept: Tesseract is least sure of elided words ("d'avril 2009",
+  "rachat d'actions"), and a word left out could be neither found nor
+  covered (seen on the issue file). A page read this way becomes a scan
+  with an OCR layer (`ocrText`, `PdfPageInfo.ocrWholePage` = the words
+  read): its values are detected, painted over in the picture and the page
+  keeps an invisible searchable layer. `ocrImagePages: false` turns this
+  off; without a host OCR nothing changes.
+- **Text inside images on text pages.** The coverage check now also runs on
+  text pages with images, with every glyph of the page's own layer as
+  covered, so only text the images show is found and read. A text page with
+  a value inside an image is painted (rendered at 300 dpi) like a scan; a
+  text page whose images hold no value stays vector text, edited in place.
+  Its note says "an image on the page shows text its text layer does not
+  have", and the generic "contains images; text inside images is not
+  scanned" is no longer given for the pages a host OCR checked.
+- **Values glued to an elision whose apostrophe OCR dropped.**
+  `propagateEntities` also finds a capitalised value right after a
+  lowercase "d", "l", "qu" and the other French and Italian elisions that
+  start a word ("dALTAMIR GERANCE", "lAltamir"); "McAltamir", "daltamir" and
+  "mALTAMIRE" are still left alone.
+- **A value inside an OCR word is covered from its first letter.** Where a
+  value starts or ends inside a word ("ALTAMIR" of "d'ALTAMIR"), the cover
+  ended in the valley between two letters nearest the OCR's estimate,
+  either way. Tesseract placed that "A" from its middle, the nearest valley
+  was the one after it, and the "A" stayed visible ("d'A[PERSON_13]"). The
+  valley is now looked for on the side away from the value only (up to
+  0.8 em out, 0.05 em in): at worst the cover takes one letter of the rest
+  of the word, never leaves one of the value.
+- **OCR progress.** `onOcrProgress(done, total)` reports the pages read so
+  far; the web app shows "page X of Y" while a scanned file loads.
+- **One Tesseract worker per file.** `recognizeCanvasLines` keeps its worker
+  between pages (`releaseOcrWorker()` ends it) and takes `wholePage`; word
+  confidences are passed on in `RecognizedLine`.
+- **The verifier no longer reads character codes in a font's ToUnicode map
+  as text.** The fallback font's map holds `<2019>` (the code of a closing
+  quote), so a detected year "2019" refused the export of the issue file. In
+  a CMap stream the hex strings are skipped; any other text in it is still
+  searched.
+- Tests: each page kind (a picture read whole and painted, its values
+  covered when the OCR is unsure of their words, a picture with only noise,
+  a mixed file, a text page with an image with and without a value, no host
+  OCR); a value glued to an elision; a value whose first letter the OCR
+  places half a letter late; a value in a CMap's hex codes and in its
+  comment.
+
+## [0.14.1] - 2026-10-22 (not published; shipped in 0.15.0)
 
 Two fixes found by the acceptance run of web 0.15.0 on the preview (T237).
 
@@ -25,6 +86,100 @@ Two fixes found by the acceptance run of web 0.15.0 on the preview (T237).
 - Tests: a long e-mail on the narrow-OCR scan; the verifier ignores a value's
   bytes in an image's samples and finds them in the image dictionary and in
   another stream.
+
+Found by the next preview runs on real Tesseract scans (T238):
+
+- **Values ending at punctuation glued to them in an OCR word.** Tesseract
+  gives every glyph of its invisible font the same width, so a value that
+  stops before glued punctuation ("+48 527 870 616," "12/4,") ended at a
+  guessed point inside its last letter, and the cover's growth stopped at the
+  0.23 em gap after a narrow "1": half of the last digit stayed visible.
+  Glued punctuation is now covered with the value, so the cover ends where
+  the OCR word does, and painted again around the placeholder
+  ("[PHONE_1]," "([PHONE_1])."), so the picture reads like the redacted
+  text; on the line a value wraps onto, at the end of that line's cover,
+  where it was printed.
+- **Diacritics standing apart above a value.** The cover's height follows
+  the letters' ink up to the first blank row, so the dot of "Ż" in
+  "Krzysztof Żółć" (and an accent over a word without ascenders) stayed in
+  the picture above the label. Small marks just above the letters that do
+  not run on into the line above get a cover of their own.
+- **Short values' labels use the blank paper next to them.** A placeholder
+  never took more room than its value, so the label for "ul." or "Kraków,"
+  was squeezed and shrunk until it was hard to read. It now first takes the
+  blank paper after the value, then before it (a right-aligned line), up to
+  a word space before the next ink, half the gap to the next value on the
+  line and never outside the text column (where the page's OCR words start
+  and end, a margin note or a stamp left out), so a label never grows into
+  the margin. Values with no room on either side keep the squeezed label;
+  the text layer holds every placeholder in full.
+- **Table rules the OCR read as "|" no longer hide a cell's word from
+  detection.** "|Kraków" (a vertical rule glued to the city in a scanned
+  table) was missed by the model while the same city without the rule was
+  found. On OCR text those characters read as spaces in the flat text, one
+  for one, so every offset still maps to its glyph (the layer keeps them).
+- **Polish street addresses take in the flat number** (`regex:pl:street`):
+  "ul. Słoneczna 7 m. 12" and "al. Jerozolimskie 44 lok. 3B" match whole. On
+  a scan of a letter the model found "ul. Słoneczna 7" without "m. 12",
+  which stayed in the picture; the text PDF of the same letter got all of it.
+- **Tesseract stretches each word with its trailing space.** Its shows hold
+  the word and a space, stretched together over the word's box, so a word's
+  last letter reaches past its own advance (the "7" of "31-147" stuck out).
+  When only whitespace follows a value in an OCR show, the end of the show
+  bounds where the value's ink may be (`PaintMark.reach`): ink up to there is
+  covered across gaps; in layers that are not stretched that space is blank
+  and nothing more is covered.
+- **Text a scan's OCR layer does not have is reported.** A table or a stamp
+  the OCR could not read is not in the layer, so it cannot be found and stays
+  in the picture. `readPdf` now renders each page with OCR text at 100 dpi
+  and looks for rows of letter-sized ink that no OCR glyph covers
+  (`src/pdf/coverage.ts`); it sets `PdfPageInfo.ocrMissingLines` and adds a
+  warning. Rules, frames, signatures and pictures are larger than letters and
+  never count, nor do single marks or rows shorter than 2 em. Calibrated on
+  the scans of the acceptance run: the two tables Tesseract could not read
+  are reported, the court judgment (signature, stamp) and complete scans are
+  not. Options: `checkOcrCoverage` (default true), `canvasFactory` for Node
+  hosts; without a canvas the check is skipped.
+- **Hosts can read that text with their own OCR.** `readPdf` takes an
+  optional `recognizeText(canvas, region)`: the page rendered at 300 dpi and
+  the region around the missing lines. The words it returns (lines with
+  baselines and letter boxes) that do not lie under the layer's own glyphs
+  join the page as hidden OCR runs after its text (`PdfPageInfo.ocrReadWords`,
+  `PdfExtraction.extraOcr`); the writer re-creates the same runs, so their
+  values are detected and painted like the layer's. `@doccloak/core/dom`
+  adds `recognizeCanvasLines`, which tries Tesseract's automatic,
+  single-column and single-block segmentation on the crop and keeps the
+  reading with the most letters (the same crop reads in one mode and gives
+  nothing in another). The tables Tesseract garbled on full pages read
+  cleanly this way. The region reaches 2.5 em above and below the missing
+  lines: a row whose only OCR text is junk ("[miesiąc | opowiezany ema Je |")
+  looks covered and is never reported missing itself. A word read there is
+  dropped only when the layer's glyphs under it spell about the same word
+  (60 % of the letters in order); under junk it is added.
+- **Values inside a longer OCR word.** In a Tesseract word ("2026/03/017")
+  the letters of a value that is only part of it are placed by Helvetica
+  proportions over the printed word, and the cover ends in the blank gap
+  between two letters nearest that point, with a pixel of margin: "2026" of
+  "2026/03/017" leaves "/03/017" whole (before, the cover grew through "/0").
+- **Painted scan pages stay searchable.** Their text, every redacted value
+  replaced by its placeholder, is written as an invisible layer (render mode
+  3, Liberation Sans) over the picture: each run on its own baseline,
+  stretched to its original width, so search and selection work as on the
+  input and sit over the printed words, on rotated pages too (the layer is
+  mapped through the same transform that placed the page in the picture).
+  A placeholder spans its whole value even when the OCR wrote the value as
+  several shows (Tesseract: one per word), and the punctuation after it
+  follows on the same line ("Telefon: [PHONE_1], e-mail").
+  The verifier reads the new layer like any text.
+- The stretched-space reach applies only to shows whose glyphs all have the
+  same advance (Tesseract's invisible font): in a layer set in a real font
+  the trailing space is the gap before the next word, and the cover took in
+  the next word's first letter.
+- Tests: glued punctuation and the Tesseract word reach (unit, fail without
+  the fixes), a Tesseract-style synthetic layer (one show per word with its
+  trailing space, equal letter widths, values red with black punctuation),
+  the missing-text finder (unit) and `readPdf` on a scan with a line the
+  layer lacks.
 
 ## [0.14.0] - 2026-10-22
 

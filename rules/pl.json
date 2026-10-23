@@ -150,18 +150,20 @@
     {
       "id": "regex:pl:street",
       "entityType": "ADDRESS",
-      "pattern": "(?:ul\\.|al\\.|pl\\.|os\\.)\\s+[\\p{L}][\\p{L}\\s]+\\s+\\d+[\\p{L}]?(?:\\s*[/\\\\]\\s*\\d+[\\p{L}]?)?",
+      "pattern": "(?:ul\\.|al\\.|pl\\.|os\\.)\\s+[\\p{L}][\\p{L}\\s]+\\s+\\d+[\\p{L}]?(?:\\s*[/\\\\]\\s*\\d+[\\p{L}]?)?(?:\\s+(?:m\\.?|lok\\.)\\s*\\d+[\\p{L}]?)?",
       "flags": "gu",
       "confidence": 0.9,
       "domains": [
         "contact"
       ],
-      "description": "Polish street address (ul./al./pl./os. + name + number)",
+      "description": "Polish street address (ul./al./pl./os. + name + number, with the flat: /3, m. 3, lok. 3)",
       "examples": [
         "ul. Floriańska 27/3",
         "ul. Juliusza Słowackiego 15/8",
         "al. Krakowska 42",
-        "os. Złotego Wieku 12"
+        "os. Złotego Wieku 12",
+        "ul. Słoneczna 7 m. 12",
+        "ul. Długa 5 lok. 3"
       ]
     },
     {

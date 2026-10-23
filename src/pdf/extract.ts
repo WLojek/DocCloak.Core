@@ -26,7 +26,7 @@ import { StateMachine, adjustmentAdvance, apply, glyphAdvance, initialState, mul
 import type { ExtGStateAlpha } from './textstate.ts';
 import { loadFont } from './fonts.ts';
 import type { LoadedFont } from './fonts.ts';
-import type { Glyph, GlyphRun, PdfPageInfo, RemovedPart, RunLocalState } from './types.ts';
+import type { ExtraOcrPage, ExtraOcrWord, Glyph, GlyphRun, PdfPageInfo, RemovedPart, RunLocalState } from './types.ts';
 import { UnsupportedDocumentError } from '../dom/errors.ts';
 import type { UnredactablePart } from '../dom/errors.ts';
 import { normalizeForCompare } from './oracle.ts';
@@ -105,6 +105,12 @@ export interface ExtractOptions {
    * taken from the oracle (so detection still sees what a viewer shows).
    */
   oracle?: OracleDocument;
+  /**
+   * Text DocCloak read itself where a scan page's OCR layer had none (readPdf's recognizeText): its
+   * words join the page as hidden OCR runs after the page's own text, so the reader and the writer
+   * build the same flat text from the same bytes.
+   */
+  extraOcr?: ExtraOcrPage[];
 }
 
 export const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
@@ -284,6 +290,13 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
         }
       }
     }
+    const extra = options.extraOcr?.find((x) => x.page === p);
+    if (extra && !record.oracleText && extra.lines.length > 0) {
+      record.info.ocrReadWords = appendExtraOcrRuns(p, extra.lines, runs, text);
+      // A picture without any text layer, read whole by DocCloak's OCR: from here on a scan with an
+      // OCR layer (its values are painted over in the picture), not a page left as it is.
+      if (extra.whole && record.info.imageOnly && record.info.ocrReadWords > 0) record.info.ocrText = true;
+    }
     record.info.textEnd = text.length;
     if (record.info.imageOnly && record.info.ocrText) {
       // A scan with an OCR text layer: detection reads the layer, and the writer paints the
@@ -315,7 +328,7 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
   }
 
   const removed = scanDocumentLevelParts(ctx, doc, model, warnings);
-  const plainText = text.toString();
+  const plainText = ocrRulesAsSpaces(text.toString(), runs);
   aggregatePageParts(unredactable);
   // Reading-order insertion can put a later operator's text before an earlier one's: keep the
   // runs in flat-text order (the writer's segment mapping relies on it).
@@ -330,6 +343,29 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
     empty: runs.every((r) => r.glyphs.every((g) => g.unicode.trim() === '')),
     model,
   };
+}
+
+/** Characters an OCR reads off a table's vertical rules. */
+const OCR_RULE = /^[|¦]$/;
+
+/**
+ * In OCR text a table's vertical rules read as "|", often glued to a cell's word ("|Kraków"), and
+ * the detector then misses the word. Those characters read as spaces in the flat text, one for one,
+ * so every offset still maps to its glyph (the glyphs, and the layer written for a painted page,
+ * keep what the OCR read).
+ */
+function ocrRulesAsSpaces(plain: string, runs: GlyphRun[]): string {
+  let units: string[] | null = null;
+  for (const run of runs) {
+    if (!run.ocr) continue;
+    run.glyphs.forEach((g, i) => {
+      const at = run.textOffsets[i];
+      if (!OCR_RULE.test(g.unicode) || at === undefined || at < 0 || plain[at] !== g.unicode) return;
+      units ??= plain.split('');
+      units[at] = ' ';
+    });
+  }
+  return units ? (units as string[]).join('') : plain;
 }
 
 interface Box { x0: number; y0: number; x1: number; y1: number }
@@ -648,6 +684,55 @@ function appendOracleRuns(page: number, items: OracleTextItem[], runs: GlyphRun[
       ...(vertical ? { vertical: true } : {}),
     });
   });
+}
+
+/**
+ * Runs for text DocCloak read with its own OCR (one run per word, one glyph per letter, in user
+ * space), after the page's own text: a blank line, then each line's words. They are hidden OCR text
+ * with no stream behind them (`oracle`), so the writer paints them and never edits a stream for
+ * them. Returns the number of words.
+ */
+function appendExtraOcrRuns(page: number, lines: ExtraOcrWord[][], runs: GlyphRun[], text: TextBuilder): number {
+  let count = 0;
+  text.append('\n\n');
+  lines.forEach((line, li) => {
+    line.forEach((word, wi) => {
+      if (wi > 0) text.append(' ');
+      const glyphs: Glyph[] = [];
+      const textOffsets: number[] = [];
+      const advances: number[] = [];
+      const start = text.length;
+      let along = 0;
+      for (const g of word.glyphs) {
+        textOffsets.push(text.length);
+        text.append(g.unicode);
+        glyphs.push({ code: -1, codeLength: 0, unicode: g.unicode, width: word.size > 0 ? (g.advance / word.size) * 1000 : 0, advance: g.advance, x: g.x, y: g.y, fontSize: word.size, item: 0, byteOffset: 0 });
+        advances.push(along);
+        along += g.advance;
+      }
+      runs.push({
+        page,
+        streamKey: `ocr:p${page}`,
+        opIndex: count,
+        fontName: '',
+        fontKey: '',
+        glyphs,
+        renderMode: 3,
+        hidden: true,
+        ocr: true,
+        textOffsets,
+        textStart: start,
+        textEnd: text.length,
+        emX: [word.dir[0] * word.size, word.dir[1] * word.size],
+        emY: [word.up[0] * word.size, word.up[1] * word.size],
+        local: { ctm: [1, 0, 0, 1, 0, 0], tm: [1, 0, 0, 1, 0, 0], tlm: [1, 0, 0, 1, 0, 0], fontSize: word.size, charSpacing: 0, wordSpacing: 0, hscale: 1, leading: 0, rise: 0, advances },
+        oracle: true,
+      });
+      count++;
+    });
+    if (li < lines.length - 1) text.append('\n');
+  });
+  return count;
 }
 
 /* ------------------------------------------------------------------ */

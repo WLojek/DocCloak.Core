@@ -255,15 +255,39 @@ least `rasterDpi`, at most 300 dpi) and paints the value over in the
 picture: a cover in the paper colour, grown along the line to where the
 value's ink really ends (OCR letters rarely have the scan's widths), and the
 placeholder label in its place, on the value's baseline, sized from the
-value's ink and fitted to the value's width (squeezed, then shrunk). The
-page is exported as a lossless image (gray for a gray scan) without a text
-layer and listed in `scanPages`. Pages of the same file without any text are
-not touched.
+value's ink and fitted to the value's width, taking blank paper beside a
+short value first (then squeezed, then shrunk). The
+page is exported as a lossless image (gray for a gray scan) with an invisible
+text layer holding its text, the placeholders in place of the values, so it
+stays searchable, and listed in `scanPages`. Pages of the same file without any text are
+not touched. Text the OCR layer does not have (a table or a stamp the OCR
+could not read) cannot be found, so it stays in the picture: `readPdf`
+renders each scan page with OCR text at 100 dpi, looks for rows of
+letter-sized ink no OCR glyph covers and reports them in
+`PdfPageInfo.ocrMissingLines` and `warnings` (`checkOcrCoverage: false` turns
+the check off; Node hosts pass a `canvasFactory`, without one it is skipped).
+A host with OCR passes `recognizeText(canvas, region)` (the web app hands in
+Tesseract through `recognizeCanvasLines` from `@doccloak/core/dom`): the
+words it reads there join the page as OCR text (`ocrReadWords`), and their
+values are found and painted over like the rest.
+
+**Each page by what it holds.** With a host OCR, a page that is only a
+picture (no text layer at all) is read whole with Tesseract's automatic
+segmentation. With fewer than three words read at 30 % confidence or more
+the page stays as it is; otherwise every word read is kept, the unsure ones
+too (`PdfPageInfo.ocrWholePage` gives the count).
+A page read this way is handled as a scan with an OCR layer, so a file can
+mix vector text pages, OCR scans and pictures, each redacted its own way. Text
+pages with images get the same coverage check, with the page's own glyphs
+counted as covered: text that only an image shows is read, and a text page
+with a value in an image is exported painted, like a scan; without such a
+value it stays vector text. `ocrImagePages: false` turns the whole-page
+reading off, and `onOcrProgress(done, total)` reports the pages read.
 
 **Refusals.** Encrypted files (`'encrypted'`, pass `password`), files over
 50 MB or 500 pages (`'too-large'`), non-PDF bytes (`'invalid-package'`).
-Scanned pages without a text layer (no OCR) and text no decoder can read are
-reported in `unredactable` (`'scanned-page'`, `'undecodable-text'`) and gate
+Scanned pages without a text layer (no OCR, and none the host's OCR could
+read) and text no decoder can read are reported in `unredactable` (`'scanned-page'`, `'undecodable-text'`) and gate
 the export behind `allowUnredactable`, like Office packages; with it they
 are exported as they are. A file whose pages hold no text at all reads as
 `empty`.
@@ -318,7 +342,8 @@ Independently of what was detected, every exported .docx / .xlsx has:
   encoding names); a placeholder is never drawn with a Type3 font unless the
   font itself showed every character of it. Digital signatures are
   invalidated by any change.
-- Images are copied unchanged; text inside pictures is not OCR-scanned.
+- Images are copied unchanged. Without a host OCR, text inside pictures is
+  not OCR-scanned; with one, see "Each page by what it holds" above.
 - Forms, annotations, bookmarks and attachments are dropped, not redacted.
 - Right-to-left text: pdf.js reports it in visual order, so the cross-check
   compares the characters of such pages as a set; detection runs on our
@@ -407,7 +432,7 @@ interface CoreEnv {
   fetch: typeof fetch;            // injectable for tests/proxies
   wasm: { paths: string; numThreads?: number };  // onnxruntime-web asset location
   buildTokenizer?(tokenizerJson: unknown, tokenizerConfig: unknown): unknown | Promise<unknown>;
-  /** @deprecated since 0.12.0, removal planned for 0.14.0; used only when buildTokenizer is absent */
+  /** @deprecated since 0.12.0, removal planned for a later release; used only when buildTokenizer is absent */
   loadTokenizer?(hfModelId: string): Promise<unknown>;
   hardware?: HardwareHints;       // deviceMemoryGB / isMobile, feeds provider default
   persistStorage?: () => Promise<boolean>;  // e.g. navigator.storage.persist()
@@ -444,7 +469,7 @@ are the three pinned `resolve/<commit>/...` files of the active provider.
 `loadTokenizer(hfModelId)` (0.11 and earlier) is still honoured in 0.13.0
 when `buildTokenizer` is absent, with a one-time deprecation warning. It
 lets the host library probe the mutable `resolve/main` branch and keep an
-unverified second cache, so migrate now: the removal is planned for 0.14.0,
+unverified second cache, so migrate now: the removal is planned for a later release,
 where `buildTokenizer` becomes required.
 
 ### autoLoad and ModelNotLoadedError

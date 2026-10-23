@@ -9,6 +9,7 @@
  * box drawn over live text.
  */
 
+import type { CanvasFactory } from './oracle.ts';
 import type { UnredactablePart } from '../dom/errors.ts';
 
 /**
@@ -154,6 +155,25 @@ export interface PdfPageInfo {
    * Redacted values in it are painted over in the picture, and the page is exported as an image.
    */
   ocrText: boolean;
+  /**
+   * Lines of text the page shows that its text layer does not have: on a scan, text its OCR layer
+   * missed (a table, a stamp); on a text page, text inside an image. Without the host's OCR they
+   * cannot be found or redacted. Absent when the page was not checked (no canvas in the host) or
+   * nothing is missing.
+   */
+  ocrMissingLines?: number;
+  /**
+   * Words DocCloak read itself (the host's `recognizeText`) where the page's text layer had none
+   * (`ocrMissingLines`). They are detected like the layer's own words, and their values are painted
+   * over in the picture (a text page with such a value is exported as an image).
+   */
+  ocrReadWords?: number;
+  /**
+   * On a page without any text layer (a picture only): the words DocCloak read on the whole page
+   * with the host's OCR. Above 0 the page is handled as a scan with an OCR layer (`ocrText`); 0: read,
+   * no text found (the page stays as it is). Absent when the page was not read.
+   */
+  ocrWholePage?: number;
   /** Flat-text range of the page. */
   textStart: number;
   textEnd: number;
@@ -190,7 +210,54 @@ export interface PdfReadOptions {
   maxGlyphs?: number;
   /** User password for encrypted files. Without it an encrypted file is refused. */
   password?: string;
+  /**
+   * Look for text a page shows that its text layer does not have: on a scan with an OCR layer, text
+   * the OCR missed; on a text page with images, text inside the images (renders those pages at
+   * 100 dpi). Default true.
+   */
+  checkOcrCoverage?: boolean;
+  /**
+   * Read the pages without any text layer (pictures only) with `recognizeText`, so their text joins
+   * the document and their values are painted over like a scan's. Default true.
+   */
+  ocrImagePages?: boolean;
+  /** Progress of the host OCR: pages read so far of the pages to read (called before the first and after each). */
+  onOcrProgress?: (done: number, total: number) => void;
+  /** Node hosts and tests: canvas factory for that check. Browsers use OffscreenCanvas. */
+  canvasFactory?: CanvasFactory;
+  /**
+   * OCR for text a scan page's OCR layer does not have: read `region` (pixels) of `canvas` (the page
+   * rendered at `dpi`, 300) and return its lines, relative to the region. Without it such text is only
+   * reported (`ocrMissingLines`).
+   */
+  recognizeText?: RecognizeRegion;
 }
+
+/** A line a host OCR read: baseline and words with their letter boxes, in the pixels of the canvas given. */
+export interface RecognizedLine {
+  baseline: { x0: number; y0: number; x1: number; y1: number };
+  words: Array<{
+    text: string;
+    bbox: { x0: number; y0: number; x1: number; y1: number };
+    /** The OCR's confidence in the word, 0..100, when it gives one. */
+    confidence?: number;
+    symbols?: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }>;
+  }>;
+}
+
+export type RecognizeRegion = (canvas: unknown, region: { x0: number; y0: number; x1: number; y1: number }, dpi: number) => Promise<RecognizedLine[]>;
+
+/** One glyph DocCloak read with its own OCR, in user space (origin on the baseline). */
+export interface ExtraOcrGlyph { unicode: string; x: number; y: number; advance: number }
+
+/** A word DocCloak read with its own OCR: its glyphs, the text size and the baseline / up directions (unit vectors). */
+export interface ExtraOcrWord { glyphs: ExtraOcrGlyph[]; size: number; dir: [number, number]; up: [number, number] }
+
+/**
+ * Text DocCloak read on a page where the text layer had none, by line. The writer re-creates the
+ * same runs from it. `whole`: the page had no text layer at all and was read entirely.
+ */
+export interface ExtraOcrPage { page: number; lines: ExtraOcrWord[][]; whole?: boolean }
 
 export interface PlaceholderFit {
   /** Lowest font-size ratio (placeholder size / original size) before condensing kicks in. Default 0.65. */
