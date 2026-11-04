@@ -219,7 +219,20 @@ function scanStrings(obj: PDFObject, objNum: number, needles: EncodedNeedle[], f
       // Font names are metadata, never document text; a surname equal to a font name must not block the export.
       if (key === 'BaseFont' || key === 'FontName' || key === 'FontFamily' || key === 'CharSet') continue;
       if (isFontDict && v instanceof PDFName) continue;
-      scanStrings(k, objNum, needles, findings, seen);
+      // PDF vocabulary is never document text either: the standard keys, and the names of keys such
+      // as /Type /Page or /ProcSet [/PDF /Text]. A model that took the word "Page" of a footer for a
+      // value refused every export ("obj 19 name" on each page dictionary, T247). Any other key is
+      // still searched: a value can be hidden as a key name.
+      if (!STANDARD_KEYS.has(key)) scanStrings(k, objNum, needles, findings, seen);
+      if (STRUCTURAL_NAME_KEYS.has(key) && (v instanceof PDFName || v instanceof PDFArray)) {
+        if (v instanceof PDFArray) {
+          for (let i = 0; i < v.size(); i++) {
+            const item = v.get(i);
+            if (!(item instanceof PDFName)) scanStrings(item, objNum, needles, findings, seen);
+          }
+        }
+        continue;
+      }
       scanStrings(v, objNum, needles, findings, seen);
     }
     return;
@@ -229,9 +242,34 @@ function scanStrings(obj: PDFObject, objNum: number, needles: EncodedNeedle[], f
   }
 }
 
-/** A needle no font program or font name could legitimately contain: several words, or a digit. */
+/**
+ * Keys whose name values (or arrays of names) are PDF vocabulary, not text: object types, filters,
+ * procedure sets, colour spaces, encodings, blend modes, viewer settings.
+ */
+const STRUCTURAL_NAME_KEYS: ReadonlySet<string> = new Set([
+  'Type', 'Subtype', 'S', 'Filter', 'ProcSet', 'ColorSpace', 'CS', 'Encoding', 'BaseEncoding',
+  'BM', 'Intent', 'PageMode', 'PageLayout', 'Trapped', 'Event', 'Role', 'Placement', 'ListNumbering',
+]);
+
+/** Standard dictionary keys that are also ordinary words a model could take for a value. */
+const STANDARD_KEYS: ReadonlySet<string> = new Set([
+  'Type', 'Subtype', 'Contents', 'Resources', 'Parent', 'Kids', 'Count', 'Rotate', 'Font', 'XObject',
+  'ExtGState', 'ColorSpace', 'Pattern', 'Shading', 'Properties', 'ProcSet', 'Filter', 'Length', 'Width',
+  'Height', 'Name', 'Encoding', 'Widths', 'Flags', 'Ascent', 'Descent', 'Annots', 'Group', 'Metadata',
+  'Trans', 'Pages', 'Outlines', 'Root', 'Info', 'Size', 'Prev', 'Title', 'Author', 'Subject', 'Keywords',
+  'Creator', 'Producer', 'Matrix', 'Intent', 'Order', 'Range', 'Domain', 'Bounds', 'Encode', 'Decode',
+  'Mask', 'Border', 'Rect', 'Dest', 'Lang', 'Marked', 'Owner', 'Tabs', 'Interpolate', 'Alternate',
+]);
+
+/**
+ * A needle no font program or font name could legitimately contain: several words, or a digit,
+ * and at least 8 characters without spaces. Glyph data holds runs of ASCII digits by chance
+ * ("88288", "327", "103" in a Liberation subset): a short amount or house number matched one and
+ * refused the export of kit file 58 (T247); an IBAN, a phone number or a full name still count.
+ */
 function strongNeedle(needle: string): boolean {
-  return /\s/.test(needle.trim()) || /\d/.test(needle);
+  const trimmed = needle.trim();
+  return (/\s/.test(trimmed) || /\d/.test(trimmed)) && trimmed.replace(/\s+/g, '').length >= 8;
 }
 
 /** pdf.js items joined in reading order: lines by baseline (top first), items left to right within a line. */

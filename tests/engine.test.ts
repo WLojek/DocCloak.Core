@@ -528,16 +528,25 @@ describe('detect', () => {
 
 describe('PROVIDERS catalog', () => {
   it('lists the built-in providers with stable ids', () => {
-    expect(PROVIDERS.map((p) => p.id)).toEqual(['gliner', 'gliner-base', 'bardsai']);
+    expect(PROVIDERS.map((p) => p.id)).toEqual([
+      'gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf',
+    ]);
   });
 
-  it('describes bardsai as the multilingual default and gliner-base as the English/dates alternative (T127)', () => {
+  it('flags the zero-shot models for custom labels and the WebGPU-only model (T240-T242)', () => {
+    expect(PROVIDERS.filter((p) => p.customLabels).map((p) => p.id)).toEqual(['gliner', 'gliner-base', 'gliner2-pii', 'gliner2-pii-yethdev']);
+    expect(PROVIDERS.filter((p) => p.requiresWebGpu).map((p) => p.id)).toEqual(['openai-pf']);
+  });
+
+  it('describes each model by languages, labels and download size, without accuracy claims (T127, T249)', () => {
     const bardsai = PROVIDERS.find((p) => p.id === 'bardsai')!;
     expect(bardsai.label).toBe('BardS.ai EU PII');
     expect(bardsai.description.toLowerCase()).toContain('multilingual');
     const base = PROVIDERS.find((p) => p.id === 'gliner-base')!;
     expect(base.label).toBe('GLiNER PII Base');
-    expect(base.description).toContain('English');
+    expect(base.description).toContain('custom labels');
     expect(base.description).toContain('197 MB');
+    // The 2026-11 model test kit contradicted "best multilingual accuracy" and "better for English and dates".
+    for (const p of PROVIDERS) expect(p.description, p.id).not.toMatch(/\b(best|better)\b/i);
   });
 });

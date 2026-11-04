@@ -21,16 +21,25 @@ import { detectWithRegex, detectEntities } from './pipeline.ts';
 import { GlinerProvider } from './providers/gliner.ts';
 import { GlinerBaseProvider } from './providers/gliner-base.ts';
 import { BardsaiProvider } from './providers/bardsai.ts';
+import { BardsaiV2Provider } from './providers/bardsai-v2.ts';
+import { Gliner2Provider } from './providers/gliner2.ts';
+import { OpenAiPrivacyFilterProvider } from './providers/openai-privacy-filter.ts';
 import { REGEX_REGIONS, type RegexRegionId } from './regex/index.ts';
 
 // ── Provider registry ──────────────────────────────────────
 
-export type ProviderId = 'gliner' | 'gliner-base' | 'bardsai';
+export type ProviderId =
+  | 'gliner' | 'gliner-base' | 'bardsai'
+  | 'bardsai-v2' | 'bardsai-v3' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
 
 export interface ProviderEntry {
   id: ProviderId;
   label: string;
   description: string;
+  /** Zero-shot model: it takes the user's own labels (settings, custom labels). */
+  customLabels: boolean;
+  /** Runs only on WebGPU; hosts disable it where navigator.gpu is missing. */
+  requiresWebGpu?: boolean;
 }
 
 /** Catalog of the built-in providers (labels/descriptions shown by hosts). */
@@ -39,16 +48,50 @@ export const PROVIDERS: ProviderEntry[] = [
     id: 'gliner',
     label: 'GLiNER PII Small',
     description: 'Lightweight, multi-language, supports custom labels (~83 MB)',
+    customLabels: true,
   },
   {
     id: 'gliner-base',
     label: 'GLiNER PII Base',
-    description: 'May be better for English and dates, supports custom labels (~197 MB)',
+    description: 'Multi-language, supports custom labels (~197 MB)',
+    customLabels: true,
   },
   {
     id: 'bardsai',
     label: 'BardS.ai EU PII',
-    description: 'Best multilingual accuracy, 24+ EU languages, 35 PII types (~279 MB)',
+    description: 'Multilingual, 24+ EU languages, 35 PII types (~279 MB)',
+    customLabels: false,
+  },
+  {
+    id: 'bardsai-v2',
+    label: 'BardS.ai EU PII v2',
+    description: 'Newer BardS.ai model (ModernBERT), 24 EU languages, 35 PII types, longer context (~343 MB with the tokenizer)',
+    customLabels: false,
+  },
+  {
+    id: 'bardsai-v3',
+    label: 'BardS.ai EU PII v3',
+    description: 'Newest BardS.ai model (ModernBERT), 24 EU languages, 37 PII types incl. dates and URLs (~343 MB with the tokenizer)',
+    customLabels: false,
+  },
+  {
+    id: 'gliner2-pii',
+    label: 'GLiNER2 Privacy Filter',
+    description: 'Fastino GLiNER2 PII model, English, French, Spanish, German, Italian, Portuguese, Dutch, supports custom labels (~550 MB)',
+    customLabels: true,
+  },
+  {
+    id: 'gliner2-pii-yethdev',
+    label: 'GLiNER2 Privacy Filter (yethdev)',
+    description: 'The same GLiNER2 model in a smaller community export, supports custom labels (~462 MB)',
+    customLabels: true,
+  },
+  {
+    id: 'openai-pf',
+    label: 'OpenAI Privacy Filter',
+    description: 'OpenAI privacy-filter, 8 PII categories, needs WebGPU (~837 MB with the tokenizer)',
+    customLabels: false,
+    requiresWebGpu: true,
   },
 ];
 
@@ -130,7 +173,11 @@ export interface DocCloakEngine {
 
 /** Per-provider confidence threshold defaults. */
 export function defaultThresholdFor(id: ProviderId): number {
-  return id === 'bardsai' ? 0.5 : 0.35;
+  if (id === 'gliner' || id === 'gliner-base') return 0.35;
+  // BardS.ai v2's word scores run lower than v1's (T240 corpus sweep: F1
+  // 88.2 at 0.3, 82.1 at 0.5); v3 keeps its F1 at 0.5.
+  if (id === 'bardsai-v2') return 0.3;
+  return 0.5;
 }
 
 /** Clamp a detection threshold to the supported 0.05-0.95 range. */
@@ -186,6 +233,11 @@ export function createEngine(
     gliner: (e) => new GlinerProvider(e),
     'gliner-base': (e) => new GlinerBaseProvider(e),
     bardsai: (e) => new BardsaiProvider(e),
+    'bardsai-v2': (e) => new BardsaiV2Provider(e, { variant: 'v2' }),
+    'bardsai-v3': (e) => new BardsaiV2Provider(e, { variant: 'v3' }),
+    'gliner2-pii': (e) => new Gliner2Provider(e, { variant: 'okasi-q8' }),
+    'gliner2-pii-yethdev': (e) => new Gliner2Provider(e, { variant: 'yethdev' }),
+    'openai-pf': (e) => new OpenAiPrivacyFilterProvider(e),
     ...options?.providers,
   };
   const autoLoad = options?.autoLoad ?? true;

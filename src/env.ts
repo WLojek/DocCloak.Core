@@ -55,6 +55,12 @@ export interface CoreEnv {
   loadTokenizer?(hfModelId: string): Promise<unknown /* PreTrainedTokenizer */>;
   hardware?: HardwareHints;
   persistStorage?: () => Promise<boolean>;        // navigator.storage.persist(), optional
+  /**
+   * Base URL of the model files the host serves itself (DocCloak-built ONNX
+   * graphs such as models/gliner2/model_q8_dynlabels.onnx). Optional: browser
+   * hosts default to the page or worker location.
+   */
+  assetBaseUrl?: string;
 }
 
 /** In-memory KVStore for tests. */

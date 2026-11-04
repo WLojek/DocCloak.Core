@@ -223,6 +223,12 @@ export interface PdfReadOptions {
   ocrImagePages?: boolean;
   /** Progress of the host OCR: pages read so far of the pages to read (called before the first and after each). */
   onOcrProgress?: (done: number, total: number) => void;
+  /**
+   * Pages read at the same time (rendered and handed to `recognizeText`); default 1, one after
+   * another. Raise it only with a `recognizeText` that reads several regions at once, such as
+   * `recognizeCanvasLines` with as many `workers`. The result is the same as with 1.
+   */
+  ocrConcurrency?: number;
   /** Node hosts and tests: canvas factory for that check. Browsers use OffscreenCanvas. */
   canvasFactory?: CanvasFactory;
   /**

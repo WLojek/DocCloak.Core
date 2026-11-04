@@ -48,20 +48,140 @@ export function segmentLines(text: string): TextSegment[] {
   return segments;
 }
 
-function runRule(rule: RegexRule, segment: TextSegment, out: DetectedEntity[]): void {
-  rule.pattern.lastIndex = 0;
+// ── Company and street name runs (T246) ───────────────────
+//
+// The company rules of every pack and the street rules whose street word ends
+// the name ("Königstraße 45") take `[\p{L}][\p{L}\s...]+` before it, so the
+// match starts at the first letter of the line: "elle a réalisé de nombreuses
+// rotations de camions pour le compte de la SCI", "Herr Klaus Müller wohnt in
+// der Königstraße 45". A name is a run of capitalised words (or digits), with
+// lowercase connectors between them and lowercase parts of a legal form: the
+// match is cut to the longest such run before its end, and dropped when the
+// cut no longer matches the rule (only "SCI" is left).
+
+const COMPANY_RULE = /^regex:(?!cn:)[a-z]{2}:company$/;
+const SUFFIX_STREET_RULES: ReadonlySet<string> = new Set([
+  'regex:at:street', 'regex:de:street', 'regex:ch:street-german', 'regex:nl:street', 'regex:no:street', 'regex:se:street',
+]);
+/** Street rules that start with the street type ("Calle", "Rua", "via", "rue"): no lowercase one-letter type. */
+const PREFIX_STREET_RULES: ReadonlySet<string> = new Set([
+  'regex:es:street', 'regex:pt:street', 'regex:it:street', 'regex:ch:street-french', 'regex:be:street',
+]);
+
+/** Postal code + city rules whose city part is any run of letters ("1996 also succeeds"). */
+const POSTAL_CITY_RULE = /^regex:(?!nl:|cn:|jp:|universal:)[a-z]{2}:postal(?:-city)?$/;
+
+/** Lowercase words a company or street name may hold between its capitalised words. */
+const NAME_CONNECTORS: ReadonlySet<string> = new Set([
+  'de', 'du', 'des', 'la', 'le', 'les', 'et', 'and', 'und', '&', 'y', 'e', 'i', 'van', 'von', 'der', 'den',
+  'di', 'da', 'del', 'della', 'dei', 'do', 'dos', 'das', 'of', 'am', 'an', 'im', 'zum', 'zur', 'af', 'av',
+  // lowercase parts of legal forms (Polish "sp. z o.o.", "Spółka z ograniczoną odpowiedzialnością")
+  'sp.', 'sp', 'z', 'o.o.', 'o.o', 'o.', 'o', 'ograniczoną', 'odpowiedzialnością', 'akcyjna', 'jawna', 'komandytowa',
+  'sp.j.', 'sp.k.', 's.c.', 's.r.l.', 's.p.a.', 's.a.s.', 's.n.c.', 'mbh',
+  // city names ("Frankfurt am Main", "Saint-Denis-en-Val", "Boulogne-sur-Mer", "Nowy Dwór nad Wisłą")
+  'sur', 'sous', 'en', 'bei', 'ob', 'nad', 'pod', 'upon',
+]);
+
+/** Legal forms of the company packs, without dots, lowercase. */
+const LEGAL_FORMS: ReadonlySet<string> = new Set([
+  'sarl', 'sas', 'sa', 'eurl', 'sci', 'snc', 'sasu', 'gmbh', 'ag', 'kg', 'ohg', 'gbr', 'ug', 'mbh', 'kgaa', 'ev',
+  'ltd', 'plc', 'llp', 'inc', 'llc', 'corp', 'co', 'lp', 'pllc', 'pc', 'ab', 'hb', 'kb', 'as', 'asa', 'ans', 'da',
+  'bv', 'nv', 'vof', 'cv', 'sl', 'slu', 'sau', 'sc', 'srl', 'spa', 'sapa', 'lda', 'sgps', 'spj', 'spk', 'sp', 'zoo',
+]);
+
+function capitalised(token: string): boolean {
+  return /^[«"'(]*[\p{Lu}\p{N}&]/u.test(token);
+}
+
+const anchoredPatterns = new WeakMap<RegexRule, RegExp>();
+function anchored(rule: RegexRule): RegExp {
+  let re = anchoredPatterns.get(rule);
+  if (!re) {
+    re = new RegExp(`^(?:${rule.pattern.source})$`, rule.pattern.flags.replace('g', ''));
+    anchoredPatterns.set(rule, re);
+  }
+  return re;
+}
+
+/**
+ * The part of a company or street match that is a name, as [offset into the
+ * value, value], or null when nothing name-like is left. Other rules pass
+ * through unchanged.
+ */
+export function nameRunOf(rule: RegexRule, value: string): [number, string] | null {
+  if (PREFIX_STREET_RULES.has(rule.detector)) {
+    // "c intérêts au taux prévu par l'article L" (es "C/" in French prose), "r. L'ordonnance a été mise
+    // à disposition" (pt "R."): a street type of one lowercase letter is prose, not an address.
+    return /^[a-z]\.?\s/.test(value) ? null : [0, value];
+  }
+  const tokens = [...value.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index! }));
+  if (POSTAL_CITY_RULE.test(rule.detector)) {
+    // The city after the code: capitalised words and connectors, cut at the first other word.
+    const first = tokens.findIndex((t) => /\p{L}/u.test(t.text));
+    if (first < 0 || !capitalised(tokens[first].text)) return null;
+    let last = first;
+    while (last + 1 < tokens.length && (capitalised(tokens[last + 1].text) || NAME_CONNECTORS.has(tokens[last + 1].text.toLowerCase()))) last++;
+    while (last > first && !capitalised(tokens[last].text)) last--;
+    const cut = value.slice(0, tokens[last].at + tokens[last].text.length);
+    if (cut === value) return [0, value];
+    return anchored(rule).test(cut) ? [0, cut] : null;
+  }
+  const company = COMPANY_RULE.test(rule.detector);
+  if (!company && !SUFFIX_STREET_RULES.has(rule.detector)) return [0, value];
+  if (company) {
+    // A company is a name and a legal form: "ACAS" is not "AC" + "AS" (Norwegian AS), nor "The ACAS".
+    const last = tokens[tokens.length - 1]?.text.replace(/[.,]/g, '') ?? '';
+    if (tokens.length < 2) return null;
+    if (/^\p{Lu}{2,5}$/u.test(last) && !LEGAL_FORMS.has(last.toLowerCase())) return null;
+  }
+  // A street's last two words (street word and number: "gate 22", "Königstraße 45") may be lowercase.
+  const free = company ? 0 : 2;
+  const fits = (from: number): boolean => {
+    if (!capitalised(tokens[from].text) && from < tokens.length - free) return false;
+    for (let i = from + 1; i < tokens.length - free; i++) {
+      const t = tokens[i].text;
+      if (!capitalised(t) && !NAME_CONNECTORS.has(t.toLowerCase().replace(/,$/, ''))) return false;
+    }
+    return true;
+  };
+  // At most 6 words of a company name, 3 of a street name before its street word and number.
+  const longest = company ? 6 : 3;
+  for (let from = Math.max(0, tokens.length - free - longest); from < tokens.length; from++) {
+    if (!fits(from)) continue;
+    if (from === 0) return [0, value];
+    if (company && tokens.length - from < 2) return null;
+    const at = tokens[from].at;
+    const cut = value.slice(at);
+    return anchored(rule).test(cut) ? [at, cut] : null;
+  }
+  return null;
+}
+
+function runRule(rule: RegexRule, segment: TextSegment, out: DetectedEntity[], pattern: RegExp = rule.pattern, depth = 0): void {
+  pattern.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = rule.pattern.exec(segment.text)) !== null) {
+  while ((match = pattern.exec(segment.text)) !== null) {
     if (match[0].length === 0) {
       // Defensive: a zero-width match would otherwise loop forever.
-      rule.pattern.lastIndex++;
+      pattern.lastIndex++;
       continue;
     }
     // A class that admits whitespace (IBAN, phone) can end the match on a
     // space before the next word; the replacement would then swallow it.
-    const lead = match[0].length - match[0].trimStart().length;
-    const value = match[0].trim();
+    let lead = match[0].length - match[0].trimStart().length;
+    let value = match[0].trim();
     if (value.length === 0) continue;
+    const run = nameRunOf(rule, value);
+    // What a cut (or a rejected) match leaves before its name can hold another name: one greedy
+    // match took "Dupont et Fils SARL. Le conseil est Capgemini SAS" (T246). Search it again.
+    const headEnd = run ? run[0] : value.search(/\S+$/);
+    if (headEnd > 0 && depth < 4) {
+      const head: TextSegment = { text: value.slice(0, headEnd), offset: segment.offset + match.index + lead };
+      runRule(rule, head, out, new RegExp(rule.pattern.source, rule.pattern.flags), depth + 1);
+    }
+    if (!run) continue;
+    lead += run[0];
+    value = run[1];
     if (rule.validate && !rule.validate(value)) continue;
     out.push({
       type: rule.type,
@@ -156,7 +276,10 @@ function remainderFrom(entity: DetectedEntity, from: number): DetectedEntity[] {
     if (rule) {
       const out: DetectedEntity[] = [];
       runRule(rule, { text: raw, offset: from }, out);
-      return out;
+      // What follows a postal code is its city even when it no longer matches the rule: the model
+      // took "Venloer Straße 311\n50823", the postal rule "50823 Köln", and dropping "Köln" left the
+      // city in clear (T246). Other rules' leftovers stay dropped ("Warszawa" after an e-mail, T233).
+      if (out.length > 0 || !/:postal(?:[-_]city)?$/.test(entity.detector)) return out;
     }
   }
   const lead = REMAINDER_LEAD.exec(raw)?.[0].length ?? 0;
@@ -213,6 +336,10 @@ const CJK_THAI = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script
  */
 export const PERSON_SHORT_STOPLIST: ReadonlySet<string> = new Set([
   'mr', 'ms', 'dr', 'jr', 'sr', 'st', 'ii', 'iv', 'vi', 'no', 're', 'cc',
+  // Name particles a model can return on their own ("DE" of "TRIBUNAL DE
+  // COMMERCE", T240): as a whole PERSON value they are never a name, and
+  // propagation would replace every occurrence.
+  'de', 'du', 'da', 'di', 'des', 'del', 'der', 'den', 'dos', 'das', 'van', 'von',
 ]);
 
 function codePointLength(value: string): number {
@@ -348,7 +475,7 @@ export function propagateEntities(text: string, entities: DetectedEntity[]): Det
     seen.add(`${e.start}:${e.end}`);
   }
 
-  const terms: { term: string; type: DetectedEntity['type'] }[] = [];
+  const terms: { term: string; type: DetectedEntity['type']; exact?: boolean }[] = [];
   const addedTerms = new Set<string>();
 
   for (const e of entities) {
@@ -357,19 +484,36 @@ export function propagateEntities(text: string, entities: DetectedEntity[]): Det
       addedTerms.add(val.toLowerCase());
       terms.push({ term: val, type: e.type });
     }
+    // A company is named again without its legal form ("McAllister Landscaping LLC", then "door
+    // logo reading 'McAllister Landscaping'").
+    if (e.type === 'COMPANY') {
+      const name = val.replace(/,?\s+\S+$/, '');
+      const form = val.slice(name.length).replace(/[\s,.]/g, '').toLowerCase();
+      if (name !== val && LEGAL_FORMS.has(form) && /\s/.test(name) && !addedTerms.has(name.toLowerCase())) {
+        addedTerms.add(name.toLowerCase());
+        terms.push({ term: name, type: e.type });
+      }
+    }
+    // A person is named again by one word ("Kowalski" after "Jan Kowalski"); the words of a company,
+    // an address or a title are ordinary words elsewhere: "travail" of "France Travail" took the
+    // "code du travail", "Krakowie" of an address took the court "Sąd Rejonowy ... w Krakowie" (T246).
+    // An identifier inside a longer value is a word with digits ("93718264" of "licznik nr
+    // 93718264", "2026/2871" of "RG n° 2026/2871"): those spread for every type, exact case.
     if (val.includes(' ')) {
       for (const word of val.split(/\s+/)) {
         const w = word.replace(/[.,;:!?()]+$/, '');
+        const identifier = /\d/.test(w) && w.length >= 5;
+        if (e.type !== 'PERSON' && !identifier) continue;
         if (w.length >= 4 && !addedTerms.has(w.toLowerCase())) {
           addedTerms.add(w.toLowerCase());
-          terms.push({ term: w, type: e.type });
+          terms.push({ term: w, type: e.type, exact: e.type !== 'PERSON' });
         }
       }
     }
   }
 
-  for (const { term, type } of terms) {
-    const exactCase = codePointLength(term) <= 2;
+  for (const { term, type, exact } of terms) {
+    const exactCase = codePointLength(term) <= 2 || exact === true;
     const pattern = new RegExp(escapeRegExp(term), exactCase ? 'gu' : 'giu');
     const needsBoundaryBefore = !UNSPACED_SCRIPT.test(codePointAt(term, 0));
     const needsBoundaryAfter = !UNSPACED_SCRIPT.test(codePointBefore(term, term.length));

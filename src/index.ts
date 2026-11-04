@@ -127,6 +127,9 @@ export type {
   EngineSettings,
   DocCloakEngine,
 } from './engine.ts';
+// T250: which models are on the device, removing one
+export { providerFileSets, isProviderCached, removeProviderFromCache } from './model-files.ts';
+export type { ModelFile, ModelCacheIndex, ModelCacheOptions } from './model-files.ts';
 export { serveEngine, connectEngine } from './worker-protocol.ts';
 export type {
   PortLike,

@@ -566,6 +566,74 @@ describe('each page by what it holds: pictures without text read whole, text in 
   });
 });
 
+describe('pages read at the same time (T248)', () => {
+  it('several pages at once give the same extraction as one after another, and never more at once than asked', async () => {
+    const factory = await nodeCanvasFactory();
+    // Pictures without text of 1, 2, 3 and 4 lines: the stand-in OCR tells the page by the lines it shows.
+    const scan = await buildScanPdf([0, 1, 2, 3].map((k) => ({ kind: 'scan' as const, lines: LINES.slice(0, k + 1), values: VALUES, layer: 'none' as const })));
+    if (!scan || !factory) return;
+    const k = 2;
+    const pageWords = (page: number) => scan.words.filter((w) => w.page === page).map((w) => ({ ...w, baseline: w.y0 + (w.y1 - w.y0) / 1.3 }));
+    const firstOfLine = [...new Map(pageWords(3).map((w) => [Math.round(w.baseline), w])).values()].slice(0, 4);
+    const pageOf = (canvas: unknown): number => {
+      const ctx = (canvas as { getContext(t: '2d'): { getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray } } }).getContext('2d');
+      const inked = firstOfLine.filter((w) => {
+        const { data } = ctx.getImageData(Math.round(w.x0 * k), Math.round(w.y0 * k), Math.max(1, Math.round((w.x1 - w.x0) * k)), Math.max(1, Math.round((w.y1 - w.y0) * k)));
+        for (let i = 0; i < data.length; i += 4) if (data[i] < 128) return true;
+        return false;
+      });
+      return inked.length - 1;
+    };
+    const read = async (ocrConcurrency?: number) => {
+      let inFlight = 0;
+      let most = 0;
+      const finished: number[] = [];
+      const progress: Array<[number, number]> = [];
+      // With several pages at a time, the first reads wait until two are in flight (3 s at most),
+      // so they overlap however long the renders take on a busy machine.
+      let meet = (): void => {};
+      const together = ocrConcurrency && ocrConcurrency > 1
+        ? new Promise<void>((r) => { meet = r; setTimeout(r, 3000); })
+        : Promise.resolve();
+      const recognizeText = async (canvas: unknown, region: { x0: number; y0: number }) => {
+        inFlight++;
+        most = Math.max(most, inFlight);
+        if (inFlight >= 2) meet();
+        await together;
+        const page = pageOf(canvas);
+        // The first page takes longest: pages read at the same time finish out of order.
+        await new Promise((r) => setTimeout(r, (4 - page) ** 2 * 40));
+        finished.push(page);
+        inFlight--;
+        const byLine = new Map<number, ReturnType<typeof pageWords>>();
+        for (const w of pageWords(page)) byLine.set(Math.round(w.baseline), [...(byLine.get(Math.round(w.baseline)) ?? []), w]);
+        return [...byLine.entries()].map(([baseline, ws]) => ({
+          baseline: { x0: ws[0].x0 * k - region.x0, y0: baseline * k - region.y0, x1: ws[ws.length - 1].x1 * k - region.x0, y1: baseline * k - region.y0 },
+          words: ws.map((w) => ({ text: w.text, confidence: 90, bbox: { x0: w.x0 * k - region.x0, y0: w.y0 * k - region.y0, x1: w.x1 * k - region.x0, y1: w.y1 * k - region.y0 } })),
+        }));
+      };
+      const ex = await readPdf(scan.bytes, { assets: ASSETS, canvasFactory: factory, recognizeText, ocrConcurrency, onOcrProgress: (d, t) => progress.push([d, t]) });
+      return { ex, most, finished, progress };
+    };
+    const serial = await read();
+    expect(serial.most).toBe(1);
+    expect(serial.finished).toEqual([0, 1, 2, 3]);
+    expect(serial.ex.pages.map((p) => p.ocrWholePage)).toEqual([6, 12, 18, 22]);
+    for (const limit of [4, 2]) {
+      const parallel = await read(limit);
+      expect(parallel.most, `limit ${limit}`).toBeGreaterThan(1);
+      expect(parallel.most, `limit ${limit}`).toBeLessThanOrEqual(limit);
+      expect(parallel.finished, `limit ${limit}`).not.toEqual([0, 1, 2, 3]);
+      expect(parallel.ex.plainText).toBe(serial.ex.plainText);
+      expect(parallel.ex.pages).toEqual(serial.ex.pages);
+      expect(parallel.ex.extraOcr).toEqual(serial.ex.extraOcr);
+      expect(parallel.ex.warnings).toEqual(serial.ex.warnings);
+      expect(parallel.progress).toEqual(serial.progress);
+    }
+    // Three reads of four rendered pages: about 4 s here, more on a CI runner.
+  }, 30_000);
+});
+
 describe('junk in the OCR layer over a printed row (T238)', () => {
   it('a word DocCloak reads where the layer holds junk is added; where the layer has the same word, it is not added twice', async () => {
     const factory = await nodeCanvasFactory();
@@ -631,6 +699,20 @@ describe('verifier and image samples', () => {
     expect(await verifyPdf({ bytes: await build(''), needles: ['2019', '004A'] })).toEqual([]);
     const hidden = await verifyPdf({ bytes: await build('% Jan Kowalski 2019\n'), needles: ['2019', 'Jan Kowalski'] });
     expect(hidden.map((f) => [f.pass, f.needle])).toEqual([['stream-bytes', '2019'], ['stream-bytes', 'Jan Kowalski']]);
+  });
+
+  it('PDF vocabulary is not a trace ("Page" of /Type /Page, "Text" of /ProcSet, a key); a value in another name is (T247)', async () => {
+    const build = async (resourceName?: string) => {
+      const doc = await PDFDocument.create({ updateMetadata: false });
+      const page = doc.addPage([200, 200]);
+      page.node.set(PDFName.of('Resources'), doc.context.obj({ ProcSet: [PDFName.of('PDF'), PDFName.of('Text')] }));
+      if (resourceName) page.node.set(PDFName.of('PieceInfo'), doc.context.obj({ Owner: PDFName.of(resourceName) }));
+      return doc.save({ useObjectStreams: false });
+    };
+    // Kit file 01 with GLiNER PII Small: "Page" of the footers was detected, and every page dictionary refused the export.
+    expect(await verifyPdf({ bytes: await build(), needles: ['Page', 'Text', 'PDF', 'Resources'] })).toEqual([]);
+    const named = await verifyPdf({ bytes: await build('Kowalski'), needles: ['Page', 'Kowalski'] });
+    expect(named.map((f) => [f.pass, f.needle])).toEqual([['string-bytes', 'Kowalski']]);
   });
 });
 

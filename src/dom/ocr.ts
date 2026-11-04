@@ -204,33 +204,72 @@ export interface OcrLine {
 }
 
 /**
- * One Tesseract worker for the pages of a document: starting one loads the engine and the language
- * data, which costs about a second, so the pages of a PDF are read by the same worker. The host
- * releases it when the document is read (releaseOcrWorker).
+ * Tesseract workers for the pages of a document: starting one loads the engine and the language
+ * data, which costs about a second, so the pages of a PDF are read by the same workers. A worker
+ * reads one region at a time; recognizeCanvasLines starts up to `workers` of them when pages are
+ * read at the same time (T248). The host releases them when the document is read (releaseOcrWorker).
  */
-let shared: { key: string; worker: Promise<Tesseract.Worker> } | null = null;
-
-function sharedWorker(langs: string[], assets: TesseractAssetPaths): Promise<Tesseract.Worker> {
-  const key = `${langs.join('+')}|${assets.workerPath}|${assets.corePath}|${assets.langPath}`;
-  if (shared && shared.key === key) return shared.worker;
-  void releaseOcrWorker();
-  const worker = Tesseract.createWorker(langs, 1, { workerPath: assets.workerPath, corePath: assets.corePath, langPath: assets.langPath });
-  shared = { key, worker };
-  // A worker that failed to start is not kept: the next call tries again.
-  worker.catch(() => { if (shared?.worker === worker) shared = null; });
-  return worker;
+interface WorkerPool {
+  key: string;
+  /** Workers started or starting. */
+  all: Array<Promise<Tesseract.Worker>>;
+  /** Started workers not reading now. */
+  idle: Tesseract.Worker[];
+  /** Calls waiting for a worker: each is woken to look again when one is given back or fails to start. */
+  waiting: Array<() => void>;
 }
 
-/** Terminate the worker recognizeCanvasLines keeps between calls (after the last page of a document). */
-export async function releaseOcrWorker(): Promise<void> {
-  const current = shared;
-  shared = null;
-  if (!current) return;
-  try {
-    await (await current.worker).terminate();
-  } catch {
-    /* never started, or already gone */
+let pool: WorkerPool | null = null;
+
+function poolFor(langs: string[], assets: TesseractAssetPaths): WorkerPool {
+  const key = `${langs.join('+')}|${assets.workerPath}|${assets.corePath}|${assets.langPath}`;
+  if (pool && pool.key === key) return pool;
+  void releaseOcrWorker();
+  pool = { key, all: [], idle: [], waiting: [] };
+  return pool;
+}
+
+async function takeWorker(p: WorkerPool, langs: string[], assets: TesseractAssetPaths, max: number): Promise<Tesseract.Worker> {
+  for (;;) {
+    if (pool !== p) throw new Error('The OCR workers were released');
+    const idle = p.idle.pop();
+    if (idle) return idle;
+    if (p.all.length < max) {
+      const worker = Tesseract.createWorker(langs, 1, { workerPath: assets.workerPath, corePath: assets.corePath, langPath: assets.langPath });
+      p.all.push(worker);
+      try {
+        return await worker;
+      } catch (err) {
+        // A worker that failed to start is not kept: the next call (or one waiting) tries again.
+        p.all.splice(p.all.indexOf(worker), 1);
+        p.waiting.shift()?.();
+        throw err;
+      }
+    }
+    await new Promise<void>((wake) => p.waiting.push(wake));
   }
+}
+
+function giveBack(p: WorkerPool, worker: Tesseract.Worker): void {
+  // Released meanwhile: the worker was terminated with the others.
+  if (pool !== p) return;
+  p.idle.push(worker);
+  p.waiting.shift()?.();
+}
+
+/** Terminate the workers recognizeCanvasLines keeps between calls (after the last page of a document). */
+export async function releaseOcrWorker(): Promise<void> {
+  const current = pool;
+  pool = null;
+  if (!current) return;
+  for (const wake of current.waiting.splice(0)) wake();
+  await Promise.all(current.all.map(async (worker) => {
+    try {
+      await (await worker).terminate();
+    } catch {
+      /* never started, or already gone */
+    }
+  }));
 }
 
 /**
@@ -239,29 +278,37 @@ export async function releaseOcrWorker(): Promise<void> {
  * part, a table that full-page segmentation turned into junk reads cleanly. Tesseract's page
  * segmentation is picky about a crop (the same table reads in one mode and gives nothing in
  * another), so the automatic, single-column and single-block modes are tried in turn and the
- * reading with the most letters wins.
+ * reading with the most letters wins. `workers` (default 1) is how many Tesseract workers may read
+ * at the same time: calls beyond that wait for a free one (pass readPdf the same `ocrConcurrency`).
  */
 export async function recognizeCanvasLines(
   canvas: OcrCanvas,
   uiLanguage: string,
   assets: TesseractAssetPaths,
   dpi?: number,
-  options: { wholePage?: boolean } = {},
+  options: { wholePage?: boolean; workers?: number } = {},
 ): Promise<OcrLine[]> {
-  const worker = await sharedWorker(buildLangList(uiLanguage), assets);
-  let best: OcrLine[] = [];
-  let bestLetters = 0;
-  // A whole page is what automatic segmentation is made for; the other modes are for crops.
-  const modes = options.wholePage ? [Tesseract.PSM.AUTO] : [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_COLUMN, Tesseract.PSM.SINGLE_BLOCK];
-  for (const mode of modes) {
-    // The resolution is known (a rendered page): Tesseract does not have to guess it (and log the guess).
-    await worker.setParameters({ tessedit_pageseg_mode: mode, ...(dpi ? { user_defined_dpi: String(Math.round(dpi)) } : {}) });
-    const { data } = await worker.recognize(canvas, {}, { blocks: true });
-    const lines = linesOf(data.blocks ?? []);
-    const letters = lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.text.length, 0), 0);
-    if (letters > bestLetters) { best = lines; bestLetters = letters; }
+  const langs = buildLangList(uiLanguage);
+  const p = poolFor(langs, assets);
+  const max = options.workers !== undefined && Number.isFinite(options.workers) ? Math.max(1, Math.floor(options.workers)) : 1;
+  const worker = await takeWorker(p, langs, assets, max);
+  try {
+    let best: OcrLine[] = [];
+    let bestLetters = 0;
+    // A whole page is what automatic segmentation is made for; the other modes are for crops.
+    const modes = options.wholePage ? [Tesseract.PSM.AUTO] : [Tesseract.PSM.AUTO, Tesseract.PSM.SINGLE_COLUMN, Tesseract.PSM.SINGLE_BLOCK];
+    for (const mode of modes) {
+      // The resolution is known (a rendered page): Tesseract does not have to guess it (and log the guess).
+      await worker.setParameters({ tessedit_pageseg_mode: mode, ...(dpi ? { user_defined_dpi: String(Math.round(dpi)) } : {}) });
+      const { data } = await worker.recognize(canvas, {}, { blocks: true });
+      const lines = linesOf(data.blocks ?? []);
+      const letters = lines.reduce((n, l) => n + l.words.reduce((m, w) => m + w.text.length, 0), 0);
+      if (letters > bestLetters) { best = lines; bestLetters = letters; }
+    }
+    return best;
+  } finally {
+    giveBack(p, worker);
   }
-  return best;
 }
 
 function linesOf(blocks: unknown[]): OcrLine[] {

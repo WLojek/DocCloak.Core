@@ -1,0 +1,1764 @@
+{
+  "provider": "gliner2-pii-yethdev",
+  "meta": {
+    "model": "GLiNER2 Privacy Filter (yethdev)",
+    "threshold": 0.5,
+    "generated": "2026-11-02",
+    "limit": null,
+    "langs": [
+      "en",
+      "pl",
+      "de",
+      "fr",
+      "es",
+      "pt",
+      "sv",
+      "no",
+      "it",
+      "nl",
+      "cs",
+      "ro",
+      "el",
+      "uk"
+    ]
+  },
+  "overall": {
+    "docs": 112,
+    "goldSpans": 1007,
+    "predictions": 1034,
+    "recallStrict": 0.9612711022840119,
+    "recallLenient": 0.9731876861966237,
+    "typeAwareStrict": 0.5571002979145978,
+    "precision": 0.9497098646034816,
+    "f1": 0.9554555112961897,
+    "byType": {
+      "ADDRESS": {
+        "hits": 234,
+        "total": 235,
+        "ratio": 0.9957446808510638
+      },
+      "PERSON": {
+        "hits": 158,
+        "total": 179,
+        "ratio": 0.88268156424581
+      },
+      "DATE": {
+        "hits": 143,
+        "total": 143,
+        "ratio": 1
+      },
+      "PHONE": {
+        "hits": 93,
+        "total": 93,
+        "ratio": 1
+      },
+      "CURRENCY": {
+        "hits": 76,
+        "total": 78,
+        "ratio": 0.9743589743589743
+      },
+      "EMAIL": {
+        "hits": 73,
+        "total": 73,
+        "ratio": 1
+      },
+      "COMPANY": {
+        "hits": 59,
+        "total": 68,
+        "ratio": 0.8676470588235294
+      },
+      "SSN": {
+        "hits": 50,
+        "total": 56,
+        "ratio": 0.8928571428571429
+      },
+      "IBAN": {
+        "hits": 37,
+        "total": 37,
+        "ratio": 1
+      },
+      "IP_ADDRESS": {
+        "hits": 24,
+        "total": 24,
+        "ratio": 1
+      },
+      "CREDIT_CARD": {
+        "hits": 21,
+        "total": 21,
+        "ratio": 1
+      }
+    },
+    "latency": {
+      "meanMs": 1263,
+      "p95Ms": 1544
+    },
+    "samples": {
+      "misses": [
+        {
+          "docId": "en-02",
+          "text": "Okafor",
+          "type": "PERSON",
+          "coverage": 0
+        },
+        {
+          "docId": "en-03",
+          "text": "Bhattacharya",
+          "type": "PERSON",
+          "coverage": 0
+        },
+        {
+          "docId": "pl-01",
+          "text": "Nordex Logistyka Sp. z o.o.",
+          "type": "COMPANY",
+          "coverage": 0
+        },
+        {
+          "docId": "pl-08",
+          "text": "90110204321",
+          "type": "SSN",
+          "coverage": 0
+        },
+        {
+          "docId": "de-03",
+          "text": "Kretschmer",
+          "type": "PERSON",
+          "coverage": 0
+        }
+      ],
+      "falsePositives": [
+        {
+          "docId": "en-01",
+          "text": "ford",
+          "predType": "COMPANY",
+          "confidence": 0.777
+        },
+        {
+          "docId": "en-01",
+          "text": "May",
+          "predType": "OTHER",
+          "confidence": 0.99
+        },
+        {
+          "docId": "en-07",
+          "text": "09/28",
+          "predType": "OTHER",
+          "confidence": 0.967
+        },
+        {
+          "docId": "pl-01",
+          "text": "maju",
+          "predType": "OTHER",
+          "confidence": 0.642
+        },
+        {
+          "docId": "pl-02",
+          "text": "marcu",
+          "predType": "OTHER",
+          "confidence": 0.916
+        }
+      ]
+    }
+  },
+  "languages": {
+    "en": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 75,
+      "recallStrict": 0.972972972972973,
+      "recallLenient": 0.972972972972973,
+      "typeAwareStrict": 0.5540540540540541,
+      "precision": 0.96,
+      "f1": 0.9664429530201343,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 14,
+          "ratio": 0.8571428571428571
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1090,
+        "p95Ms": 1227
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "en-02",
+            "text": "Okafor",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "en-03",
+            "text": "Bhattacharya",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "en-01",
+            "text": "ford",
+            "predType": "COMPANY",
+            "confidence": 0.777
+          },
+          {
+            "docId": "en-01",
+            "text": "May",
+            "predType": "OTHER",
+            "confidence": 0.99
+          },
+          {
+            "docId": "en-07",
+            "text": "09/28",
+            "predType": "OTHER",
+            "confidence": 0.967
+          }
+        ]
+      }
+    },
+    "pl": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 78,
+      "recallStrict": 0.972972972972973,
+      "recallLenient": 0.972972972972973,
+      "typeAwareStrict": 0.527027027027027,
+      "precision": 0.9230769230769231,
+      "f1": 0.9473684210526315,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1216,
+        "p95Ms": 1284
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pl-01",
+            "text": "Nordex Logistyka Sp. z o.o.",
+            "type": "COMPANY",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-08",
+            "text": "90110204321",
+            "type": "SSN",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pl-01",
+            "text": "maju",
+            "predType": "OTHER",
+            "confidence": 0.642
+          },
+          {
+            "docId": "pl-02",
+            "text": "marcu",
+            "predType": "OTHER",
+            "confidence": 0.916
+          },
+          {
+            "docId": "pl-03",
+            "text": "grudniu",
+            "predType": "OTHER",
+            "confidence": 0.832
+          },
+          {
+            "docId": "pl-05",
+            "text": "FV/2026/02/117",
+            "predType": "SSN",
+            "confidence": 0.914
+          },
+          {
+            "docId": "pl-06",
+            "text": "maju",
+            "predType": "OTHER",
+            "confidence": 0.589
+          }
+        ]
+      }
+    },
+    "de": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 73,
+      "recallStrict": 0.971830985915493,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.5352112676056338,
+      "precision": 0.958904109589041,
+      "f1": 0.9653242730088938,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 12,
+          "ratio": 0.8333333333333334
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1125,
+        "p95Ms": 1248
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "de-03",
+            "text": "Kretschmer",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "de-05",
+            "text": "Dr. Annette Vogel",
+            "type": "PERSON",
+            "coverage": 0.765
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "de-01",
+            "text": "Mai",
+            "predType": "OTHER",
+            "confidence": 0.85
+          },
+          {
+            "docId": "de-02",
+            "text": "frankfurter",
+            "predType": "OTHER",
+            "confidence": 0.593
+          },
+          {
+            "docId": "de-07",
+            "text": "09/28",
+            "predType": "OTHER",
+            "confidence": 0.989
+          }
+        ]
+      }
+    },
+    "fr": {
+      "docs": 8,
+      "goldSpans": 68,
+      "predictions": 65,
+      "recallStrict": 0.9117647058823529,
+      "recallLenient": 0.9117647058823529,
+      "typeAwareStrict": 0.5147058823529411,
+      "precision": 0.9538461538461539,
+      "f1": 0.9323308270676691,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 9,
+          "total": 13,
+          "ratio": 0.6923076923076923
+        },
+        "DATE": {
+          "hits": 11,
+          "total": 11,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 1,
+          "total": 3,
+          "ratio": 0.3333333333333333
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1291,
+        "p95Ms": 1338
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "fr-01",
+            "text": "Lefebvre",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "1 88 07 75 116 384 12",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "Girard",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-04",
+            "text": "2 72 11 33 216 405 88",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-04",
+            "text": "Fontaine",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "fr-02",
+            "text": "août",
+            "predType": "OTHER",
+            "confidence": 0.886
+          },
+          {
+            "docId": "fr-03",
+            "text": "avril",
+            "predType": "OTHER",
+            "confidence": 0.643
+          },
+          {
+            "docId": "fr-07",
+            "text": "samedi",
+            "predType": "OTHER",
+            "confidence": 0.555
+          }
+        ]
+      }
+    },
+    "es": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 70,
+      "recallStrict": 0.9428571428571428,
+      "recallLenient": 0.9428571428571428,
+      "typeAwareStrict": 0.5571428571428572,
+      "precision": 0.9428571428571428,
+      "f1": 0.9428571428571428,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 9,
+          "total": 13,
+          "ratio": 0.6923076923076923
+        },
+        "DATE": {
+          "hits": 11,
+          "total": 11,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1401,
+        "p95Ms": 1510
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "es-01",
+            "text": "García Fernández",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "es-03",
+            "text": "Peña",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "es-04",
+            "text": "Ferrer",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "es-06",
+            "text": "Herrera",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "es-01",
+            "text": "jerez",
+            "predType": "OTHER",
+            "confidence": 0.981
+          },
+          {
+            "docId": "es-02",
+            "text": "abril",
+            "predType": "OTHER",
+            "confidence": 0.977
+          },
+          {
+            "docId": "es-03",
+            "text": "mayo",
+            "predType": "OTHER",
+            "confidence": 0.831
+          },
+          {
+            "docId": "es-07",
+            "text": "sábado",
+            "predType": "OTHER",
+            "confidence": 0.668
+          }
+        ]
+      }
+    },
+    "pt": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 69,
+      "recallStrict": 0.9285714285714286,
+      "recallLenient": 0.9428571428571428,
+      "typeAwareStrict": 0.5428571428571428,
+      "precision": 0.9565217391304348,
+      "f1": 0.942339373970346,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 9,
+          "total": 13,
+          "ratio": 0.6923076923076923
+        },
+        "DATE": {
+          "hits": 11,
+          "total": 11,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1361,
+        "p95Ms": 1544
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pt-01",
+            "text": "Ferragens Antunes Lda.",
+            "type": "COMPANY",
+            "coverage": 0.955
+          },
+          {
+            "docId": "pt-01",
+            "text": "Sousa Carvalho",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "Matos",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-04",
+            "text": "Vasconcelos",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-06",
+            "text": "Tavares Rebelo",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pt-02",
+            "text": "agosto",
+            "predType": "OTHER",
+            "confidence": 0.926
+          },
+          {
+            "docId": "pt-03",
+            "text": "maio",
+            "predType": "OTHER",
+            "confidence": 0.821
+          },
+          {
+            "docId": "pt-07",
+            "text": "sábado",
+            "predType": "OTHER",
+            "confidence": 0.762
+          }
+        ]
+      }
+    },
+    "sv": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 72,
+      "recallStrict": 0.9859154929577465,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.5492957746478874,
+      "precision": 0.9722222222222222,
+      "f1": 0.979020979020979,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1060,
+        "p95Ms": 1168
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "sv-03",
+            "text": "Sjöberg",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "sv-01",
+            "text": "fredag",
+            "predType": "OTHER",
+            "confidence": 0.832
+          },
+          {
+            "docId": "sv-07",
+            "text": "09/28",
+            "predType": "OTHER",
+            "confidence": 0.983
+          }
+        ]
+      }
+    },
+    "no": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 72,
+      "recallStrict": 0.9859154929577465,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.5492957746478874,
+      "precision": 0.9722222222222222,
+      "f1": 0.979020979020979,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1098,
+        "p95Ms": 1221
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "no-03",
+            "text": "Fossum",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "no-01",
+            "text": "fredag",
+            "predType": "OTHER",
+            "confidence": 0.847
+          },
+          {
+            "docId": "no-07",
+            "text": "09/28",
+            "predType": "OTHER",
+            "confidence": 0.989
+          }
+        ]
+      }
+    },
+    "it": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 77,
+      "recallStrict": 0.9859154929577465,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.6197183098591549,
+      "precision": 0.9090909090909091,
+      "f1": 0.9459459459459459,
+      "byType": {
+        "PERSON": {
+          "hits": 13,
+          "total": 14,
+          "ratio": 0.9285714285714286
+        },
+        "ADDRESS": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1499,
+        "p95Ms": 1810
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "it-01",
+            "text": "Marchetti",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "it-01",
+            "text": "maggio",
+            "predType": "OTHER",
+            "confidence": 0.835
+          },
+          {
+            "docId": "it-01",
+            "text": "bologna",
+            "predType": "OTHER",
+            "confidence": 0.866
+          },
+          {
+            "docId": "it-02",
+            "text": "88412",
+            "predType": "OTHER",
+            "confidence": 0.947
+          },
+          {
+            "docId": "it-03",
+            "text": "ferrari rossa",
+            "predType": "COMPANY",
+            "confidence": 0.769
+          },
+          {
+            "docId": "it-04",
+            "text": "giugno",
+            "predType": "OTHER",
+            "confidence": 0.76
+          }
+        ]
+      }
+    },
+    "nl": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 74,
+      "recallStrict": 0.9436619718309859,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.6056338028169014,
+      "precision": 0.9459459459459459,
+      "f1": 0.9448025785656728,
+      "byType": {
+        "PERSON": {
+          "hits": 13,
+          "total": 14,
+          "ratio": 0.9285714285714286
+        },
+        "ADDRESS": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 2,
+          "total": 4,
+          "ratio": 0.5
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1389,
+        "p95Ms": 1750
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "nl-01",
+            "text": "Verhuisbedrijf Kikkert B.V.",
+            "type": "COMPANY",
+            "coverage": 0.444
+          },
+          {
+            "docId": "nl-06",
+            "text": "Assurantiekantoor Meerdink B.V.",
+            "type": "COMPANY",
+            "coverage": 0.419
+          },
+          {
+            "docId": "nl-06",
+            "text": "6821 AB",
+            "type": "ADDRESS",
+            "coverage": 0.857
+          },
+          {
+            "docId": "nl-07",
+            "text": "Van der Meer",
+            "type": "PERSON",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "nl-01",
+            "text": "mei",
+            "predType": "OTHER",
+            "confidence": 0.945
+          },
+          {
+            "docId": "nl-02",
+            "text": "55023",
+            "predType": "OTHER",
+            "confidence": 0.995
+          },
+          {
+            "docId": "nl-04",
+            "text": "HUISARTSENPRAKTIJK DE LINDE",
+            "predType": "COMPANY",
+            "confidence": 0.834
+          },
+          {
+            "docId": "nl-07",
+            "text": "Daan",
+            "predType": "PERSON",
+            "confidence": 0.53
+          }
+        ]
+      }
+    },
+    "cs": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 79,
+      "recallStrict": 0.9864864864864865,
+      "recallLenient": 1,
+      "typeAwareStrict": 0.5675675675675675,
+      "precision": 0.9493670886075949,
+      "f1": 0.9675709110188211,
+      "byType": {
+        "ADDRESS": {
+          "hits": 19,
+          "total": 19,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1257,
+        "p95Ms": 1376
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "cs-05",
+            "text": "12 340,50 Kč",
+            "type": "CURRENCY",
+            "coverage": 0.917
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "cs-01",
+            "text": "květnu",
+            "predType": "OTHER",
+            "confidence": 0.679
+          },
+          {
+            "docId": "cs-02",
+            "text": "dubnu",
+            "predType": "OTHER",
+            "confidence": 0.913
+          },
+          {
+            "docId": "cs-03",
+            "text": "listopadu",
+            "predType": "OTHER",
+            "confidence": 0.841
+          },
+          {
+            "docId": "cs-06",
+            "text": "červnu",
+            "predType": "OTHER",
+            "confidence": 0.751
+          }
+        ]
+      }
+    },
+    "ro": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 75,
+      "recallStrict": 0.971830985915493,
+      "recallLenient": 0.9859154929577465,
+      "typeAwareStrict": 0.6056338028169014,
+      "precision": 0.9333333333333333,
+      "f1": 0.9521931986200098,
+      "byType": {
+        "PERSON": {
+          "hits": 13,
+          "total": 14,
+          "ratio": 0.9285714285714286
+        },
+        "ADDRESS": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1287,
+        "p95Ms": 1382
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "ro-01",
+            "text": "Dumitrache",
+            "type": "PERSON",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-06",
+            "text": "Imobiliare Ținutul Verde S.R.L.",
+            "type": "COMPANY",
+            "coverage": 0.645
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "ro-01",
+            "text": "mai",
+            "predType": "OTHER",
+            "confidence": 0.709
+          },
+          {
+            "docId": "ro-01",
+            "text": "iunie",
+            "predType": "OTHER",
+            "confidence": 0.805
+          },
+          {
+            "docId": "ro-02",
+            "text": "44012",
+            "predType": "OTHER",
+            "confidence": 0.921
+          },
+          {
+            "docId": "ro-04",
+            "text": "iunie",
+            "predType": "OTHER",
+            "confidence": 0.503
+          },
+          {
+            "docId": "ro-07",
+            "text": "duminică",
+            "predType": "OTHER",
+            "confidence": 0.594
+          }
+        ]
+      }
+    },
+    "el": {
+      "docs": 8,
+      "goldSpans": 76,
+      "predictions": 74,
+      "recallStrict": 0.9605263157894737,
+      "recallLenient": 0.9605263157894737,
+      "typeAwareStrict": 0.5394736842105263,
+      "precision": 0.9864864864864865,
+      "f1": 0.9733333333333333,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 7,
+          "ratio": 0.5714285714285714
+        },
+        "CURRENCY": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1336,
+        "p95Ms": 1618
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "el-05",
+            "text": "094512337",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "el-06",
+            "text": "136902458",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "el-08",
+            "text": "157248369",
+            "type": "SSN",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "el-03",
+            "text": "Νοέμβριο",
+            "predType": "OTHER",
+            "confidence": 0.851
+          }
+        ]
+      }
+    },
+    "uk": {
+      "docs": 8,
+      "goldSpans": 75,
+      "predictions": 81,
+      "recallStrict": 0.9333333333333333,
+      "recallLenient": 1,
+      "typeAwareStrict": 0.5333333333333333,
+      "precision": 0.9382716049382716,
+      "f1": 0.9357959542656112,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 10,
+          "total": 10,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "SSN": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 0,
+          "total": 4,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 1278,
+        "p95Ms": 1451
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "uk-01",
+            "text": "ТОВ «Дніпро Логістик»",
+            "type": "COMPANY",
+            "coverage": 0.714
+          },
+          {
+            "docId": "uk-03",
+            "text": "ТОВ «Галицька Кераміка»",
+            "type": "COMPANY",
+            "coverage": 0.739
+          },
+          {
+            "docId": "uk-05",
+            "text": "ТОВ «Меблі Карпат»",
+            "type": "COMPANY",
+            "coverage": 0.667
+          },
+          {
+            "docId": "uk-05",
+            "text": "64 815,60 грн",
+            "type": "CURRENCY",
+            "coverage": 0.923
+          },
+          {
+            "docId": "uk-07",
+            "text": "«Творча Майстерня Барва»",
+            "type": "COMPANY",
+            "coverage": 0.917
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "uk-01",
+            "text": "травні",
+            "predType": "OTHER",
+            "confidence": 0.835
+          },
+          {
+            "docId": "uk-02",
+            "text": "квітні",
+            "predType": "OTHER",
+            "confidence": 0.912
+          },
+          {
+            "docId": "uk-03",
+            "text": "листопаді",
+            "predType": "OTHER",
+            "confidence": 0.831
+          },
+          {
+            "docId": "uk-05",
+            "text": "2026-02-117",
+            "predType": "OTHER",
+            "confidence": 0.703
+          },
+          {
+            "docId": "uk-06",
+            "text": "травні",
+            "predType": "OTHER",
+            "confidence": 0.758
+          }
+        ]
+      }
+    }
+  }
+}

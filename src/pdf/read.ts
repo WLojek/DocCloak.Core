@@ -70,7 +70,7 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
     const extractOptions = { maxBytes: options.maxBytes, maxPages: options.maxPages, maxGlyphs: options.maxGlyphs, password: options.password, oracle };
     let res = await extractPdf(bytes, extractOptions);
     const missing = new Map<number, number>();
-    const extraOcr: ExtraOcrPage[] = [];
+    const readPages = new Map<number, ExtraOcrPage>();
     const ocrImagePages = options.ocrImagePages !== false && !!options.recognizeText;
     const checkCoverage = options.checkOcrCoverage !== false;
     // Each page by what it holds: a picture without any text layer is read whole; a scan with an OCR
@@ -83,19 +83,19 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
     const progress = (): void => options.onOcrProgress?.(done, total);
     if (total > 0) progress();
     const wholeRead = new Map<number, number>();
-    for (const index of wholePages) {
+    const readWhole = async (index: number): Promise<void> => {
       try {
         const read = await readText(oracle, res.runs, index, null, 0, options);
         const words = read ? read.lines.reduce((n, l) => n + l.length, 0) : 0;
         wholeRead.set(index, words);
-        if (read && words > 0) extraOcr.push({ ...read, whole: true });
+        if (read && words > 0) readPages.set(index, { ...read, whole: true });
       } catch {
         // No canvas in this host, or the host OCR failed: the page stays a picture the card lists.
       }
       done++;
       progress();
-    }
-    for (const index of checked) {
+    };
+    const check = async (index: number): Promise<void> => {
       const page = res.pages[index];
       try {
         const rendered = await oracle.render(index, COVERAGE_DPI / 72, options.canvasFactory);
@@ -107,7 +107,7 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
           missing.set(index, lines.length);
           if (options.recognizeText) {
             const read = await readText(oracle, res.runs, index, lines, emPx, options, allText);
-            if (read && read.lines.length > 0) extraOcr.push(read);
+            if (read && read.lines.length > 0) readPages.set(index, read);
           }
         }
       } catch {
@@ -118,11 +118,16 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
         done++;
         progress();
       }
-    }
+    };
+    // T248: several pages at a time when the host's OCR reads several at once. A page is either read
+    // whole or checked, never both; results are taken in page order, as a read one page at a time.
+    await runLimited([...wholePages.map((i) => () => readWhole(i)), ...checked.map((i) => () => check(i))], ocrConcurrency(options.ocrConcurrency));
+    const byPage = <T>(m: Map<number, T>): Array<[number, T]> => [...m].sort((a, b) => a[0] - b[0]);
+    const extraOcr = byPage(readPages).map(([, read]) => read);
     // Read text joins the pages' text: extract again with it, as the writer will.
     if (extraOcr.length > 0) res = await extractPdf(bytes, { ...extractOptions, extraOcr });
-    for (const [index, words] of wholeRead) res.pages[index].ocrWholePage = words;
-    for (const [index, count] of missing) {
+    for (const [index, words] of byPage(wholeRead)) res.pages[index].ocrWholePage = words;
+    for (const [index, count] of byPage(missing)) {
       const page = res.pages[index];
       page.ocrMissingLines = count;
       const where = page.ocrText ? 'the picture shows text its OCR layer does not have' : 'an image on the page shows text its text layer does not have';
@@ -130,7 +135,7 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
         ? `page ${index + 1}: ${where} (${count} lines, for example a table); DocCloak read it with its own OCR (${page.ocrReadWords} words), check it before sharing`
         : `page ${index + 1}: ${where} (${count} lines, for example a table or a stamp); it cannot be found or redacted, check it before sharing`);
     }
-    for (const [index, words] of wholeRead) {
+    for (const [index, words] of byPage(wholeRead)) {
       if (words > 0) res.warnings.push(`page ${index + 1}: no text layer; DocCloak read the page with its own OCR (${words} words), check it before sharing`);
     }
     // With the host's OCR, the images of the text pages checked above were scanned for text.
@@ -159,6 +164,20 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
   } finally {
     await oracle.close();
   }
+}
+
+/** Pages read at the same time: `ocrConcurrency` as a whole number of at least 1 (1 when not given or not a number). */
+function ocrConcurrency(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+}
+
+/** Run `tasks` with at most `limit` running at a time, started in order. */
+async function runLimited(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+  let next = 0;
+  const lane = async (): Promise<void> => {
+    while (next < tasks.length) await tasks[next++]();
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, lane));
 }
 
 /** Resolution DocCloak's own OCR reads missing text at. */

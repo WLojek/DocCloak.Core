@@ -101,6 +101,19 @@ async function loadTokenizer(hfModelId: string): Promise<unknown> {
   return AutoTokenizer.from_pretrained(hfModelId);
 }
 
+/**
+ * CoreEnv.buildTokenizer for Node, the same class choice as the web host's
+ * buildWebTokenizer (tokenizer_class with "Fast" stripped; TokenizersBackend
+ * is transformers.js' PreTrainedTokenizer).
+ */
+async function buildTokenizer(tokenizerJson: unknown, tokenizerConfig: unknown): Promise<unknown> {
+  const mod = await import(pathToFileURL(TRANSFORMERS_ENTRY).href) as Record<string, new (j: unknown, c: unknown) => unknown>;
+  const declared = String((tokenizerConfig as { tokenizer_class?: string }).tokenizer_class ?? 'PreTrainedTokenizer').replace(/Fast$/, '');
+  const Cls = declared === 'TokenizersBackend' ? mod.PreTrainedTokenizer : mod[declared];
+  if (!Cls) throw new Error(`eval: unknown tokenizer_class ${declared}`);
+  return new Cls(tokenizerJson, tokenizerConfig);
+}
+
 export function createNodeEvalEnv(): CoreEnv {
   const kv: KVStore = memoryKV();
   return {
@@ -110,6 +123,7 @@ export function createNodeEvalEnv(): CoreEnv {
     // ort.node.min.mjs resolves its .wasm relative to the package dist dir;
     // point wasmPaths there explicitly so cwd never matters.
     wasm: { paths: join(HERE, '..', 'node_modules', 'onnxruntime-web', 'dist') + '/', numThreads: 1 },
+    buildTokenizer,
     loadTokenizer,
     hardware: { isMobile: false, deviceMemoryGB: 16 },
   };

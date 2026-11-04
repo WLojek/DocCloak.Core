@@ -202,6 +202,26 @@ describe('fonts', () => {
   });
 });
 
+describe('verifier and font programs (T247)', () => {
+  it('a short number that glyph data spells by chance is not a trace; a long value in a font program is', async () => {
+    const ttf = new Uint8Array(readFileSync(join(FONTS, 'LiberationSans-Regular.ttf')));
+    // Liberation Sans holds ASCII digit runs such as "3333" in its binary tables.
+    expect(Buffer.from(ttf).toString('latin1')).toContain('3333');
+    const build = async (extra: string) => {
+      const doc = await newDoc();
+      const program = new Uint8Array([...ttf, ...new TextEncoder().encode(extra)]);
+      const file = doc.context.register(doc.context.flateStream(program, { Length1: program.length }));
+      doc.context.register(doc.context.obj({ Type: 'FontDescriptor', FontName: 'LiberationSans', Flags: 4, FontFile2: file }));
+      doc.addPage([200, 200]);
+      return doc.save({ useObjectStreams: false });
+    };
+    // Kit file 58 with BardS.ai: a short amount was found in a Liberation subset and the export refused.
+    expect(await verifyPdf({ bytes: await build(''), needles: ['3333', '310'] })).toEqual([]);
+    const planted = await verifyPdf({ bytes: await build('NL29INGB0005173284'), needles: ['NL29INGB0005173284', '3333'] });
+    expect(planted.map((f) => f.needle)).toEqual(['NL29INGB0005173284']);
+  });
+});
+
 describe('Type3 fonts', () => {
   it('reads Type3 text through the encoding names and never draws a placeholder with a Type3 font it cannot show', async () => {
     const doc = await newDoc();

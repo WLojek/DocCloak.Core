@@ -4,6 +4,102 @@ All notable changes to `@doccloak/core` are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.16.0] - 2026-11-04
+
+**Which models are on the device, removing one** (T250).
+`providerFileSets(id, assetBaseUrl?)` lists the pinned files each built-in
+provider downloads (one set per ONNX variant for OpenAI Privacy Filter).
+`isProviderCached(cache, id)` tells whether one set is in the host's model
+cache, and `removeProviderFromCache(cache, id)` removes the provider's files
+and their verification markers, keeping files another cached provider still
+needs (the two GLiNER2 exports share one tokenizer). Both take a small
+`ModelCacheIndex` (`has`, `delete`), so a host checks without reading a model.
+
+**Faster OCR: several pages at a time** (DocCloak.Core#4, T248). `readPdf`
+takes `ocrConcurrency` (default 1, as before): the pages it reads with the
+host's OCR are rendered and read that many at a time, and the result is the
+same as one after another (pages, text, warnings and progress in page
+order). `recognizeCanvasLines` takes `workers` (default 1) and keeps up to
+that many Tesseract workers, one region each; `releaseOcrWorker()` ends them
+all. Concurrent renders keep the host's canvas factory.
+
+Five more detection models, requested in DocCloak.Core#3 (T240-T242). Each
+is pinned to a commit and verified by SHA-256 and size like the others.
+
+- **BardS.ai EU PII v2 and v3** (`bardsai-v2`, `bardsai-v3`, ~309 MB +
+  34 MB tokenizer): ModernBERT models, 24 EU languages, the 35 types of v1
+  (v3 adds dates and URLs). Their word-level decoder follows the model
+  card's `pii_detector.py`: 512-token windows overlapping by 128,
+  probabilities averaged per word with B and I pooled, neighbours merged,
+  format checks, regex e-mails. The text is tokenized piece by piece
+  between spaces because transformers.js tokenizes runs of spaces
+  differently from Python. A legal form's final "." stays with the company
+  name. Default thresholds from a sweep on the corpus: v3 0.5 (F1 91.6, the
+  same as without a threshold, and it drops the low-scored junk a court
+  header gives: "DE", "COMMERCE" at 0.31-0.37), v2 0.3 (its scores run
+  lower: F1 88.2 at 0.3, 82.1 at 0.5).
+- **GLiNER2 Privacy Filter** (`gliner2-pii`, ~550 MB, and
+  `gliner2-pii-yethdev`, ~462 MB): fastino's GLiNER2 PII model through two
+  community ONNX exports of the same weights. Zero-shot, so custom labels
+  work. Built-in labels: the model card's trained names plus "company",
+  "date" and "money_amount", and addresses asked for whole and in parts
+  (street, city, postal code); F1 95.4 on the corpus against 83.1 with the
+  trained names alone. The ~550 MB export bakes 7 labels into its graph; DocCloak serves
+  a 1 MB derived graph that takes them as an input (new
+  `CoreEnv.assetBaseUrl` for such files) and reads the export's weights
+  file unchanged (ONNX external data).
+- **OpenAI Privacy Filter** (`openai-pf`, ~809 MB): a 1.4B-parameter
+  mixture-of-experts token classifier, 8 categories, WebGPU only (q4f16
+  where the GPU has `shader-f16`, q4 otherwise). Official constrained
+  BIOES Viterbi decoding over the whole document, windows of 1024 tokens
+  with 256 tokens of context on each side. `account_number` spans are
+  sorted into IBAN, card or ID by shape. No company category.
+- `ProviderEntry` gains `customLabels` and `requiresWebGpu`.
+- **Company, street and postal-code rules no longer take whole phrases**
+  (T246). Their patterns accept any run of letters before the legal form
+  or street word, so on prose they matched "elle a réalisé de nombreuses
+  rotations de camions pour le compte de la SCI", "Herr Klaus Müller wohnt
+  in der Königstraße 45" or, with every region on, "c intérêts au taux
+  prévu par l'article L" (Spanish "C/") and "1996 also succeeds" (a 4-digit
+  postal code). A match is now cut to its name: capitalised words with
+  lowercase connectors (de, et, von, sp. z o.o. ...), at most 6 words of a
+  company and 3 of a street before its street word; a company needs a
+  name and a known legal form as separate words ("ACAS" is not "AC" + "AS");
+  a city after a postal code starts with a capital; a one-letter lowercase
+  street type is prose. What the cut leaves is searched again, so two
+  companies in one match are both kept. The patterns themselves are
+  unchanged.
+- **Only a person's single words spread through the text.** Propagation
+  also took the words of companies, addresses and titles: "travail" of
+  "France Travail" covered "code du travail", "Krakowie" of an address the
+  court "Sąd Rejonowy ... w Krakowie". A company is still found again
+  without its legal form ("McAllister Landscaping LLC", then "McAllister
+  Landscaping"). On the 60 text-bearing files of the model test kit
+  (BardS.ai v3, the same model output through both pipelines): protected
+  phrases hit 173 -> 125 of 398, leaks 203 -> 200 of 2,128.
+- **The verifier no longer refuses an export over PDF vocabulary** (T247).
+  GLiNER PII Small took the word "Page" of the footers ("Page 1") for a
+  value, and the verifier found it in every page dictionary (`/Type
+  /Page`): no PDF with such a footer could be exported with that model.
+  Standard dictionary keys and the names of keys like `/Type`, `/Subtype`,
+  `/Filter` and `/ProcSet` are no longer searched; any other name (a
+  custom key, a resource name) still is. In embedded font programs a value
+  is only searched when it has at least 8 characters (with a digit, or
+  several words): glyph data holds digit runs by chance ("3333", "88288"),
+  and a short amount refused the export of a Dutch bank statement with
+  BardS.ai.
+- A model value that is only a name particle ("DE", "van", "von") is no
+  longer taken as a person (`PERSON_SHORT_STOPLIST`): BardS.ai v3 returned
+  "DE" of "TRIBUNAL DE COMMERCE", and propagation replaced every "DE".
+- Measured on the 14-language gold corpus (raw model output, F1): GLiNER2
+  95.4 (95.5 for the yethdev export), BardS.ai v3 91.6, v1 89.4, v2 88.2,
+  OpenAI 82.0
+  (`eval/results/multilang-*.json`). Parity with the research references
+  in Node: OpenAI 12/12 sentences, BardS.ai v2 12/12, GLiNER2 every kept
+  span.
+
 ## [0.15.0] - 2026-10-23
 
 0.14.1 was tagged but never published to npm, so this is the first release

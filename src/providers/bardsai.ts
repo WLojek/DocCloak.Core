@@ -92,7 +92,7 @@ const ID2LABEL: Record<number, string> = {
 };
 
 /** Map bardsai entity labels → DocCloak EntityType */
-const LABEL_TO_ENTITY_TYPE: Record<string, EntityType> = {
+export const LABEL_TO_ENTITY_TYPE: Record<string, EntityType> = {
   PERSON_NAME: 'PERSON',
   PERSON_ALIAS: 'PERSON',
   PROPER_NAME: 'PERSON',

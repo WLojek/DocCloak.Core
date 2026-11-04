@@ -41,8 +41,13 @@ hosts):
 | Provider id | Model | Download |
 | --- | --- | --- |
 | `gliner` | GLiNER PII Small (multi-language, custom labels) | ~83 MB |
-| `gliner-base` | GLiNER PII Base (often better for English and dates, custom labels) | ~197 MB |
-| `bardsai` | BardS.ai EU PII (24+ EU languages, 35 PII types; labeled "Legacy" in the web app) | ~279 MB |
+| `gliner-base` | GLiNER PII Base (custom labels) | ~197 MB |
+| `bardsai` | BardS.ai EU PII v1 (24+ EU languages, 35 PII types) | ~279 MB |
+| `bardsai-v2` | BardS.ai EU PII v2 (ModernBERT, 24 EU languages) | ~343 MB |
+| `bardsai-v3` | BardS.ai EU PII v3 (ModernBERT, adds dates and URLs) | ~343 MB |
+| `gliner2-pii` | GLiNER2 Privacy Filter, okasi export (custom labels; a 1 MB graph the host serves, see `CoreEnv.assetBaseUrl`) | ~551 MB |
+| `gliner2-pii-yethdev` | GLiNER2 Privacy Filter, yethdev export (custom labels) | ~462 MB |
+| `openai-pf` | OpenAI Privacy Filter (8 categories, WebGPU only) | ~837 MB (q4f16) or ~945 MB (q4) |
 
 `pickDefaultProvider(hardware)` chooses `gliner` on mobile devices or when
 `deviceMemoryGB` is 4 or less, and `bardsai` otherwise. Download progress is
@@ -51,6 +56,19 @@ tokenizer files are fetched from an immutable `resolve/<commit>` URL and
 verified against a pinned SHA-256 and byte size; the pins are listed in
 [documentation/model-provenance.md](../documentation/model-provenance.md)
 of the DocCloak workspace.
+
+To show which models are already on the device and to free the space of one,
+`providerFileSets(id)` lists the files each provider downloads,
+`isProviderCached(cache, id)` checks them and `removeProviderFromCache(cache, id)`
+removes them with their verification markers, keeping files another cached
+provider still needs. `cache` is a `ModelCacheIndex` (`has(url)`, `delete(url)`);
+on the web, over the Cache Storage bucket:
+
+```ts
+const bucket = await caches.open('doccloak-models');
+const index = { has: async (url) => (await bucket.match(url)) !== undefined, delete: async (url) => { await bucket.delete(url); } };
+if (await isProviderCached(index, 'gliner2-pii-yethdev', { assetBaseUrl })) await removeProviderFromCache(index, 'gliner2-pii-yethdev', { assetBaseUrl });
+```
 
 ONNX Runtime also needs its WASM binaries at runtime; point
 `CoreEnv.wasm.paths` at wherever your host serves the `onnxruntime-web`
@@ -283,6 +301,28 @@ counted as covered: text that only an image shows is read, and a text page
 with a value in an image is exported painted, like a scan; without such a
 value it stays vector text. `ocrImagePages: false` turns the whole-page
 reading off, and `onOcrProgress(done, total)` reports the pages read.
+
+**Several pages at a time.** `ocrConcurrency` (default 1) is how many pages
+`readPdf` renders and hands to `recognizeText` at the same time; the result
+is the same as one page after another. `recognizeCanvasLines` reads with up
+to `workers` Tesseract workers (default 1), one region each, and keeps them
+until `releaseOcrWorker()`; give both the same number:
+
+```ts
+const workers = 4;
+const extraction = await readPdf(file, {
+  ocrConcurrency: workers,
+  // cropTo: the region copied to a canvas of its own (the lines come back relative to it)
+  recognizeText: (canvas, region, dpi) => recognizeCanvasLines(cropTo(canvas, region), 'fr', assets, dpi, { workers }),
+});
+await releaseOcrWorker();
+```
+
+Each page in flight costs a 300 dpi render and Tesseract's working memory
+(about 0.25 GB at peak in Chrome). Measured in Chrome on a 17-page scan,
+1, 2, 4, 6 and 8 pages at a time took 51, 27, 14, 12 and 9 s. The web app
+uses one worker per core but one: six at most with 8 GB of memory or more,
+four when the browser does not report its memory, two on phones and tablets.
 
 **Refusals.** Encrypted files (`'encrypted'`, pass `password`), files over
 50 MB or 500 pages (`'too-large'`), non-PDF bytes (`'invalid-package'`).

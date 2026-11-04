@@ -5,7 +5,7 @@
  *   npm run bench:multilang
  *   node --experimental-strip-types eval/multilang.mts --provider gliner --lang pl,de --limit 5
  *
- * Providers: all | gliner | gliner-base | bardsai
+ * Providers: all | gliner | gliner-base | bardsai | bardsai-v2 | bardsai-v3 | gliner2-pii | gliner2-pii-yethdev | openai-pf
  * Langs:     all | comma,list (subset of the 14 corpus languages)
  * Limit:     max docs per language (after the lang filter)
  *
@@ -25,7 +25,7 @@
 
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DetectedEntity, DetectionProvider } from '../src/types.ts';
 import type { CoreEnv } from '../src/env.ts';
 import { createNodeEvalEnv, installNodeBlobUrlShim } from './node-env.mts';
@@ -37,8 +37,24 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CACHE = join(HERE, 'data', 'cache');
 const RESULTS = join(HERE, 'results');
 
-type ProviderId = 'gliner' | 'gliner-base' | 'bardsai';
-const ALL_PROVIDERS: ProviderId[] = ['gliner', 'gliner-base', 'bardsai'];
+type ProviderId = 'gliner' | 'gliner-base' | 'bardsai' | 'bardsai-v2' | 'bardsai-v3' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
+const ALL_PROVIDERS: ProviderId[] = ['gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf'];
+
+/**
+ * Local graph files for models whose browser graph does not run in Node:
+ * the DocCloak-served GLiNER2 graph (web app public/), and OpenAI Privacy
+ * Filter's q4 graph with the embedding lookup the wasm CPU kernels lack
+ * replaced (EVAL_PF_GRAPH; T242 research). Same weights as the browser.
+ */
+const GLINER2_GRAPH = join(HERE, '..', '..', 'DocCloak', 'public', 'models', 'gliner2', 'model_q8_dynlabels.onnx');
+const PF_GRAPH = process.env.EVAL_PF_GRAPH;
+/**
+ * Experiments: EVAL_TAG suffixes the cache and result files so a variant run
+ * never mixes with the product run; EVAL_GLINER2_LABELS (comma list) replaces
+ * the GLiNER2 built-in labels.
+ */
+const TAG = process.env.EVAL_TAG ? `-${process.env.EVAL_TAG}` : '';
+const MIN_CONF = Number(process.env.EVAL_MIN_CONF ?? 0);
 
 /** One cached inference: raw preds + wall-clock detect() milliseconds. */
 interface RawResult {
@@ -63,6 +79,25 @@ async function createProvider(id: ProviderId, env: CoreEnv): Promise<DetectionPr
   if (id === 'gliner-base') {
     const { GlinerBaseProvider } = await import('../src/providers/gliner-base.ts');
     return new GlinerBaseProvider(env);
+  }
+  if (id === 'bardsai-v2' || id === 'bardsai-v3') {
+    const { BardsaiV2Provider } = await import('../src/providers/bardsai-v2.ts');
+    return new BardsaiV2Provider(env, { variant: id === 'bardsai-v2' ? 'v2' : 'v3' });
+  }
+  if (id === 'gliner2-pii' || id === 'gliner2-pii-yethdev') {
+    const { Gliner2Provider, GLINER2_VARIANTS, GLINER2_DEFAULT_LABELS } = await import('../src/providers/gliner2.ts');
+    if (process.env.EVAL_GLINER2_LABELS) {
+      GLINER2_DEFAULT_LABELS.splice(0, GLINER2_DEFAULT_LABELS.length, ...process.env.EVAL_GLINER2_LABELS.split(',').map((l) => l.trim()));
+    }
+    if (id === 'gliner2-pii-yethdev') return new Gliner2Provider(env, { variant: 'yethdev' });
+    const graph = GLINER2_VARIANTS['okasi-q8'].graph;
+    return new Gliner2Provider(env, { variant: 'okasi-q8', graphOverride: { ...graph, url: pathToFileURL(GLINER2_GRAPH).href } });
+  }
+  if (id === 'openai-pf') {
+    if (!PF_GRAPH) throw new Error('openai-pf in Node needs EVAL_PF_GRAPH=<sha256>:<size>:<path to model_q4_nogbq.onnx>');
+    const [sha256, size, path] = PF_GRAPH.split(':');
+    const { OpenAiPrivacyFilterProvider } = await import('../src/providers/openai-privacy-filter.ts');
+    return new OpenAiPrivacyFilterProvider(env, { variant: 'q4', executionProvider: 'wasm', graphOverride: { url: pathToFileURL(path).href, sha256, size: Number(size) } });
   }
   const { BardsaiProvider } = await import('../src/providers/bardsai.ts');
   return new BardsaiProvider(env);
@@ -105,7 +140,7 @@ async function rawPredictions(
   env: CoreEnv,
 ): Promise<{ raw: Map<string, RawResult>; modelName: string; threshold: number }> {
   mkdirSync(CACHE, { recursive: true });
-  const cacheFile = join(CACHE, `multilang-raw-${providerId}.jsonl`);
+  const cacheFile = join(CACHE, `multilang-raw-${providerId}${TAG}.jsonl`);
   const cached = loadRawCache(cacheFile);
   const pending = docs.filter((d) => !cached.has(d.id));
 
@@ -200,7 +235,8 @@ export function scoreDocs(docs: CorpusDoc[], raw: Map<string, RawResult>): LangS
   for (const doc of docs) {
     const entry = raw.get(doc.id);
     if (!entry) throw new Error(`missing raw predictions for ${doc.id}`);
-    const preds = entry.preds;
+    // EVAL_MIN_CONF: score the cached predictions at a higher threshold (threshold sweeps, no re-inference).
+    const preds = MIN_CONF > 0 ? entry.preds.filter((p) => p.confidence >= MIN_CONF) : entry.preds;
     predictions += preds.length;
     latencies.push(entry.ms);
 
@@ -315,7 +351,7 @@ async function main(): Promise<void> {
     }
     const overall = scoreDocs(docs, raw);
 
-    const outFile = join(RESULTS, `multilang-${providerId}.json`);
+    const outFile = join(RESULTS, `multilang-${providerId}${TAG}.json`);
     writeFileSync(outFile, JSON.stringify({
       provider: providerId,
       meta: { model: modelName, threshold, generated: runStamp, limit: limit ?? null, langs: presentLangs },
@@ -341,7 +377,7 @@ async function main(): Promise<void> {
     };
   }
 
-  const summaryFile = join(RESULTS, 'multilang-summary.json');
+  const summaryFile = join(RESULTS, `multilang-summary${TAG}.json`);
   writeFileSync(summaryFile, JSON.stringify({ generated: runStamp, limit: limit ?? null, providers: summary }, null, 2) + '\n');
   console.log(`\nSummary written to ${summaryFile}`);
 

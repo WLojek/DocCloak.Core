@@ -130,6 +130,8 @@ interface PdfJsCanvasAndContext {
  */
 class FactorySlot {
   current: CanvasFactory | undefined;
+  /** Renders in progress: pages render at the same time (readPdf's ocrConcurrency), so the factory is cleared when the last one ends. */
+  renders = 0;
 
   bridgeClass(): new (options: unknown) => object {
     const slot = this;
@@ -335,6 +337,7 @@ export async function openWithOracle(bytes: Uint8Array, assets?: PdfAssetPaths, 
       const heightPx = Math.ceil(viewport.height);
       const factory = canvasFactory ?? defaultCanvasFactory();
       slot.current = factory;
+      slot.renders++;
       try {
         const handle = factory.create(widthPx, heightPx);
         const renderTask = page.render({
@@ -355,7 +358,7 @@ export async function openWithOracle(bytes: Uint8Array, assets?: PdfAssetPaths, 
           canvas: handle,
         };
       } finally {
-        slot.current = undefined;
+        if (--slot.renders === 0) slot.current = undefined;
       }
     },
 

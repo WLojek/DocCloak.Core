@@ -148,9 +148,17 @@ describe('filterFalsePositives', () => {
     const rejected = ['a', 'x', 'Mr', 'Dr', 'MS', 'jr', 'Sr', 'St', 'II', 'IV', 'VI', 'No', 'Re', 'CC']
       .map((v, i) => entity(v, i * 10));
     expect(filterFalsePositives(rejected)).toEqual([]);
-    expect([...PERSON_SHORT_STOPLIST].sort()).toEqual(
-      ['cc', 'dr', 'ii', 'iv', 'jr', 'mr', 'ms', 'no', 're', 'sr', 'st', 'vi'],
-    );
+    expect([...PERSON_SHORT_STOPLIST].sort()).toEqual([
+      'cc', 'da', 'das', 'de', 'del', 'den', 'der', 'des', 'di', 'dos', 'dr', 'du', 'ii', 'iv', 'jr',
+      'mr', 'ms', 'no', 're', 'sr', 'st', 'van', 'vi', 'von',
+    ]);
+  });
+
+  it('rejects a name particle returned as a whole PERSON value, keeps names that contain one (T240)', () => {
+    const particles = ['DE', 'de', 'Du', 'van', 'VON', 'della'].map((v, i) => entity(v, i * 10));
+    expect(filterFalsePositives(particles).map((e) => e.value)).toEqual(['della']);
+    const names = ['Jean de La Fontaine', 'Van Gogh', 'Le', 'Li'].map((v, i) => entity(v, i * 30));
+    expect(filterFalsePositives(names).map((e) => e.value)).toEqual(['Jean de La Fontaine', 'Van Gogh', 'Le', 'Li']);
   });
 
   it('keeps two-character CJK values for every type and rejects single characters', () => {
@@ -242,17 +250,50 @@ describe('propagateEntities', () => {
   });
 
   it('strips trailing punctuation from word parts before propagating', () => {
-    const text = 'Acme Corp. hired. Corp announced.';
-    const detected = [entity('Acme Corp.', 0, { type: 'COMPANY', detector: 'gliner:company' })];
+    const text = 'Anna Kowalska. hired. Kowalska announced.';
+    const detected = [entity('Anna Kowalska.', 0, { type: 'PERSON', detector: 'gliner:person' })];
     const result = propagateEntities(text, detected);
     expect(result).toContainEqual({
-      type: 'COMPANY',
-      value: 'Corp',
-      start: 18,
-      end: 22,
+      type: 'PERSON',
+      value: 'Kowalska',
+      start: 22,
+      end: 30,
       confidence: 0.95,
       detector: 'propagated',
     });
+  });
+
+  it('propagates an identifier inside a longer value of any type, not its words (T246)', () => {
+    const text = 'Licznik nr 93718264 w lokalu. Odczyt: 93718264 kWh. Licznik sprawny.';
+    const detected = [entity('Licznik nr 93718264', 0, { type: 'OTHER', detector: 'bardsai:DEVICE_IDENTIFIER' })];
+    const found = propagateEntities(text, detected).map((e) => [e.value, e.start]);
+    expect(found).toContainEqual(['93718264', 38]);
+    expect(found.some(([v]) => v === 'Licznik')).toBe(false);
+  });
+
+  it('keeps the city after a postal code when the model\'s address ends on the code (T246)', () => {
+    const text = 'Herrn\nDennis Kowalczyk\nVenloer Straße 311\n50823 Köln\n';
+    const ml = [entity('Venloer Straße 311\n50823', text.indexOf('Venloer'), { type: 'ADDRESS', detector: 'bardsai:POSTAL_ADDRESS' })];
+    const out = detectEntities(text, ml, detectWithRegex(text, 'de'));
+    expect(out.some((e) => e.value === 'Köln' && e.type === 'ADDRESS')).toBe(true);
+  });
+
+  it('propagates a company name without its legal form (T246)', () => {
+    const text = "Owner: McAllister Landscaping LLC. A door logo reading 'McAllister Landscaping'. Landscaping is hard.";
+    const detected = [entity('McAllister Landscaping LLC', 7, { type: 'COMPANY', detector: 'regex:us:company' })];
+    const found = propagateEntities(text, detected).map((e) => [e.value, e.start]);
+    expect(found).toContainEqual(['McAllister Landscaping', 56]);
+    // Its single words do not spread: "Landscaping is hard" stays.
+    expect(found.some(([v]) => v === 'Landscaping')).toBe(false);
+  });
+
+  it('propagates the single words of a person only, not of a company or an address (T246)', () => {
+    const text = 'France Travail, ul. Polna 5 w Krakowie. Le code du travail. Sąd Rejonowy w Krakowie.';
+    const detected = [
+      entity('France Travail', 0, { type: 'COMPANY', detector: 'bardsai:ORGANIZATION_NAME' }),
+      entity('ul. Polna 5 w Krakowie', 16, { type: 'ADDRESS', detector: 'regex:pl:street' }),
+    ];
+    expect(propagateEntities(text, detected)).toEqual([]);
   });
 
   it('requires word boundaries: no match inside a larger word', () => {

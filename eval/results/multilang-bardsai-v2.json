@@ -1,0 +1,1826 @@
+{
+  "provider": "bardsai-v2",
+  "meta": {
+    "model": "BardS.ai EU PII v2",
+    "threshold": 0.3,
+    "generated": "2026-11-02",
+    "limit": null,
+    "langs": [
+      "en",
+      "pl",
+      "de",
+      "fr",
+      "es",
+      "pt",
+      "sv",
+      "no",
+      "it",
+      "nl",
+      "cs",
+      "ro",
+      "el",
+      "uk"
+    ]
+  },
+  "overall": {
+    "docs": 112,
+    "goldSpans": 1007,
+    "predictions": 789,
+    "recallStrict": 0.8123138033763655,
+    "recallLenient": 0.8609731876861966,
+    "typeAwareStrict": 0.7686196623634558,
+    "precision": 0.9645120405576679,
+    "f1": 0.8818944712476686,
+    "byType": {
+      "ADDRESS": {
+        "hits": 219,
+        "total": 235,
+        "ratio": 0.9319148936170213
+      },
+      "PERSON": {
+        "hits": 170,
+        "total": 179,
+        "ratio": 0.9497206703910615
+      },
+      "DATE": {
+        "hits": 43,
+        "total": 143,
+        "ratio": 0.3006993006993007
+      },
+      "PHONE": {
+        "hits": 88,
+        "total": 93,
+        "ratio": 0.946236559139785
+      },
+      "CURRENCY": {
+        "hits": 41,
+        "total": 78,
+        "ratio": 0.5256410256410257
+      },
+      "EMAIL": {
+        "hits": 73,
+        "total": 73,
+        "ratio": 1
+      },
+      "COMPANY": {
+        "hits": 60,
+        "total": 68,
+        "ratio": 0.8823529411764706
+      },
+      "SSN": {
+        "hits": 54,
+        "total": 56,
+        "ratio": 0.9642857142857143
+      },
+      "IBAN": {
+        "hits": 37,
+        "total": 37,
+        "ratio": 1
+      },
+      "IP_ADDRESS": {
+        "hits": 12,
+        "total": 24,
+        "ratio": 0.5
+      },
+      "CREDIT_CARD": {
+        "hits": 21,
+        "total": 21,
+        "ratio": 1
+      }
+    },
+    "latency": {
+      "meanMs": 805,
+      "p95Ms": 1045
+    },
+    "samples": {
+      "misses": [
+        {
+          "docId": "en-01",
+          "text": "4 March 2026",
+          "type": "DATE",
+          "coverage": 0
+        },
+        {
+          "docId": "en-02",
+          "text": "(415) 555-0173",
+          "type": "PHONE",
+          "coverage": 0.929
+        },
+        {
+          "docId": "en-02",
+          "text": "203.0.113.42",
+          "type": "IP_ADDRESS",
+          "coverage": 0
+        },
+        {
+          "docId": "en-02",
+          "text": "September 12, 2026",
+          "type": "DATE",
+          "coverage": 0
+        },
+        {
+          "docId": "en-03",
+          "text": "1 June 2019",
+          "type": "DATE",
+          "coverage": 0
+        }
+      ],
+      "falsePositives": [
+        {
+          "docId": "en-02",
+          "text": "singer sewing",
+          "predType": "OTHER",
+          "confidence": 0.393
+        },
+        {
+          "docId": "en-03",
+          "text": "of engineering",
+          "predType": "OTHER",
+          "confidence": 0.453
+        },
+        {
+          "docId": "en-05",
+          "text": "2026-0417",
+          "predType": "OTHER",
+          "confidence": 0.311
+        },
+        {
+          "docId": "pl-05",
+          "text": "FV/2026/02/117",
+          "predType": "OTHER",
+          "confidence": 0.572
+        },
+        {
+          "docId": "de-05",
+          "text": "2026-0311",
+          "predType": "OTHER",
+          "confidence": 0.324
+        }
+      ]
+    }
+  },
+  "languages": {
+    "en": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 59,
+      "recallStrict": 0.8378378378378378,
+      "recallLenient": 0.8648648648648649,
+      "typeAwareStrict": 0.7702702702702703,
+      "precision": 0.9491525423728814,
+      "f1": 0.8900281978979749,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 14,
+          "total": 14,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 8,
+          "ratio": 0.75
+        },
+        "COMPANY": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "CURRENCY": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 0,
+          "total": 1,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 672,
+        "p95Ms": 835
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "en-01",
+            "text": "4 March 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "en-02",
+            "text": "(415) 555-0173",
+            "type": "PHONE",
+            "coverage": 0.929
+          },
+          {
+            "docId": "en-02",
+            "text": "203.0.113.42",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "en-02",
+            "text": "September 12, 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "en-03",
+            "text": "1 June 2019",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "en-02",
+            "text": "singer sewing",
+            "predType": "OTHER",
+            "confidence": 0.393
+          },
+          {
+            "docId": "en-03",
+            "text": "of engineering",
+            "predType": "OTHER",
+            "confidence": 0.453
+          },
+          {
+            "docId": "en-05",
+            "text": "2026-0417",
+            "predType": "OTHER",
+            "confidence": 0.311
+          }
+        ]
+      }
+    },
+    "pl": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 52,
+      "recallStrict": 0.7432432432432432,
+      "recallLenient": 0.7972972972972973,
+      "typeAwareStrict": 0.7027027027027027,
+      "precision": 0.9807692307692307,
+      "f1": 0.8456436539041302,
+      "byType": {
+        "ADDRESS": {
+          "hits": 13,
+          "total": 18,
+          "ratio": 0.7222222222222222
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 12,
+          "ratio": 0.8333333333333334
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 870,
+        "p95Ms": 981
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pl-01",
+            "text": "15 marca 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-02",
+            "text": "512-887-013",
+            "type": "PHONE",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-02",
+            "text": "3 200 zł",
+            "type": "CURRENCY",
+            "coverage": 0.125
+          },
+          {
+            "docId": "pl-02",
+            "text": "3.02.2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pl-03",
+            "text": "1 września 2024",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pl-05",
+            "text": "FV/2026/02/117",
+            "predType": "OTHER",
+            "confidence": 0.572
+          }
+        ]
+      }
+    },
+    "de": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 51,
+      "recallStrict": 0.7887323943661971,
+      "recallLenient": 0.8169014084507042,
+      "typeAwareStrict": 0.7323943661971831,
+      "precision": 0.9803921568627451,
+      "f1": 0.8741804558226661,
+      "byType": {
+        "ADDRESS": {
+          "hits": 15,
+          "total": 18,
+          "ratio": 0.8333333333333334
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 12,
+          "ratio": 0.8333333333333334
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 4,
+          "total": 6,
+          "ratio": 0.6666666666666666
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 0,
+          "total": 1,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 670,
+        "p95Ms": 787
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "de-01",
+            "text": "01.09.2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "de-01",
+            "text": "Kastanienallee 12",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "de-01",
+            "text": "10435",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "de-01",
+            "text": "Berlin",
+            "type": "ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "de-02",
+            "text": "15.10.2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "de-05",
+            "text": "2026-0311",
+            "predType": "OTHER",
+            "confidence": 0.324
+          }
+        ]
+      }
+    },
+    "fr": {
+      "docs": 8,
+      "goldSpans": 68,
+      "predictions": 54,
+      "recallStrict": 0.8823529411764706,
+      "recallLenient": 0.8970588235294118,
+      "typeAwareStrict": 0.8529411764705882,
+      "precision": 0.9444444444444444,
+      "f1": 0.9123434704830053,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 13,
+          "total": 13,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 5,
+          "total": 11,
+          "ratio": 0.45454545454545453
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 3,
+          "ratio": 0.6666666666666666
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 773,
+        "p95Ms": 895
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "fr-01",
+            "text": "15 mars 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-03",
+            "text": "1er septembre 2024",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-04",
+            "text": "9 avril 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-05",
+            "text": "02/06/2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "fr-06",
+            "text": "850 €",
+            "type": "CURRENCY",
+            "coverage": 0.6
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "fr-01",
+            "text": "Assistant de direction",
+            "predType": "OTHER",
+            "confidence": 0.855
+          },
+          {
+            "docId": "fr-03",
+            "text": "technicien de maintenance",
+            "predType": "OTHER",
+            "confidence": 0.907
+          },
+          {
+            "docId": "fr-08",
+            "text": "boulanger",
+            "predType": "OTHER",
+            "confidence": 0.995
+          }
+        ]
+      }
+    },
+    "es": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 59,
+      "recallStrict": 0.8571428571428571,
+      "recallLenient": 0.9,
+      "typeAwareStrict": 0.8285714285714286,
+      "precision": 0.9152542372881356,
+      "f1": 0.8852459016393444,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 13,
+          "total": 13,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 11,
+          "ratio": 0.2727272727272727
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 3,
+          "ratio": 0.6666666666666666
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 740,
+        "p95Ms": 867
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "es-01",
+            "text": "15 de marzo de 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "es-03",
+            "text": "1 de septiembre de 2024",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "es-03",
+            "text": "22 de julio de 1988",
+            "type": "DATE",
+            "coverage": 0.211
+          },
+          {
+            "docId": "es-04",
+            "text": "3 de noviembre de 1972",
+            "type": "DATE",
+            "coverage": 0.227
+          },
+          {
+            "docId": "es-04",
+            "text": "9 de abril de 2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "es-01",
+            "text": "Secretario de dirección",
+            "predType": "OTHER",
+            "confidence": 0.739
+          },
+          {
+            "docId": "es-03",
+            "text": "técnico de logística",
+            "predType": "OTHER",
+            "confidence": 0.679
+          },
+          {
+            "docId": "es-03",
+            "text": "herrero",
+            "predType": "OTHER",
+            "confidence": 0.565
+          },
+          {
+            "docId": "es-03",
+            "text": "jefe de almacén",
+            "predType": "OTHER",
+            "confidence": 0.682
+          },
+          {
+            "docId": "es-08",
+            "text": "herrero",
+            "predType": "OTHER",
+            "confidence": 0.986
+          }
+        ]
+      }
+    },
+    "pt": {
+      "docs": 8,
+      "goldSpans": 70,
+      "predictions": 58,
+      "recallStrict": 0.8142857142857143,
+      "recallLenient": 0.8714285714285714,
+      "typeAwareStrict": 0.8142857142857143,
+      "precision": 0.9310344827586207,
+      "f1": 0.8687552921253174,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 13,
+          "total": 13,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 11,
+          "ratio": 0.2727272727272727
+        },
+        "PHONE": {
+          "hits": 6,
+          "total": 6,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 5,
+          "ratio": 0.8
+        },
+        "EMAIL": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 0,
+          "total": 3,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 811,
+        "p95Ms": 923
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "pt-01",
+            "text": "15 de março de 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "1 de setembro de 2024",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "22 de julho de 1988",
+            "type": "DATE",
+            "coverage": 0.579
+          },
+          {
+            "docId": "pt-03",
+            "text": "12345678 9 ZX1",
+            "type": "SSN",
+            "coverage": 0
+          },
+          {
+            "docId": "pt-03",
+            "text": "1.950 €",
+            "type": "CURRENCY",
+            "coverage": 0.714
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "pt-01",
+            "text": "Assistente de direção",
+            "predType": "OTHER",
+            "confidence": 0.751
+          },
+          {
+            "docId": "pt-03",
+            "text": "técnico de manutenção",
+            "predType": "OTHER",
+            "confidence": 0.774
+          },
+          {
+            "docId": "pt-03",
+            "text": "ferreiro",
+            "predType": "OTHER",
+            "confidence": 0.476
+          },
+          {
+            "docId": "pt-08",
+            "text": "pescador",
+            "predType": "OTHER",
+            "confidence": 0.995
+          }
+        ]
+      }
+    },
+    "sv": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 52,
+      "recallStrict": 0.8028169014084507,
+      "recallLenient": 0.8732394366197183,
+      "typeAwareStrict": 0.7746478873239436,
+      "precision": 1,
+      "f1": 0.890625,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 2,
+          "total": 10,
+          "ratio": 0.2
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 6,
+          "total": 7,
+          "ratio": 0.8571428571428571
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 0,
+          "total": 1,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 709,
+        "p95Ms": 799
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "sv-01",
+            "text": "4 mars 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-02",
+            "text": "15 oktober 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-02",
+            "text": "198.51.100.23",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "sv-03",
+            "text": "12 mars 1985",
+            "type": "DATE",
+            "coverage": 0.333
+          },
+          {
+            "docId": "sv-03",
+            "text": "1 februari 2018",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": []
+      }
+    },
+    "no": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 53,
+      "recallStrict": 0.8450704225352113,
+      "recallLenient": 0.8732394366197183,
+      "typeAwareStrict": 0.8028169014084507,
+      "precision": 0.9811320754716981,
+      "f1": 0.9080325960419092,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 8,
+          "total": 8,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 6,
+          "ratio": 0.5
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 0,
+          "total": 1,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 1,
+          "total": 1,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 697,
+        "p95Ms": 788
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "no-01",
+            "text": "4. mars 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "no-02",
+            "text": "15. oktober 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "no-02",
+            "text": "198.51.100.77",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "no-03",
+            "text": "1. februar 2018",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "no-04",
+            "text": "4. august 2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "no-05",
+            "text": "2026-0311",
+            "predType": "OTHER",
+            "confidence": 0.323
+          }
+        ]
+      }
+    },
+    "it": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 59,
+      "recallStrict": 0.8450704225352113,
+      "recallLenient": 0.8591549295774648,
+      "typeAwareStrict": 0.7746478873239436,
+      "precision": 0.9322033898305084,
+      "f1": 0.8865010073875084,
+      "byType": {
+        "PERSON": {
+          "hits": 13,
+          "total": 14,
+          "ratio": 0.9285714285714286
+        },
+        "ADDRESS": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "CURRENCY": {
+          "hits": 5,
+          "total": 7,
+          "ratio": 0.7142857142857143
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 819,
+        "p95Ms": 987
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "it-01",
+            "text": "15 marzo 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "it-01",
+            "text": "1.250,00 EUR",
+            "type": "CURRENCY",
+            "coverage": 0.417
+          },
+          {
+            "docId": "it-02",
+            "text": "3 aprile 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "it-02",
+            "text": "192.168.10.44",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "it-03",
+            "text": "1 settembre 2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "it-03",
+            "text": "analista contabile",
+            "predType": "OTHER",
+            "confidence": 0.629
+          },
+          {
+            "docId": "it-05",
+            "text": "2026/482",
+            "predType": "OTHER",
+            "confidence": 0.349
+          },
+          {
+            "docId": "it-07",
+            "text": "Betta",
+            "predType": "PERSON",
+            "confidence": 0.731
+          },
+          {
+            "docId": "it-07",
+            "text": "Gaia",
+            "predType": "PERSON",
+            "confidence": 0.819
+          }
+        ]
+      }
+    },
+    "nl": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 62,
+      "recallStrict": 0.8732394366197183,
+      "recallLenient": 0.9014084507042254,
+      "typeAwareStrict": 0.7746478873239436,
+      "precision": 0.9516129032258065,
+      "f1": 0.9107431843644964,
+      "byType": {
+        "PERSON": {
+          "hits": 13,
+          "total": 14,
+          "ratio": 0.9285714285714286
+        },
+        "ADDRESS": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "CURRENCY": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 806,
+        "p95Ms": 913
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "nl-01",
+            "text": "12 maart 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-02",
+            "text": "1 februari 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-03",
+            "text": "1 oktober 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-04",
+            "text": "17 november 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "nl-05",
+            "text": "5 juni 2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "nl-02",
+            "text": "55023",
+            "predType": "IBAN",
+            "confidence": 0.319
+          },
+          {
+            "docId": "nl-05",
+            "text": "21%",
+            "predType": "OTHER",
+            "confidence": 0.364
+          },
+          {
+            "docId": "nl-07",
+            "text": "Daan",
+            "predType": "PERSON",
+            "confidence": 0.486
+          }
+        ]
+      }
+    },
+    "cs": {
+      "docs": 8,
+      "goldSpans": 74,
+      "predictions": 53,
+      "recallStrict": 0.8243243243243243,
+      "recallLenient": 0.8513513513513513,
+      "typeAwareStrict": 0.7972972972972973,
+      "precision": 1,
+      "f1": 0.9037037037037037,
+      "byType": {
+        "ADDRESS": {
+          "hits": 19,
+          "total": 19,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 11,
+          "total": 12,
+          "ratio": 0.9166666666666666
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        }
+      },
+      "latency": {
+        "meanMs": 849,
+        "p95Ms": 989
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "cs-01",
+            "text": "20. března 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "cs-01",
+            "text": "48 500 Kč",
+            "type": "CURRENCY",
+            "coverage": 0.667
+          },
+          {
+            "docId": "cs-02",
+            "text": "6 890 Kč",
+            "type": "CURRENCY",
+            "coverage": 0.625
+          },
+          {
+            "docId": "cs-02",
+            "text": "5. 2. 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "cs-02",
+            "text": "185.63.98.14",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": []
+      }
+    },
+    "ro": {
+      "docs": 8,
+      "goldSpans": 71,
+      "predictions": 62,
+      "recallStrict": 0.7887323943661971,
+      "recallLenient": 0.8732394366197183,
+      "typeAwareStrict": 0.7464788732394366,
+      "precision": 0.9516129032258065,
+      "f1": 0.8625505808641171,
+      "byType": {
+        "PERSON": {
+          "hits": 14,
+          "total": 14,
+          "ratio": 1
+        },
+        "ADDRESS": {
+          "hits": 9,
+          "total": 12,
+          "ratio": 0.75
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "CURRENCY": {
+          "hits": 3,
+          "total": 7,
+          "ratio": 0.42857142857142855
+        },
+        "EMAIL": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IBAN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 4,
+          "total": 4,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        }
+      },
+      "latency": {
+        "meanMs": 873,
+        "p95Ms": 992
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "ro-01",
+            "text": "15 martie 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-01",
+            "text": "12.500 lei",
+            "type": "CURRENCY",
+            "coverage": 0.6
+          },
+          {
+            "docId": "ro-02",
+            "text": "3 aprilie 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-02",
+            "text": "192.168.1.87",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          },
+          {
+            "docId": "ro-03",
+            "text": "1 septembrie 2026",
+            "type": "DATE",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": [
+          {
+            "docId": "ro-03",
+            "text": "economist",
+            "predType": "OTHER",
+            "confidence": 0.847
+          },
+          {
+            "docId": "ro-07",
+            "text": "Miru",
+            "predType": "PERSON",
+            "confidence": 0.762
+          },
+          {
+            "docId": "ro-07",
+            "text": "Ancăi",
+            "predType": "PERSON",
+            "confidence": 0.33
+          }
+        ]
+      }
+    },
+    "el": {
+      "docs": 8,
+      "goldSpans": 76,
+      "predictions": 57,
+      "recallStrict": 0.7631578947368421,
+      "recallLenient": 0.8421052631578947,
+      "typeAwareStrict": 0.7236842105263158,
+      "precision": 1,
+      "f1": 0.8656716417910448,
+      "byType": {
+        "ADDRESS": {
+          "hits": 13,
+          "total": 18,
+          "ratio": 0.7222222222222222
+        },
+        "PERSON": {
+          "hits": 12,
+          "total": 12,
+          "ratio": 1
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "SSN": {
+          "hits": 7,
+          "total": 7,
+          "ratio": 1
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 3,
+          "total": 4,
+          "ratio": 0.75
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        }
+      },
+      "latency": {
+        "meanMs": 1077,
+        "p95Ms": 1243
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "el-01",
+            "text": "15 Μαρτίου 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "el-01",
+            "text": "12.450,00 ευρώ",
+            "type": "CURRENCY",
+            "coverage": 0.643
+          },
+          {
+            "docId": "el-02",
+            "text": "890 €",
+            "type": "CURRENCY",
+            "coverage": 0.6
+          },
+          {
+            "docId": "el-02",
+            "text": "3/2/2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "el-02",
+            "text": "94.66.220.19",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": []
+      }
+    },
+    "uk": {
+      "docs": 8,
+      "goldSpans": 75,
+      "predictions": 58,
+      "recallStrict": 0.72,
+      "recallLenient": 0.84,
+      "typeAwareStrict": 0.68,
+      "precision": 1,
+      "f1": 0.8372093023255813,
+      "byType": {
+        "ADDRESS": {
+          "hits": 18,
+          "total": 18,
+          "ratio": 1
+        },
+        "PERSON": {
+          "hits": 10,
+          "total": 12,
+          "ratio": 0.8333333333333334
+        },
+        "DATE": {
+          "hits": 3,
+          "total": 10,
+          "ratio": 0.3
+        },
+        "PHONE": {
+          "hits": 5,
+          "total": 7,
+          "ratio": 0.7142857142857143
+        },
+        "CURRENCY": {
+          "hits": 2,
+          "total": 6,
+          "ratio": 0.3333333333333333
+        },
+        "SSN": {
+          "hits": 5,
+          "total": 6,
+          "ratio": 0.8333333333333334
+        },
+        "EMAIL": {
+          "hits": 5,
+          "total": 5,
+          "ratio": 1
+        },
+        "COMPANY": {
+          "hits": 0,
+          "total": 4,
+          "ratio": 0
+        },
+        "IBAN": {
+          "hits": 3,
+          "total": 3,
+          "ratio": 1
+        },
+        "CREDIT_CARD": {
+          "hits": 2,
+          "total": 2,
+          "ratio": 1
+        },
+        "IP_ADDRESS": {
+          "hits": 1,
+          "total": 2,
+          "ratio": 0.5
+        }
+      },
+      "latency": {
+        "meanMs": 904,
+        "p95Ms": 1045
+      },
+      "samples": {
+        "misses": [
+          {
+            "docId": "uk-01",
+            "text": "ТОВ «Дніпро Логістик»",
+            "type": "COMPANY",
+            "coverage": 0.857
+          },
+          {
+            "docId": "uk-01",
+            "text": "15 березня 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "uk-02",
+            "text": "21 300 грн",
+            "type": "CURRENCY",
+            "coverage": 0.2
+          },
+          {
+            "docId": "uk-02",
+            "text": "3 лютого 2026",
+            "type": "DATE",
+            "coverage": 0
+          },
+          {
+            "docId": "uk-02",
+            "text": "193.24.208.77",
+            "type": "IP_ADDRESS",
+            "coverage": 0
+          }
+        ],
+        "falsePositives": []
+      }
+    }
+  }
+}
