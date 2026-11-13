@@ -18,8 +18,13 @@ import {
   replaceSensitiveValues,
   scrubMailtoTarget,
   scrubPackageValues,
+  scrubUnmappedValues,
   scrubDocPropsParts,
   normalizeZipEntries,
+  readXmlPart,
+  writeXmlPart,
+  isDocPropsUserText,
+  DOC_PROPS_PARTS,
   NORMALISED_DATE,
 } from './opc.ts';
 import { UnsupportedDocumentError } from './errors.ts';
@@ -760,8 +765,10 @@ export async function writeAnonymizedDocx(
  *    NOTEREF / HYPERLINK \l instructions) is updated across all parts;
  * 3. per content part: attribute scrub (authors, field arguments, alt
  *    text), reference update, always-scrub group (tooltips, content control
- *    tags without a data binding), optional tracked-change acceptance,
- *    serialize;
+ *    tags without a data binding), optional tracked-change acceptance, the
+ *    value scrub of everything the reader did not map (attributes, text of
+ *    elements it does not know; never the mapped text, where the offset
+ *    replacements alone decide), serialize;
  * 4. metadata scrub (docProps, people, settings incl. docVars, rels incl.
  *    the mailto rule, thumbnail);
  * 5. layer zero: every known value scrubbed from every other XML/rels/vml
@@ -804,12 +811,21 @@ export async function writeAnonymizedDocxWithReport(
     // Charts built from an embedded workbook: drop the link so Word never
     // opens the (unredacted) workbook to refresh the chart (T175).
     if (CHART_PART.test(part.path)) stripChartExternalData(part.xmlDoc);
-    const xmlStr = serializer.serializeToString(part.xmlDoc);
-    extraction.zip.file(part.path, xmlStr);
     // Parts the extractor reads only partially (numbering and webSettings:
     // one attribute family; charts, SmartArt, custom XML: the text units)
-    // keep their layer-zero pass for everything else in them.
-    if (!PARTIAL_EXTRACTION_PART.test(part.path)) contentPaths.add(part.path);
+    // keep their layer-zero pass for everything else in them. The others
+    // are skipped by layer zero, so what the reader did not map in them
+    // (attributes such as a list item of a content control or the text of a
+    // legacy WordArt shape, text of elements it does not know) is scrubbed
+    // by value here. The mapped text is left to the offset replacements: a
+    // place the user kept visible stays visible.
+    const partial = PARTIAL_EXTRACTION_PART.test(part.path);
+    if (!partial) {
+      scrubUnmappedValues(part.xmlDoc, valueReplacements, part.textNodes, { keepAttribute: isFieldInstruction });
+    }
+    const xmlStr = serializer.serializeToString(part.xmlDoc);
+    extraction.zip.file(part.path, xmlStr);
+    if (!partial) contentPaths.add(part.path);
   }
 
   await sanitizeDocxMetadata(extraction.zip, valueReplacements);
@@ -825,16 +841,60 @@ export async function writeAnonymizedDocxWithReport(
   return { blob, warnings: [...scrub.warnings, ...unredactableWarnings(extraction.unredactable)] };
 }
 
+/** Options for writeRestoredDocx. */
+export interface DocxRestoreOptions {
+  /** Restores the labels in one string that is not part of the flat text (a property, a link target). */
+  restoreText?: (text: string) => string;
+}
+
+/** Result of writeRestoredDocxWithReport. */
+export interface DocxRestoreResult {
+  /** The restored .docx */
+  blob: Blob;
+  /**
+   * The strings outside the flat text that can hold labels, as they are
+   * after the restore: the host checks them for labels that stayed. A link
+   * target is listed percent-decoded, so a label in it reads as written.
+   */
+  outsideText: string[];
+}
+
 /**
  * Restore originals inside a (possibly edited) pseudonymized docx: apply the
  * session's restore spans (computed on extraction.plainText) to the mapped
  * text nodes and repackage. No scrub step runs: this is the inverse
  * direction, the file is the user's own and nothing must be removed.
+ *
+ * With options.restoreText the labels outside the flat text are restored
+ * too (see writeRestoredDocxWithReport). Without it the file is written
+ * exactly as before the option existed.
  */
 export async function writeRestoredDocx(
   extraction: DocxExtraction,
   spans: Array<{ start: number; end: number; replacement: string }>,
+  options: DocxRestoreOptions = {},
 ): Promise<Blob> {
+  const result = await writeRestoredDocxWithReport(extraction, spans, options);
+  return result.blob;
+}
+
+/**
+ * Same as writeRestoredDocx, with the strings outside the flat text. The
+ * anonymizer's package scrub writes labels into places the spans do not
+ * reach, and an assistant can put a label there too: the document
+ * properties (title, subject, keywords, description, category, author
+ * names, company, manager, custom property values and names) and the
+ * targets of external links (word/_rels and below). Each such string is
+ * passed through options.restoreText and written back when it changed;
+ * result.outsideText lists them as they are afterwards, restored or not, so
+ * a host can say which labels stayed. A part that does not parse is left
+ * alone and contributes nothing.
+ */
+export async function writeRestoredDocxWithReport(
+  extraction: DocxExtraction,
+  spans: Array<{ start: number; end: number; replacement: string }>,
+  options: DocxRestoreOptions = {},
+): Promise<DocxRestoreResult> {
   applyTextReplacements(
     extraction.textNodes,
     spans,
@@ -844,10 +904,133 @@ export async function writeRestoredDocx(
   for (const part of extraction.contentParts) {
     extraction.zip.file(part.path, serializer.serializeToString(part.xmlDoc));
   }
-  return extraction.zip.generateAsync({
+  const outsideText = await restoreOutsideText(extraction.zip, options.restoreText);
+  const blob = await extraction.zip.generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
+  return { blob, outsideText };
+}
+
+/** Relationship parts of the document: word/_rels, word/glossary/_rels. */
+const WORD_RELS_PART = /^word\/(?:[^/]+\/)*_rels\/[^/]+\.rels$/;
+
+/**
+ * Walk the strings outside the flat text (document properties, external
+ * link targets), restore each through `restoreText` when given, and return
+ * them as they are afterwards. A part is written back only when one of its
+ * strings changed, so a call without restoreText leaves the package as it is.
+ */
+async function restoreOutsideText(zip: JSZip, restoreText?: (text: string) => string): Promise<string[]> {
+  const outside: string[] = [];
+  const restore = (text: string): string => (restoreText ? restoreText(text) : text);
+
+  for (const { path, kind } of DOC_PROPS_PARTS) {
+    const doc = await readXmlPart(zip, path);
+    if (!doc) continue;
+    let changed = false;
+    const all = doc.getElementsByTagName('*');
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i];
+      // A custom property is named by the user ("Client"), and the package
+      // scrub replaces a known value in the name like anywhere else.
+      const name = kind === 'custom' && el.localName === 'property' ? el.getAttributeNode('name') : null;
+      if (name && name.value !== '') {
+        const restored = restore(name.value);
+        if (restored !== name.value) {
+          name.value = restored;
+          changed = true;
+        }
+        if (restored !== '') outside.push(restored);
+      }
+      if (!isDocPropsUserText(kind, el)) continue;
+      const text = el.textContent ?? '';
+      if (text === '') continue;
+      const restored = restore(text);
+      if (restored !== text) {
+        el.textContent = restored;
+        changed = true;
+      }
+      if (restored !== '') outside.push(restored);
+    }
+    if (changed) writeXmlPart(zip, path, doc);
+  }
+
+  const relsPaths: string[] = [];
+  zip.forEach((relativePath, entry) => {
+    if (!entry.dir && WORD_RELS_PART.test(relativePath)) relsPaths.push(relativePath);
+  });
+  for (const relsPath of relsPaths.sort()) {
+    const rels = await readXmlPart(zip, relsPath);
+    if (!rels) continue;
+    let changed = false;
+    const relationships = rels.getElementsByTagName('Relationship');
+    for (let i = 0; i < relationships.length; i++) {
+      const rel = relationships[i];
+      if (rel.getAttribute('TargetMode') !== 'External') continue;
+      const target = rel.getAttribute('Target') ?? '';
+      if (target === '') continue;
+      const restored = restoreLinkTarget(target, restore);
+      if (restored.target !== target) {
+        rel.setAttribute('Target', restored.target);
+        changed = true;
+      }
+      if (restored.text !== '') outside.push(restored.text);
+    }
+    if (changed) writeXmlPart(zip, relsPath, rels);
+  }
+  return outside;
+}
+
+/** Characters that structure a link target. A label never holds one. */
+const LINK_TARGET_DELIMITERS = /([/?#&=:;,])/;
+
+/** Percent-decode one piece of a link target; a piece that does not decode is taken as written. */
+function decodeTargetPiece(piece: string): string {
+  try {
+    return decodeURIComponent(piece);
+  } catch {
+    return piece;
+  }
+}
+
+/**
+ * Restore the labels in one external link target. The target is a URL: the
+ * anonymizer writes a label into it percent-encoded (%5BPERSON_1%5D), an
+ * assistant writes it as text (mailto:[EMAIL_2]). Each piece between the
+ * URL's own delimiters is decoded and restored on its own; a piece that
+ * changed is written back percent-encoded, the way the anonymizer's scrub
+ * encodes a value inside a URL (replaceSensitiveValues with urlEncode), and
+ * every other piece keeps its exact characters. Two exceptions keep the
+ * link usable: in a mailto: target the @ of an address stays an @, and a
+ * value restored at the very start of the target opens the link itself (a
+ * whole URL or address where the label stood), so it keeps its own
+ * delimiters instead of becoming one encoded path segment.
+ *
+ * Returns the target to write and its decoded text for the report.
+ */
+function restoreLinkTarget(target: string, restore: (text: string) => string): { target: string; text: string } {
+  const pieces = target.split(LINK_TARGET_DELIMITERS);
+  const mailto = /^\s*mailto:/i.test(target);
+  const text: string[] = [];
+  const written = pieces.map((piece, i) => {
+    // Odd indexes are the delimiters the split captured.
+    if (i % 2 === 1) {
+      text.push(piece);
+      return piece;
+    }
+    const decoded = decodeTargetPiece(piece);
+    const restored = restore(decoded);
+    text.push(restored);
+    if (restored === decoded) return piece;
+    if (i === 0) {
+      // encodeURI escapes the % of an escape the value already holds: undo that.
+      return encodeURI(restored).replace(/%25([0-9A-Fa-f]{2})/g, '%$1');
+    }
+    const encoded = encodeURIComponent(restored);
+    return mailto ? encoded.replace(/%40/g, '@') : encoded;
+  });
+  return { target: written.join(''), text: text.join('') };
 }
 
 /**
@@ -860,6 +1043,20 @@ const PARTIAL_EXTRACTION_PART = /(?:^|\/)(?:numbering|webSettings)\.xml$|^word\/
 
 /** Chart parts (c:chartSpace), where c:externalData is stripped on write. */
 const CHART_PART = /^word\/(?:glossary\/)?charts\/chart\d*\.xml$/;
+
+/**
+ * True for the instruction of a simple field (w:fldSimple@w:instr). Its
+ * arguments are scrubbed by scrubInstructionArguments; a scrub of the whole
+ * string could rewrite the keyword (a person called Page, a PAGE field).
+ */
+function isFieldInstruction(el: Element, attr: Attr): boolean {
+  return attr.localName === 'instr' && isWordEl(el, 'fldSimple');
+}
+
+/** Legacy drawings (VML): shapes, pictures and WordArt written by older Word versions. */
+const VML_NS = 'urn:schemas-microsoft-com:vml';
+/** Office extensions of VML (o:title on a picture or a fill). */
+const VML_OFFICE_NS = 'urn:schemas-microsoft-com:office:office';
 
 /** True for a w:rsid, w:rsidR, w:rsidRPr, w:rsidP, w:rsidDel, w:rsidTr, w:rsidSect or w:rsidRDefault attribute. */
 function isRsidAttribute(attr: Attr): boolean {
@@ -877,6 +1074,8 @@ function isRsidAttribute(attr: Attr): boolean {
  *   which the metadata pass drops; the document needs neither
  * - alt text and object names on drawings (docPr, cNvPr); docPr alt text
  *   also went through detection (T174), this removal is the second layer
+ * - alt text and titles of legacy (VML) shapes and pictures (alt, title,
+ *   o:title): the same free text, which no detector reads
  * - field instructions held in attributes (w:fldSimple @w:instr): known
  *   values are removed from the arguments only, never from the keyword
  */
@@ -904,6 +1103,10 @@ function sanitizeContentPartAttributes(xmlDoc: Document, valueReplacements: Valu
       if (el.hasAttribute('descr')) el.removeAttribute('descr');
       if (el.hasAttribute('title')) el.removeAttribute('title');
       if (el.hasAttribute('name')) el.setAttribute('name', 'Object');
+    } else if (el.namespaceURI === VML_NS) {
+      if (el.hasAttribute('alt')) el.removeAttribute('alt');
+      if (el.hasAttribute('title')) el.removeAttribute('title');
+      if (el.hasAttributeNS(VML_OFFICE_NS, 'title')) el.removeAttributeNS(VML_OFFICE_NS, 'title');
     }
   }
 }

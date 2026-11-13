@@ -255,6 +255,32 @@ const APP_ZEROED = new Set([
 /** app.xml vectors whose vt:lpstr entries name headings, sheets and defined names. */
 const APP_PART_VECTORS = new Set(['TitlesOfParts', 'HeadingPairs']);
 
+/** custom.xml value types that hold text; numbers, booleans and dates are not user text. */
+const CUSTOM_TEXT_TYPES = new Set(['lpwstr', 'lpstr', 'bstr']);
+
+/** The three document property parts and what kind each is. */
+export const DOC_PROPS_PARTS: ReadonlyArray<{ path: string; kind: 'core' | 'app' | 'custom' }> = [
+  { path: 'docProps/core.xml', kind: 'core' },
+  { path: 'docProps/app.xml', kind: 'app' },
+  { path: 'docProps/custom.xml', kind: 'custom' },
+];
+
+/**
+ * True for an element of a docProps part whose text is the user's: the
+ * fields the scrub above blanks (title, subject, keywords, description,
+ * category, author names, company, manager), the names in the app.xml
+ * vectors (headings, hyperlinks) and the text values of custom properties.
+ * Dates, counts, the application name and its version are not: a restore
+ * leaves them alone. Only leaf elements qualify, so setting the text never
+ * removes a child.
+ */
+export function isDocPropsUserText(kind: 'core' | 'app' | 'custom', el: Element): boolean {
+  if (el.childElementCount !== 0) return false;
+  if (kind === 'core') return CORE_BLANKED.has(el.localName);
+  if (kind === 'app') return APP_BLANKED.has(el.localName) || el.localName === 'lpstr' || el.localName === 'lpwstr';
+  return CUSTOM_TEXT_TYPES.has(el.localName);
+}
+
 /**
  * Scrub the shared docProps parts (T179 extends the list, finding M6):
  * - core.xml: author identities, content-describing fields, content status
@@ -421,11 +447,14 @@ export async function scrubExternalRelTargets(
 /**
  * Attribute local names that carry identifiers or numeric layout and are
  * never rewritten: a placeholder inside one of these corrupts the file.
+ * 'uri' names a schema, like an xmlns declaration (a:graphicData@uri says
+ * what a shape is, w:compatSetting@w:uri which setting): a company called
+ * Microsoft must not rewrite http://schemas.microsoft.com/... in it.
  */
 const NEVER_SCRUB_ATTRS = new Set([
   'id', 'paraid', 'textid', 'durableid', 'embed', 'link', 'pict', 'cx', 'cy', 'x', 'y',
   'l', 't', 'r', 'b', 'w', 'h', 'sz', 'szcs', 'dxaorig', 'dyaorig', 'type', 'partname',
-  'extension', 'contenttype', 'requires', 'ignorable',
+  'extension', 'contenttype', 'requires', 'ignorable', 'uri',
 ]);
 
 /**
@@ -530,6 +559,124 @@ export function scrubXmlValues(doc: Document, valueReplacements: ValueReplacemen
   };
   // The Document node itself is neither an element nor text: start at its children.
   for (let child = doc.firstChild; child; child = child.nextSibling) visit(child);
+  return changed;
+}
+
+/**
+ * A text node that is nothing but a number. Outside the mapped text of a
+ * content part these are cell values the reader left out on purpose
+ * (amounts, counts), shared-string indexes, drawing anchors and the numbers
+ * of a chart: a placeholder in one of them is not a number any more, so
+ * they follow the attribute rule (only a long number, as a whole).
+ */
+const BARE_NUMBER = /^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
+
+/** A value that is one word: letters and digits, nothing else. */
+const ONE_WORD = /^[\p{L}\p{N}]+$/u;
+
+/** What the reader mapped in a content part: element text, or one attribute. */
+export interface MappedUnit {
+  element: Element;
+  attr?: Attr;
+}
+
+export interface UnmappedScrubOptions {
+  /** Attributes the caller scrubs by a rule of its own (a field instruction keeps its keyword). */
+  keepAttribute?: (el: Element, attr: Attr) => boolean;
+}
+
+/**
+ * Scrub every known value from a content part, outside the text the reader
+ * mapped. The mapped units (cells, paragraphs, comments, text boxes) belong
+ * to the positional replacements: they say exactly which places the user
+ * chose to replace, and a place the user kept visible must stay as it is, so
+ * no value is matched inside them. Everything else in the part is out of the
+ * user's reach and gets the same treatment as a part the reader does not
+ * read at all (scrubXmlValues):
+ * - text nodes that are not mapped (data validation lists, conditional
+ *   format formulas, text of elements the reader does not know) get every
+ *   value; a node that is a bare number gets the long numeric values only;
+ * - attribute values (alt text, validation prompts, filter criteria) follow
+ *   the attribute safety rule, and mapped attributes are left alone.
+ *
+ * One rule is stricter here than in scrubXmlValues. A worksheet and a
+ * document body are full of the format's own keywords
+ * (activePane="bottomLeft", w:val="baseline", w:val="nextPage",
+ * <wp:align>bottom</wp:align>), and a name is often a piece of one (Otto,
+ * Elin, Page): a rewritten keyword is no longer one the schema allows. So
+ * an attribute value or a text node that is one word is replaced only when
+ * it is a known value as a whole (val="Harrington" in a filter), never in
+ * part.
+ * Returns true when anything changed.
+ */
+export function scrubUnmappedValues(
+  doc: Document,
+  valueReplacements: ValueReplacement[],
+  mapped: ReadonlyArray<MappedUnit>,
+  options: UnmappedScrubOptions = {}
+): boolean {
+  const active = valueReplacements.filter((pair) => pair.value.length > 0);
+  if (active.length === 0) return false;
+  const mappedElements = new Set<Element>();
+  const mappedAttrs = new Set<Attr>();
+  for (const unit of mapped) {
+    if (unit.attr) mappedAttrs.add(unit.attr);
+    else mappedElements.add(unit.element);
+  }
+  const { lettered, longNumeric } = partitionForAttributes(active);
+  // One-word values replace a one-word attribute or text node as a whole.
+  const wholeWord = (pairs: ValueReplacement[]): Map<string, string> => {
+    const words = new Map<string, string>();
+    for (const { value, replacement } of pairs) {
+      const key = value.toLowerCase();
+      if (!words.has(key)) words.set(key, replacement);
+    }
+    return words;
+  };
+  const attributeWords = wholeWord([...lettered, ...longNumeric]);
+  const textWords = wholeWord(active);
+  let changed = false;
+  const visit = (node: Node, insideMapped: boolean) => {
+    if (node.nodeType === TEXT_NODE || node.nodeType === CDATA_SECTION_NODE) {
+      if (insideMapped) return;
+      const value = node.nodeValue ?? '';
+      const word = value.trim();
+      if (word.length === 0) return;
+      let scrubbed: string;
+      if (BARE_NUMBER.test(value)) {
+        scrubbed = replaceSensitiveValues(value, longNumeric, false, { wordBoundary: true });
+      } else if (ONE_WORD.test(word)) {
+        const whole = textWords.get(word.toLowerCase());
+        scrubbed = whole === undefined ? value : value.replace(word, () => whole);
+      } else {
+        scrubbed = replaceSensitiveValues(value, active, false);
+      }
+      if (scrubbed !== value) {
+        node.nodeValue = scrubbed;
+        changed = true;
+      }
+      return;
+    }
+    if (node.nodeType !== ELEMENT_NODE) return;
+    const el = node as Element;
+    const attrs = el.attributes;
+    for (let a = 0; a < attrs.length; a++) {
+      const attr = attrs[a];
+      if (mappedAttrs.has(attr) || options.keepAttribute?.(el, attr)) continue;
+      if (!isScrubbableAttribute(el, attr, false)) continue;
+      const urlEncode = /^(?:https?:|mailto:|file:)/i.test(attr.value);
+      const scrubbed = ONE_WORD.test(attr.value)
+        ? attributeWords.get(attr.value.toLowerCase()) ?? attr.value
+        : scrubAttributeValue(attr.value, urlEncode, lettered, longNumeric);
+      if (scrubbed !== attr.value) {
+        attr.value = scrubbed;
+        changed = true;
+      }
+    }
+    const inside = insideMapped || mappedElements.has(el);
+    for (let child = el.firstChild; child; child = child.nextSibling) visit(child, inside);
+  };
+  for (let child = doc.firstChild; child; child = child.nextSibling) visit(child, false);
   return changed;
 }
 

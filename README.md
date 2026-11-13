@@ -105,8 +105,9 @@ ONNX Runtime also needs its WASM binaries at runtime; point
   nodes) and `unresolvedTokens(text)` lists the placeholder-like tokens it
   could not restore.
 - **Documents** (`/dom`) - `readDocx` / `writeAnonymizedDocx` /
-  `writeAnonymizedDocxWithReport`, `writeRestoredDocx` (originals back into
-  a pseudonymized docx, see below), `readXlsx` / `writeAnonymizedXlsx`,
+  `writeAnonymizedDocxWithReport`, `writeRestoredDocx` /
+  `writeRestoredDocxWithReport` (originals back into a pseudonymized docx,
+  see below), `readXlsx` / `writeAnonymizedXlsx`,
   `analyzeOfficeFile` / `redactOfficeFile`, legacy `.doc` support on the main
   entry (`readDocText`, `writeAnonymizedDoc`, `inspectDoc`), OCR helpers
   (`loadImageToCanvas`, `recognizeCanvas`, `renderRedactedImage`) built on
@@ -216,6 +217,29 @@ the original is written as it was mapped. A value that ran across a
 paragraph or line break (one placeholder for the end of a paragraph and the
 start of the next) is written back as one piece where its placeholder
 stands.
+
+The spans cover the text `readDocx` mapped. Labels also sit outside it: in
+the document properties (title, subject, keywords, description, custom
+properties) and in the targets of links, where the anonymizer's scrub wrote
+them or an assistant did (`mailto:[EMAIL_2]`). Pass `restoreText` to restore
+those too, and use the reporting variant to see what is in them afterwards:
+
+```ts
+const { blob, outsideText } = await writeRestoredDocxWithReport(extraction, spans, {
+  restoreText: (text) => session.deanonymize(text),
+});
+const leftOutside = session.unresolvedTokens(outsideText.join('\n'));
+```
+
+`outsideText` lists the property texts and the external link targets as they
+are after the restore (link targets percent-decoded, so a label in one reads
+as written); without `restoreText` nothing outside the text is changed and
+the list shows the labels that are there. A value restored inside a URL is
+percent-encoded the way the anonymizer encodes one; in a `mailto:` target
+the address keeps its `@`. `writeRestoredDocx(extraction, spans, options)`
+takes the same option and returns the `Blob` only; with two arguments it
+writes the file exactly as before. Labels in attributes of the document
+parts (the items of a drop-down, WordArt text) are not restored.
 
 ## PDF: redaction that keeps the text layer
 
@@ -372,8 +396,10 @@ Independently of what was detected, every exported .docx / .xlsx has:
   (`docProps/thumbnail.*` with its relationship and content-type override);
   the attached template, mail-merge settings and document variables
   (`w:docVars`) in `word/settings.xml`; hyperlink tooltips; content-control
-  tags without a data binding; `c:externalData` links in charts (the chart
-  keeps its cached data).
+  tags without a data binding; alt text and titles of pictures and shapes
+  in a document (`descr` / `title`, and `alt` / `title` / `o:title` of
+  legacy VML shapes); `c:externalData` links in charts (the chart keeps its
+  cached data).
 - **Blanked:** `creator`, `lastModifiedBy`, `title`, `subject`,
   `description`, `keywords`, `category`, `contentStatus`, `identifier`
   (`docProps/core.xml`); `Company`, `Manager`, `HyperlinkBase`, `Template`
@@ -393,8 +419,17 @@ Independently of what was detected, every exported .docx / .xlsx has:
   tokens of 4+ characters) is scrubbed from the text nodes and attribute
   values of every XML, `.rels` and `.vml` part of the package (charts,
   diagrams, customXml, glossary, docProps, pivot caches), never touching
-  element names, `[Content_Types].xml`, relationship `Type`s, ids or numeric
-  layout attributes.
+  element names, `[Content_Types].xml`, relationship `Type`s, ids, schema
+  names (`uri`) or numeric layout attributes. In the parts the readers map
+  (document body, headers, notes, worksheets, comments, drawings) the mapped
+  text is left to the positional replacements, so a place the user kept
+  visible stays visible; everything else in those parts is scrubbed by
+  value: attribute values (alt text, validation prompts, filter criteria,
+  drop-down items) and text the reader does not map (data validation and
+  conditional format formulas). There an attribute value that is one word
+  is replaced only as a whole (`bottomLeft` keeps its Otto), and in a
+  formula a value is replaced inside string literals, never in a function
+  name.
 
 ## Known limits
 
@@ -451,9 +486,11 @@ Independently of what was detected, every exported .docx / .xlsx has:
   counts each kind and `extraction.uncheckedCells` lists the cells left out
   (sheet, address, value; the first 200), so a host can show what stays
   readable in the exported workbook. Sheet names, defined names, table column names, data
-  validation texts and pivot caches are not read as text: a value detected
-  elsewhere is replaced there too (layer zero), a value that occurs only
-  there stays. A sheet whose name holds a replaced value is renamed to a
+  validation lists and prompts, AutoFilter criteria, conditional format
+  formulas, alt text of shapes and pivot caches are not read as text: a
+  value detected elsewhere is replaced there too (by value), a value that
+  occurs only there stays. A filter whose criterion was replaced no longer
+  matches its rows until it is applied again. A sheet whose name holds a replaced value is renamed to a
   valid name (`PERSON_1`) and the references to it follow
   (`result.renamedSheets`). A replaced number or date cell becomes text, so
   a formula that used it shows an error (T176).

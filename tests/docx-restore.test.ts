@@ -12,6 +12,7 @@ import {
   readDocx,
   writeAnonymizedDocxWithReport,
   writeRestoredDocx,
+  writeRestoredDocxWithReport,
   applyTextReplacements,
 } from '../src/dom/docx.ts';
 import { AnonymizationSession } from '../src/session.ts';
@@ -346,5 +347,208 @@ describe('applyTextReplacements across runs', () => {
       [' B Budimex S.A.', true, false],
       [' C Jan Kowalski D', false, true],
     ]);
+  });
+});
+
+describe('labels outside the flat text: properties and link targets', () => {
+  const CP = 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties';
+  const DC = 'http://purl.org/dc/elements/1.1/';
+  const DCTERMS = 'http://purl.org/dc/terms/';
+  const XSI = 'http://www.w3.org/2001/XMLSchema-instance';
+  const EP = 'http://schemas.openxmlformats.org/officeDocument/2006/extended-properties';
+  const VT = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes';
+  const CUSTOM = 'http://schemas.openxmlformats.org/officeDocument/2006/custom-properties';
+  const HYPERLINK = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink';
+
+  const CORE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="${CP}" xmlns:dc="${DC}" xmlns:dcterms="${DCTERMS}" xmlns:xsi="${XSI}"><dc:title>Memo for [PERSON_1]</dc:title><dc:subject>[COMPANY_1] engagement</dc:subject><dc:creator>assistant</dc:creator><cp:keywords>[PERSON_2]; [PERSON_9]</cp:keywords><dc:description>Reply to [person_1] about PERSON_2</dc:description><cp:category></cp:category><cp:revision>3</cp:revision><dcterms:created xsi:type="dcterms:W3CDTF">2026-11-13T10:00:00Z</dcterms:created></cp:coreProperties>`;
+  const APP = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="${EP}" xmlns:vt="${VT}"><Application>Microsoft Office Word</Application><Pages>2</Pages><Company>[COMPANY_1]</Company><TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>Memo for [PERSON_1]</vt:lpstr></vt:vector></TitlesOfParts><AppVersion>16.0000</AppVersion></Properties>`;
+  const CUSTOM_PROPS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="${CUSTOM}" xmlns:vt="${VT}"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Client"><vt:lpwstr>[PERSON_2]</vt:lpwstr></property><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="File of [PERSON_1]"><vt:i4>42</vt:i4></property></Properties>`;
+  const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${REL}"><Relationship Id="rId1" Type="${HYPERLINK}" Target="mailto:[EMAIL_1]" TargetMode="External"/><Relationship Id="rId2" Type="${HYPERLINK}" Target="https://crm.example/klient/%5BPERSON_2%5D?note=Re%3A%20%5BCOMPANY_1%5D&amp;id=7" TargetMode="External"/><Relationship Id="rId3" Type="${HYPERLINK}" Target="[URL_1]" TargetMode="External"/><Relationship Id="rId4" Type="${HYPERLINK}" Target="https://example.com/[PERSON_9]" TargetMode="External"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/[PERSON_1].png"/></Relationships>`;
+
+  const LINK_MAP: Array<[string, string, string]> = [...MAP, ['https://firma.example/akta?id=1&x=a b', '[URL_1]', 'URL']];
+
+  function reply(): JSZip {
+    const zip = docxWith({
+      'word/document.xml': body('<w:p><w:r><w:t>Dear [PERSON_1], see the link.</w:t></w:r></w:p>'),
+    });
+    zip.file('docProps/core.xml', CORE);
+    zip.file('docProps/app.xml', APP);
+    zip.file('docProps/custom.xml', CUSTOM_PROPS);
+    zip.file('word/_rels/document.xml.rels', RELS);
+    return zip;
+  }
+
+  const OUTSIDE = ['docProps/core.xml', 'docProps/app.xml', 'docProps/custom.xml', 'word/_rels/document.xml.rels'];
+
+  async function partsOf(blob: Blob): Promise<Record<string, string>> {
+    const zip = await JSZip.loadAsync(await blobBytes(blob));
+    const parts: Record<string, string> = {};
+    for (const path of [...OUTSIDE, 'word/document.xml']) parts[path] = await zip.file(path)!.async('string');
+    return parts;
+  }
+
+  it('restores them through restoreText and lists the restored strings', async () => {
+    const session = sessionOf(LINK_MAP);
+    const extraction = await readDocx(await toFile(reply()));
+    const { blob, outsideText } = await writeRestoredDocxWithReport(
+      extraction,
+      session.restoreSpans(extraction.plainText),
+      { restoreText: (text) => session.deanonymize(text) },
+    );
+    const parts = await partsOf(blob);
+
+    const core = parts['docProps/core.xml'];
+    expect(core).toContain('<dc:title>Memo for Anna Wiśniewska</dc:title>');
+    expect(core).toContain('<dc:subject>Budimex S.A. engagement</dc:subject>');
+    // A label the session does not know stays as written.
+    expect(core).toContain('<cp:keywords>Jan Kowalski; [PERSON_9]</cp:keywords>');
+    // Mangled labels are restored like in the text.
+    expect(core).toContain('<dc:description>Reply to Anna Wiśniewska about Jan Kowalski</dc:description>');
+    // Counts and dates are not user text.
+    expect(core).toContain('<cp:revision>3</cp:revision>');
+    expect(core).toContain('2026-11-13T10:00:00Z');
+
+    const app = parts['docProps/app.xml'];
+    expect(app).toContain('<Company>Budimex S.A.</Company>');
+    expect(app).toContain('<vt:lpstr>Memo for Anna Wiśniewska</vt:lpstr>');
+    expect(app).toContain('<Application>Microsoft Office Word</Application>');
+
+    const custom = parts['docProps/custom.xml'];
+    expect(custom).toContain('name="Client"><vt:lpwstr>Jan Kowalski</vt:lpwstr>');
+    expect(custom).toContain('name="File of Anna Wiśniewska"><vt:i4>42</vt:i4>');
+
+    const rels = parts['word/_rels/document.xml.rels'];
+    // In a mailto: target the address is an address.
+    expect(rels).toContain('Target="mailto:anna@firma.example"');
+    // Inside a URL a value is percent-encoded, the way the anonymizer writes into one; the rest keeps its characters.
+    expect(rels).toContain('Target="https://crm.example/klient/Jan%20Kowalski?note=Re%3A%20Budimex%20S.A.&amp;id=7"');
+    // A target that was a label is the value as a link.
+    expect(rels).toContain('Target="https://firma.example/akta?id=1&amp;x=a%20b"');
+    expect(rels).toContain('Target="https://example.com/[PERSON_9]"');
+    // An internal target is a part name.
+    expect(rels).toContain('Target="media/[PERSON_1].png"');
+
+    expect(outsideText).toEqual([
+      'Memo for Anna Wiśniewska',
+      'Budimex S.A. engagement',
+      'assistant',
+      'Jan Kowalski; [PERSON_9]',
+      'Reply to Anna Wiśniewska about Jan Kowalski',
+      'Budimex S.A.',
+      'Memo for Anna Wiśniewska',
+      'Client',
+      'Jan Kowalski',
+      'File of Anna Wiśniewska',
+      'mailto:anna@firma.example',
+      'https://crm.example/klient/Jan Kowalski?note=Re: Budimex S.A.&id=7',
+      'https://firma.example/akta?id=1&x=a b',
+      'https://example.com/[PERSON_9]',
+    ]);
+    // The host looks for labels that stayed in exactly these strings.
+    expect(session.unresolvedTokens(outsideText.join('\n'))).toEqual(['[PERSON_9]']);
+    expect(parts['word/document.xml']).toContain('Dear Anna Wiśniewska, see the link.');
+    for (const xml of Object.values(parts)) {
+      expect(new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagName('parsererror')).toHaveLength(0);
+    }
+  });
+
+  it('changes nothing outside the text without restoreText and lists the labels', async () => {
+    const session = sessionOf(LINK_MAP);
+    const extraction = await readDocx(await toFile(reply()));
+    const { blob, outsideText } = await writeRestoredDocxWithReport(extraction, session.restoreSpans(extraction.plainText));
+    const parts = await partsOf(blob);
+    expect(parts['docProps/core.xml']).toBe(CORE);
+    expect(parts['docProps/app.xml']).toBe(APP);
+    expect(parts['docProps/custom.xml']).toBe(CUSTOM_PROPS);
+    expect(parts['word/_rels/document.xml.rels']).toBe(RELS);
+    expect(parts['word/document.xml']).toContain('Dear Anna Wiśniewska, see the link.');
+    expect(outsideText).toEqual([
+      'Memo for [PERSON_1]',
+      '[COMPANY_1] engagement',
+      'assistant',
+      '[PERSON_2]; [PERSON_9]',
+      'Reply to [person_1] about PERSON_2',
+      '[COMPANY_1]',
+      'Memo for [PERSON_1]',
+      'Client',
+      '[PERSON_2]',
+      'File of [PERSON_1]',
+      'mailto:[EMAIL_1]',
+      // A link target is listed decoded, so a label in it reads as a label.
+      'https://crm.example/klient/[PERSON_2]?note=Re: [COMPANY_1]&id=7',
+      '[URL_1]',
+      'https://example.com/[PERSON_9]',
+    ]);
+  });
+
+  it('writes the same file as before when called with two arguments', async () => {
+    const session = sessionOf(LINK_MAP);
+    const first = await readDocx(await toFile(reply()));
+    const two = await writeRestoredDocx(first, session.restoreSpans(first.plainText));
+    const second = await readDocx(await toFile(reply()));
+    const three = await writeRestoredDocx(second, session.restoreSpans(second.plainText), {});
+    const parts = await partsOf(two);
+    expect(parts['docProps/core.xml']).toBe(CORE);
+    expect(parts['docProps/app.xml']).toBe(APP);
+    expect(parts['docProps/custom.xml']).toBe(CUSTOM_PROPS);
+    expect(parts['word/_rels/document.xml.rels']).toBe(RELS);
+    expect(parts['word/document.xml']).toContain('Dear Anna Wiśniewska, see the link.');
+    expect(await partsOf(three)).toEqual(parts);
+    // The plain variant takes the option too.
+    const third = await readDocx(await toFile(reply()));
+    const restored = await writeRestoredDocx(third, session.restoreSpans(third.plainText), { restoreText: (text) => session.deanonymize(text) });
+    expect((await partsOf(restored))['docProps/core.xml']).toContain('<dc:title>Memo for Anna Wiśniewska</dc:title>');
+  });
+
+  it('leaves a property part that does not parse and a package without properties', async () => {
+    const session = sessionOf(MAP);
+    const broken = reply();
+    broken.file('docProps/core.xml', '<cp:coreProperties><dc:title>[PERSON_1]');
+    broken.remove('docProps/app.xml');
+    broken.remove('docProps/custom.xml');
+    const extraction = await readDocx(await toFile(broken));
+    const { blob, outsideText } = await writeRestoredDocxWithReport(extraction, [], { restoreText: (text) => session.deanonymize(text) });
+    const zip = await JSZip.loadAsync(await blobBytes(blob));
+    expect(await zip.file('docProps/core.xml')!.async('string')).toBe('<cp:coreProperties><dc:title>[PERSON_1]');
+    expect(outsideText).toEqual([
+      'mailto:anna@firma.example',
+      'https://crm.example/klient/Jan Kowalski?note=Re: Budimex S.A.&id=7',
+      '[URL_1]',
+      'https://example.com/[PERSON_9]',
+    ]);
+  });
+
+  it('brings a link the anonymizer rewrote back to what it was, but never a mail address', async () => {
+    const zip = docxWith({
+      'word/document.xml': body('<w:p><w:r><w:t>File of Jan Kowalski at Budimex S.A., mail anna@firma.example.</w:t></w:r></w:p>'),
+    });
+    const original = 'https://crm.example/klient/Jan%20Kowalski?firma=Budimex%20S.A.';
+    zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="${REL}"><Relationship Id="rId1" Type="${HYPERLINK}" Target="${original}" TargetMode="External"/><Relationship Id="rId2" Type="${HYPERLINK}" Target="mailto:anna@firma.example" TargetMode="External"/></Relationships>`);
+    const source = await readDocx(await toFile(zip));
+    const text = source.plainText;
+    const session = new AnonymizationSession();
+    const entities = (['Jan Kowalski', 'Budimex S.A.', 'anna@firma.example'] as const).map((value) => ({
+      type: value.includes('@') ? 'EMAIL' : value.includes('S.A.') ? 'COMPANY' : 'PERSON',
+      value, start: text.indexOf(value), end: text.indexOf(value) + value.length, confidence: 1, detector: 'regex',
+    } as DetectedEntity));
+    session.anonymizeText(text, entities);
+    const pairs = entities.map((e) => ({ value: e.value, replacement: session.getForward(e.value)! }));
+    const { blob } = await writeAnonymizedDocxWithReport(
+      source, entities.map((e, i) => ({ start: e.start, end: e.end, replacement: pairs[i].replacement })), pairs,
+    );
+    const anonymized = await readDocx(await toFile(await blobBytes(blob)));
+    const { blob: restoredBlob, outsideText } = await writeRestoredDocxWithReport(
+      anonymized, session.restoreSpans(anonymized.plainText), { restoreText: (t) => session.deanonymize(t) },
+    );
+    const rels = await (await JSZip.loadAsync(await blobBytes(restoredBlob))).file('word/_rels/document.xml.rels')!.async('string');
+    expect(rels).toContain(`Target="${original}"`);
+    // The anonymizer replaced the whole mailto: target: the address is not in the file and does not come back.
+    expect(rels).toContain('Target="mailto:redacted@example.invalid"');
+    expect(outsideText).toEqual(['https://crm.example/klient/Jan Kowalski?firma=Budimex S.A.', 'mailto:redacted@example.invalid']);
   });
 });

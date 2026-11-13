@@ -6,6 +6,90 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-13
+
+Two defects found by an independent review of the live product.
+
+### Fixed
+
+- **A redacted workbook kept original values outside its cells.** A
+  worksheet repeats cell values in places the reader does not map as text:
+  a data validation list (`<formula1>"Thomas Whitlow,Margaret Harrington"`)
+  with its prompt and error message, AutoFilter criteria (`filter@val`,
+  `customFilter@val`), a conditional format formula and its `text`, the alt
+  text of a shape in `xl/drawings`. The worksheets, comments and drawings
+  were written with the positional replacements only and then skipped by
+  the package scrub, so a name replaced in every cell stayed readable
+  there. `writeAnonymizedXlsx*` now scrubs every content part by value
+  outside its mapped text: attribute values under the attribute rule of the
+  package scrub (values with letters, numbers of nine digits or more; never
+  ids, relationship ids, cell references or layout numbers), and text the
+  reader does not map (formulas, text of elements it does not know). A
+  replaced value becomes its label: a validation list stays one quoted
+  string (`"[PERSON_3],[PERSON_1]"`), and a filter whose criterion was
+  replaced no longer matches its rows until it is applied again (the rows
+  it hid stay hidden as stored).
+- **The mapped text is never scrubbed by value.** Cells, comments and text
+  boxes get the positional replacements and nothing else: a place the user
+  kept visible stays visible, while the copies of the value outside the
+  cells (validation list, filter, alt text) are replaced, because no user
+  can keep or see those as places.
+- **The same in a docx.** The content parts the reader maps in full (body,
+  headers, footers, notes, comments) are scrubbed by value outside the
+  mapped text too: a known value in any attribute (the items of a drop-down
+  content control, WordArt text of a legacy watermark, a screen tip, a
+  table caption) and in text of elements the reader does not know (a shape
+  pasted from a slide). The alt text and titles of legacy (VML) shapes
+  (`alt`, `title`, `o:title`) are removed like `descr` and `title` of a
+  drawing: `alt="Signature of Margaret Harrington"` stayed in the file.
+- **A restored docx kept labels in its properties and link targets, and the
+  host could not know.** `writeRestoredDocx(extraction, spans)` restores the
+  mapped text. Labels also sit outside it, where the anonymizer's scrub
+  wrote them or an assistant did: `docProps` (`<dc:title>Memo for
+  [PERSON_1]</dc:title>`, subject, keywords, description, category, company,
+  custom properties) and external link targets (`mailto:[EMAIL_2]`,
+  `https://crm.example/%5BPERSON_1%5D`). `writeRestoredDocx` takes a third
+  argument, `{ restoreText }`: each such string is passed through it and
+  written back when it changed. A value restored inside a URL is
+  percent-encoded the way the anonymizer encodes one, every other character
+  of the target is kept; in a `mailto:` target the address keeps its `@`,
+  and a value restored at the start of a target (a target that was one
+  label) is written as the link it is. The
+  new `writeRestoredDocxWithReport(extraction, spans, options?)` returns
+  `{ blob, outsideText }`: the property texts and the link targets
+  (percent-decoded) as they are after the restore, with or without
+  `restoreText`, so a host can list the labels that stayed
+  (`session.unresolvedTokens(outsideText.join('\n'))`). With two arguments
+  `writeRestoredDocx` writes the file exactly as before. Mail addresses the
+  anonymizer replaced (`mailto:redacted@example.invalid`) do not come back:
+  only a label in a target is restored. Labels in attributes of the
+  document parts (drop-down items, WordArt text) are not restored. Types
+  `DocxRestoreOptions`, `DocxRestoreResult`.
+
+### Changed
+
+- **Names that read like a piece of the format.** In the content parts an
+  attribute value that is one word is replaced only when it is a known
+  value as a whole (`val="Harrington"` in a filter), never in part: Otto is
+  in `activePane="bottomLeft"`, Elin in `w:val="baseline"`, Page in
+  `w:val="nextPage"`, and a rewritten keyword is no longer one the format
+  allows. Attributes that address cells (`sqref`, `ref`, `activeCell`,
+  `topLeftCell`) are left alone. The package scrub of the other parts keeps
+  its rule.
+- **Formulas are scrubbed as formulas** (`scrubFormulaValues`, exported):
+  cell formulas, data validation and conditional format formulas, chart
+  ranges. A value is replaced inside string literals; the name of a
+  function and a cell reference are never rewritten (a person called Vera
+  turned `AVERAGE` into `A[PERSON_1]GE`, which is not a formula any more);
+  a known number outside a literal becomes a string literal holding the
+  label (`A1="[SSN_1]"`); a value in a defined name or a table column is
+  replaced as written, as before.
+- An attribute named `uri` is a schema name and is never rewritten, in any
+  part: a company called Microsoft changed
+  `http://schemas.microsoft.com/office/word` in `w:compatSetting@w:uri`
+  (`word/settings.xml`), and would have changed the `a:graphicData@uri` of
+  every text box in the body.
+
 ## [0.17.0] - 2026-11-13
 
 **Restoring originals inside a docx** (WLojek/DocCloak#3, T254). A

@@ -18,6 +18,12 @@
  * - drawing text boxes and chart titles / string caches (xl/drawings,
  *   xl/charts) through the DrawingML units (T175)
  *
+ * Outside this mapped text the same parts repeat cell values in attributes
+ * and formulas (data validation lists and prompts, AutoFilter criteria,
+ * conditional format formulas, alt text of shapes): the writer scrubs known
+ * values there by value, and never in the mapped text itself, where the
+ * positional replacements alone decide.
+ *
  * Deliberately out of scope (T176): sheet names, defined-name formulas, table
  * column names, pivot caches; layer zero scrubs known values there. Data
  * connections and external links are reported as unredactable (T177).
@@ -49,6 +55,7 @@ import {
   scrubExternalRelTargets,
   replaceSensitiveValues,
   scrubPackageValues,
+  scrubUnmappedValues,
 } from './opc.ts';
 import { getFileExtension } from './docx.ts';
 import { UnsupportedDocumentError } from './errors.ts';
@@ -557,12 +564,93 @@ async function sheetNamesByPath(zip: JSZip, workbookDoc: Document | null): Promi
 }
 
 /**
+ * Elements whose text is a formula: a cell formula (f), a conditional
+ * format formula (formula), the formulas of a data validation (formula1,
+ * formula2), their Excel 2010 extension twins (xm:f) and chart ranges (c:f).
+ */
+const FORMULA_ELEMENTS = new Set(['f', 'formula', 'formula1', 'formula2']);
+
+/**
+ * What a formula is made of, as far as the scrub needs to tell: a string
+ * literal ("..." with "" for a quote), a quoted sheet name ('...' with ''
+ * for an apostrophe), the name of a function (a name followed by an
+ * opening parenthesis), a cell reference (A1, $AB$12) and a column range
+ * (A:C). Everything between them is plain formula code.
+ */
+const FORMULA_TOKEN = new RegExp(
+  [
+    '"(?:[^"]|"")*"?',
+    "'(?:[^']|'')*'?",
+    '(?<![\\p{L}\\p{N}_.])[\\p{L}_][\\p{L}\\p{N}_.]*\\s*\\(',
+    '(?<![\\p{L}\\p{N}_.])\\$?[A-Za-z]{1,3}\\$?\\d{1,7}(?![\\p{L}\\p{N}_.(])',
+    '(?<![\\p{L}\\p{N}_.])\\$?[A-Za-z]{1,3}:\\$?[A-Za-z]{1,3}(?![\\p{L}\\p{N}_.(])',
+  ].join('|'),
+  'gu',
+);
+
+/** A number of the formula itself: not a row of a reference (A12, $A$12, 1:12), not the fraction of a number. */
+const numberInFormula = (digits: string): RegExp =>
+  new RegExp(`(?<![\\p{L}\\p{N}_.$:!])${digits}(?![\\p{L}\\p{N}_.:!(])`, 'gu');
+
+/**
+ * Scrub the known values from one formula. A formula is code, so a plain
+ * replacement over the whole string is not safe:
+ * - inside a string literal every value is replaced, as in text: the items
+ *   of a validation list ("Anna Nowak,Jan Kowalski") and compared strings
+ *   ($A2="Jan Kowalski") become labels inside the same quotes;
+ * - the name of a function is never rewritten: a person called Vera would
+ *   turn AVERAGE into A[PERSON_1]GE, which is not a formula any more.
+ *   Neither is a cell reference (a value "IT" and the column IT);
+ * - a known number outside a literal becomes a string literal holding the
+ *   label (A1=90010112345 gives A1="[SSN_1]"): a bare label would read as a
+ *   structured reference. Row numbers of references are not numbers of the
+ *   formula and stay;
+ * - anything else outside a literal (a defined name, a table column that
+ *   holds a value) is replaced as written.
+ */
+export function scrubFormulaValues(formula: string, valueReplacements: ValueReplacement[]): string {
+  const active = valueReplacements.filter((pair) => pair.value.length > 0);
+  if (active.length === 0) return formula;
+  const numbers = active.filter((pair) => /^\d+$/.test(pair.value)).sort((a, b) => b.value.length - a.value.length);
+  const others = active.filter((pair) => !/^\d+$/.test(pair.value));
+
+  const scrubCode = (code: string): string => {
+    let result = others.length > 0 ? replaceSensitiveValues(code, others, false) : code;
+    for (const { value, replacement } of numbers) {
+      result = result.replace(numberInFormula(value), () => `"${replacement.replace(/"/g, '""')}"`);
+    }
+    return result;
+  };
+  const scrubLiteral = (literal: string): string => {
+    const closed = literal.length > 1 && literal.endsWith('"');
+    const inner = literal.slice(1, closed ? -1 : undefined).replace(/""/g, '"');
+    const scrubbed = replaceSensitiveValues(inner, active, false);
+    return `"${scrubbed.replace(/"/g, '""')}${closed ? '"' : ''}`;
+  };
+
+  let out = '';
+  let last = 0;
+  for (const match of formula.matchAll(FORMULA_TOKEN)) {
+    const token = match[0];
+    out += scrubCode(formula.slice(last, match.index));
+    if (token.startsWith('"')) out += scrubLiteral(token);
+    // A quoted sheet name is scrubbed as written; a function name and a reference are kept.
+    else out += token.startsWith("'") ? scrubCode(token) : token;
+    last = match.index + token.length;
+  }
+  return out + scrubCode(formula.slice(last));
+}
+
+/**
  * Scrub identity-bearing attributes inside a worksheet or comments part:
  * hyperlink display/tooltip strings, legacy comment author registry, and
- * literal strings inside formulas (<f>), which offset replacement cannot
- * reach because formulas are not part of the flat text.
+ * the formulas (cell formulas, data validation lists, conditional format
+ * formulas, chart ranges), which offset replacement cannot reach because
+ * formulas are not part of the flat text. Returns the formula elements, so
+ * the caller's scrub of the unmapped text leaves them as they are now.
  */
-function sanitizeXlsxPart(xmlDoc: Document, valueReplacements: ValueReplacement[]): void {
+function sanitizeXlsxPart(xmlDoc: Document, valueReplacements: ValueReplacement[]): Element[] {
+  const formulas: Element[] = [];
   const all = xmlDoc.getElementsByTagName('*');
   for (let i = 0; i < all.length; i++) {
     const el = all[i];
@@ -571,15 +659,32 @@ function sanitizeXlsxPart(xmlDoc: Document, valueReplacements: ValueReplacement[
         const value = el.getAttribute(attr);
         if (value) el.setAttribute(attr, replaceSensitiveValues(value, valueReplacements, false));
       }
-    } else if (isSpreadsheetEl(el, 'f')) {
+    } else if (FORMULA_ELEMENTS.has(el.localName) && el.childElementCount === 0) {
+      formulas.push(el);
       const formula = el.textContent ?? '';
-      const scrubbed = replaceSensitiveValues(formula, valueReplacements, false);
+      const scrubbed = scrubFormulaValues(formula, valueReplacements);
       if (scrubbed !== formula) el.textContent = scrubbed;
     } else if (el.localName === 'author' && el.parentElement?.localName === 'authors') {
       // Legacy comments author registry (indexes must stay stable)
       el.textContent = 'Redacted';
     }
   }
+  return formulas;
+}
+
+/** Attributes that address cells: where a rule applies, what a view shows. */
+const CELL_REFERENCE_ATTRS = new Set(['ref', 'sqref', 'activeCell', 'topLeftCell']);
+
+/** A cell, a range, or several separated by spaces: A1, $B$2:$D$9, "A1:A5 C1:C5". */
+const CELL_REFERENCES = /^(?:\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?(?: |$))+$/;
+
+/**
+ * True for an attribute that holds cell references. They are addresses,
+ * never user text, and a short value that is also a column (AB, IT) must
+ * not rewrite sqref="AB2:AB9".
+ */
+function isCellReference(_el: Element, attr: Attr): boolean {
+  return CELL_REFERENCE_ATTRS.has(attr.localName) && CELL_REFERENCES.test(attr.value);
 }
 
 /**
@@ -802,10 +907,13 @@ export async function writeAnonymizedXlsx(
 }
 
 /**
- * Same as writeAnonymizedXlsx, with the write report. After the content
- * parts and metadata, layer zero (T172) scrubs every known value from every
- * other XML/rels/vml part: pivot cache records, drawings, charts, tables,
- * defined names in the workbook, docProps.
+ * Same as writeAnonymizedXlsx, with the write report. The positional
+ * replacements go into the mapped text (cells, comments, text boxes); the
+ * rest of each content part (attributes, data validation and conditional
+ * format formulas) is scrubbed by value. After the content parts and
+ * metadata, layer zero (T172) scrubs every known value from every other
+ * XML/rels/vml part: pivot cache records, tables, defined names in the
+ * workbook, docProps.
  */
 export async function writeAnonymizedXlsxWithReport(
   extraction: XlsxExtraction,
@@ -829,8 +937,19 @@ export async function writeAnonymizedXlsxWithReport(
 
   const contentPaths = new Set<string>();
   for (const part of extraction.contentParts) {
+    const formulas = sanitizeXlsxPart(part.xmlDoc, valueReplacements);
+    // Outside the mapped text a content part holds copies of cell values the
+    // user never sees as places: data validation lists and prompts, filter
+    // criteria, conditional format formulas, alt text of shapes. They are
+    // scrubbed by value. The mapped text is not: the replacements above say
+    // which places the user chose, and a place kept visible stays visible.
+    scrubUnmappedValues(
+      part.xmlDoc,
+      valueReplacements,
+      [...part.textNodes, ...formulas.map((element) => ({ element }))],
+      { keepAttribute: isCellReference },
+    );
     if (/^xl\/worksheets\//.test(part.path)) normalizeReplacedNumericCells(part.xmlDoc);
-    sanitizeXlsxPart(part.xmlDoc, valueReplacements);
     writeXmlPart(extraction.zip, part.path, part.xmlDoc);
     contentPaths.add(part.path);
   }
