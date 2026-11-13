@@ -21,12 +21,13 @@ function toFile(bytes: Uint8Array, name: string): File {
 }
 
 describe('xlsx numeric identifier cells (T176)', () => {
-  it('extracts numbers of seven or more digits and leaves short numbers and dates alone', async () => {
+  it('extracts numbers of seven or more digits and date cells, and leaves short numbers alone', async () => {
     const extraction = await readXlsx(toFile(await buildXlsxNumericAndDateCells(), 'n.xlsx'));
     expect(extraction.plainText).toContain(XLSX_SEED.pesel);
     expect(extraction.plainText).toContain(XLSX_SEED.phone);
-    // t="d" ISO dates are not numeric cells and are not identifiers.
-    expect(extraction.plainText).not.toContain(XLSX_SEED.date);
+    // A t="d" ISO date cell is a date of birth as often as not: it is in the text since T265
+    // (tests/xlsx-date-cells.test.ts covers dates stored as serial numbers).
+    expect(extraction.plainText).toContain(XLSX_SEED.date);
   });
 
   it('writes a replaced numeric cell as an inline string without a formula', async () => {

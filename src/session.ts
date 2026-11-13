@@ -1,5 +1,11 @@
 import type { EntityType, DetectedEntity, ReplacementEntry } from './types.ts';
-import { buildTolerantTokenIndex, resolveMangledToken } from './restore-tokens.ts';
+import { ENTITY_COLORS } from './types.ts';
+import {
+  buildTolerantTokenIndex,
+  canonicalPlaceholderForm,
+  canonicalTypePrefix,
+  resolveMangledToken,
+} from './restore-tokens.ts';
 import { generateSessionSalt, generateSurrogate } from './surrogates.ts';
 
 export * from './restore-tokens.ts';
@@ -245,6 +251,35 @@ function validateImportEntry(entry: unknown, index: number): ReplacementEntry {
     throw new Error(`${where}: "entityType" must be a non-empty string`);
   }
   return { original, replacement, entityType: entityType as EntityType };
+}
+
+/**
+ * Canonical form of a variant-shaped token: type family, counter, then a
+ * suffix ("person_1_last", "credit_card_2_first"). Group 1 is the family.
+ * Used only to report tokens that could not be restored.
+ */
+const UNRESOLVED_VARIANT_RE = /^([a-z][a-z0-9_]*?)_\d+(?:_[a-z0-9]+)+$/;
+
+/**
+ * Canonical type families of the labels DocCloak itself issues (person,
+ * credit_card, ...) plus the legacy "redacted". A token of one of them is a
+ * DocCloak label wherever it turns up.
+ */
+const BUILTIN_LABEL_FAMILIES: ReadonlySet<string> = new Set([
+  ...Object.keys(ENTITY_COLORS).map((type) => type.toLowerCase()),
+  'redacted',
+]);
+
+/** One restore over the original text (see AnonymizationSession.restoreSpans). */
+export interface RestoreSpan {
+  start: number;
+  end: number;
+  /** The original value written back */
+  replacement: string;
+  /** The map key that matched (the placeholder or surrogate) */
+  token: string;
+  /** False when the tolerant pass resolved a mangled token */
+  exact: boolean;
 }
 
 export class AnonymizationSession {
@@ -614,54 +649,98 @@ export class AnonymizationSession {
     return mapped;
   }
 
-  deanonymize(text: string): string {
-    // R4: a SINGLE pass over the input. Every key is matched against the
-    // original reply only, never against text an earlier replacement just
-    // wrote, so a restored "Anna Kowalska" is never rewritten by a key
-    // "Anna" and prose that merely contains a key ("Bob" vs "Bo") is left
-    // alone by the boundaries in restoreKeyPattern. The replacer function
-    // keeps '$' sequences in the original value inert.
+  /**
+   * Every restore the session would perform on `text`, as non-overlapping
+   * spans over the ORIGINAL text, sorted by start. deanonymize() applies
+   * exactly these spans, and document writers (docx) apply them to mapped
+   * text nodes so formatting survives. Exact keys first (R4, one pass);
+   * then token-shaped candidates the exact pass did not consume get the
+   * tolerant resolution (T098). Nothing is ever matched against restored
+   * text.
+   */
+  restoreSpans(text: string): RestoreSpan[] {
+    const spans: RestoreSpan[] = [];
     const re = this.restoreRegex();
-    let result = text;
     if (re) {
       re.lastIndex = 0;
-      result = text.replace(re, (m) => this.reverseMap.get(m) ?? m);
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        const original = this.reverseMap.get(m[0]);
+        if (original === undefined) continue;
+        spans.push({ start: m.index, end: m.index + m[0].length, replacement: original, token: m[0], exact: true });
+      }
     }
-    // T098: exact-literal replacement above is the unchanged fast path;
-    // tokens an LLM mangled (case, spacing, markdown, dropped brackets)
-    // survive it untouched and get one tolerant pass.
-    return this.deanonymizeMangledTokens(result);
-  }
-
-  /**
-   * Tolerant pass (T098) over text the exact pass already handled: scan
-   * for remaining token-shaped candidates and restore each one that
-   * unambiguously identifies a single map key (see
-   * buildTolerantTokenIndex). Anything else - unknown tokens, ambiguous
-   * canonical forms, partial tokens the candidate regex cannot even see -
-   * stays exactly as written: a missed restore is visible and
-   * recoverable, a guessed one silently corrupts the document. Runs after
-   * the exact pass, so an exact key never reaches this code; originals
-   * restored by the exact pass are plain user text and canonicalize to
-   * forms no key owns.
-   */
-  private deanonymizeMangledTokens(text: string): string {
     const index = buildTolerantTokenIndex(this.reverseMap.keys());
-    if (index.byCanonical.size === 0) return text;
+    if (index.byCanonical.size === 0) return spans;
+    const exactCount = spans.length;
+    let cursor = 0;
     MANGLED_CANDIDATE_RE.lastIndex = 0;
-    let out = '';
-    let last = 0;
     let match: RegExpExecArray | null;
     while ((match = MANGLED_CANDIDATE_RE.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      while (cursor < exactCount && spans[cursor].end <= start) cursor++;
+      if (cursor < exactCount && spans[cursor].start < end) continue;
       const key = resolveMangledToken(match[0], index);
       if (key === null) continue;
       const original = this.reverseMap.get(key);
       if (original === undefined) continue;
-      out += text.slice(last, match.index) + original;
-      last = match.index + match[0].length;
+      spans.push({ start, end, replacement: original, token: key, exact: false });
     }
-    if (last === 0) return text;
+    if (spans.length > exactCount) spans.sort((a, b) => a.start - b.start);
+    return spans;
+  }
+
+  deanonymize(text: string): string {
+    const spans = this.restoreSpans(text);
+    if (spans.length === 0) return text;
+    let out = '';
+    let last = 0;
+    for (const span of spans) {
+      out += text.slice(last, span.start) + span.replacement;
+      last = span.end;
+    }
     return out + text.slice(last);
+  }
+
+  /**
+   * Tokens in `text` that look like this session's placeholders but that
+   * restoreSpans leaves in place: a typed token of a family the map knows
+   * ("[PERSON_9]" when the map has [PERSON_1]) that identifies no key, or
+   * more than one. An assistant invented or renumbered it, or it belongs
+   * to another document. Tokens of DocCloak's own types are reported
+   * whatever the map holds ("[COMPANY_1]" against a map without companies,
+   * or against an empty map). Hosts list them so the user can fix them by
+   * hand. Bracket text of other families ("[Table 1]", "[see par. 3]") is
+   * never reported. Distinct tokens as written, in order of appearance.
+   */
+  unresolvedTokens(text: string): string[] {
+    const index = buildTolerantTokenIndex(this.reverseMap.keys());
+    const spans = this.restoreSpans(text);
+    const seen = new Set<string>();
+    let cursor = 0;
+    MANGLED_CANDIDATE_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = MANGLED_CANDIDATE_RE.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      while (cursor < spans.length && spans[cursor].end <= start) cursor++;
+      if (cursor < spans.length && spans[cursor].start < end) continue;
+      const canonical = canonicalPlaceholderForm(match[0]);
+      if (canonical === null) continue;
+      // A plain typed token ("person_9") or a variant-shaped one
+      // ("person_9_last", "person_1_first" written by analogy with a
+      // [PERSON_1_LAST] the assistant saw).
+      const prefix = canonicalTypePrefix(canonical) ?? UNRESOLVED_VARIANT_RE.exec(canonical)?.[1] ?? null;
+      // A family of the table, or one of DocCloak's own types whatever the
+      // table holds: a text redacted with companies kept visible has no
+      // COMPANY entry, and a [COMPANY_1] in the reply must still be named
+      // (it used to pass in silence, under an all-clear).
+      if (prefix === null || !(index.typePrefixes.has(prefix) || BUILTIN_LABEL_FAMILIES.has(prefix))) continue;
+      seen.add(match[0]);
+    }
+    return [...seen];
   }
 
   /**

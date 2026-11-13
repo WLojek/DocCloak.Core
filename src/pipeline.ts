@@ -321,6 +321,74 @@ export function trimSpanPunctuation(entities: DetectedEntity[]): DetectedEntity[
   return out;
 }
 
+// ── splitAtLineBreaks ──────────────────────────────────────
+
+const LINE_BREAK = /[\r\n\u000B\u000C\u2028\u2029]/;
+const LINE_BREAKS = /[\r\n\u000B\u000C\u2028\u2029]+/g;
+const ONLY_SPACES = /^[^\S\r\n\u000B\u000C\u2028\u2029]*$/;
+
+/**
+ * A model span never runs across a line break (T260). Word-level providers
+ * merge neighbouring words of one type, and the end of one paragraph or
+ * table cell gets glued to the start of the next: "Banque Phocéenne de
+ * Crédit\n40" (the house number of the address below), "18 000,00\nB" (the
+ * first letter of the next cell). One placeholder then swallowed the line
+ * break in pasted text, and in a document it stood in the first paragraph
+ * while a piece of the second one vanished.
+ *
+ * Each line's part becomes its own span, so a two-line address is two
+ * values that go back where they were. A part too short to be a value on
+ * its own (what filterFalsePositives would drop) is not left in clear when
+ * it touches another model span on its line: that span grows over it ("40"
+ * joins "La Canebière, 13001 Marseille"). Otherwise it is dropped: it was
+ * never a value, only the tail of a wrong merge. Regex spans are matched
+ * line by line already (segmentLines).
+ */
+export function splitAtLineBreaks(text: string, entities: DetectedEntity[]): DetectedEntity[] {
+  if (!entities.some((e) => LINE_BREAK.test(e.value))) return entities;
+  const whole: DetectedEntity[] = [];
+  const orphans: DetectedEntity[] = [];
+  for (const entity of entities) {
+    if (!LINE_BREAK.test(entity.value)) {
+      whole.push(entity);
+      continue;
+    }
+    let cursor = 0;
+    const parts: Array<[number, number]> = [];
+    LINE_BREAKS.lastIndex = 0;
+    for (let m = LINE_BREAKS.exec(entity.value); m !== null; m = LINE_BREAKS.exec(entity.value)) {
+      parts.push([cursor, m.index]);
+      cursor = m.index + m[0].length;
+    }
+    parts.push([cursor, entity.value.length]);
+    for (const [from, to] of parts) {
+      const raw = entity.value.slice(from, to);
+      const lead = raw.length - raw.trimStart().length;
+      const value = raw.trim();
+      if (value.length === 0) continue;
+      const start = entity.start + from + lead;
+      const piece = { ...entity, value, start, end: start + value.length };
+      const standsAlone = filterFalsePositives(trimSpanPunctuation([piece])).length > 0;
+      (standsAlone ? whole : orphans).push(piece);
+    }
+  }
+  for (const orphan of orphans) {
+    // The span right after it or right before it on the same line, with nothing but spaces between.
+    const after = whole.findIndex((e) => e.start >= orphan.end && ONLY_SPACES.test(text.slice(orphan.end, e.start)));
+    if (after >= 0) {
+      const e = whole[after];
+      whole[after] = { ...e, start: orphan.start, value: text.slice(orphan.start, e.end) };
+      continue;
+    }
+    const before = whole.findIndex((e) => e.end <= orphan.start && ONLY_SPACES.test(text.slice(e.end, orphan.start)));
+    if (before >= 0) {
+      const e = whole[before];
+      whole[before] = { ...e, end: orphan.end, value: text.slice(e.start, orphan.end) };
+    }
+  }
+  return whole;
+}
+
 // ── filterFalsePositives ───────────────────────────────────
 
 /**
@@ -625,7 +693,7 @@ export function detectEntities(
 ): DetectedEntity[] {
   if (!text.trim()) return [];
 
-  const mlResults = filterFalsePositives(trimSpanPunctuation(mlEntities));
+  const mlResults = filterFalsePositives(trimSpanPunctuation(splitAtLineBreaks(text, mlEntities)));
   const regexResults = regexEntities;
   const initial = resolveOverlaps(splitCatchAlls(text, [...mlResults, ...regexResults]));
   const propagated = propagateEntities(text, initial);

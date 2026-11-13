@@ -44,6 +44,9 @@ export type { RegexRule, PiiDomain, RegionCode, RegexRegionId } from './regex/in
 // T003: types / session / doc
 export * from './types.ts';
 export * from './session.ts';
+// The form in which restore compares labels (case, spacing, markdown and brackets ignored):
+// hosts use it to tell whether a label the user types would be read as an existing one.
+export { canonicalPlaceholderForm } from './restore-tokens.ts';
 export * from './doc.ts';
 // end T003
 

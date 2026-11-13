@@ -138,7 +138,7 @@ export const DOCX_UNREDACTABLE_PARTS: readonly UnredactableRule[] = [
 // ---------------------------------------------------------------------------
 
 /** Parts the xlsx reader extracts: shared strings, worksheets, comments. */
-export const XLSX_SHEET_TEXT_PARTS = /^xl\/(?:sharedStrings\.xml|worksheets\/[^/]+\.xml|comments\d*\.xml|threadedComments\/[^/]+\.xml)$/;
+export const XLSX_SHEET_TEXT_PARTS = /^xl\/(?:sharedStrings\.xml|worksheets\/[^/]+\.xml|comments\d*\.xml|comments\/[^/]+\.xml|threadedComments\/[^/]+\.xml)$/;
 
 /** DrawingML parts read with drawingUnits (T175): drawing text boxes and charts. */
 export const XLSX_DRAWING_TEXT_PARTS = /^xl\/(?:drawings\/drawing\d*|charts\/chart(?:Ex)?\d*)\.xml$/;
@@ -161,7 +161,9 @@ export const XLSX_STRUCTURAL_PARTS: readonly RegExp[] = [
   // Tables, pivot tables and caches: header/cache strings scrubbed by value
   // (layer zero); T176 owns their extraction.
   /^xl\/(?:tables|pivotTables|pivotCache)\/[^/]+\.xml$/,
-  /^xl\/drawings\/vmlDrawing\d*\.vml$/,
+  // VML of legacy comments and form controls. Excel names it vmlDrawingN.vml, other writers
+  // (openpyxl: commentsDrawingN.vml) do not; layer zero scrubs known values in all of them.
+  /^xl\/drawings\/[^/]+\.vml$/,
   /^xl\/charts\/(?:style|colors)\d*\.xml$/,
   /^xl\/(?:chartsheets|dialogsheets)\/[^/]+\.xml$/,
   // Known limit: images are copied as-is (no OCR).

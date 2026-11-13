@@ -826,6 +826,31 @@ export async function writeAnonymizedDocxWithReport(
 }
 
 /**
+ * Restore originals inside a (possibly edited) pseudonymized docx: apply the
+ * session's restore spans (computed on extraction.plainText) to the mapped
+ * text nodes and repackage. No scrub step runs: this is the inverse
+ * direction, the file is the user's own and nothing must be removed.
+ */
+export async function writeRestoredDocx(
+  extraction: DocxExtraction,
+  spans: Array<{ start: number; end: number; replacement: string }>,
+): Promise<Blob> {
+  applyTextReplacements(
+    extraction.textNodes,
+    spans,
+    extraction.paragraphBreaks.map((pb) => pb.flatIndex),
+  );
+  const serializer = new XMLSerializer();
+  for (const part of extraction.contentParts) {
+    extraction.zip.file(part.path, serializer.serializeToString(part.xmlDoc));
+  }
+  return extraction.zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+}
+
+/**
  * Content parts whose extracted units do not cover every text-bearing
  * location, so the layer-zero value scrub still visits them: numbering and
  * webSettings (attribute units only), charts (numeric caches, formulas),
@@ -1299,8 +1324,9 @@ function applyReplacement(
     node.flatEnd += lengthDiff;
     updateSubsequentNodes(textNodes, node, lengthDiff);
   } else {
-    // Multi-node case: replacement spans multiple units
-    // Put all replacement text in the first affected node, clear the rest
+    // Multi-node case: the replacement goes into the first affected unit,
+    // intermediate units are emptied, and the text that follows the range in
+    // the last unit STAYS in that unit, so it keeps its own formatting.
     const firstNode = affectedNodes[0];
     const lastNode = affectedNodes[affectedNodes.length - 1];
 
@@ -1309,27 +1335,25 @@ function applyReplacement(
 
     const keepBefore = firstText.slice(0, Math.max(0, replStart - firstNode.flatStart));
     const keepAfter = lastText.slice(Math.min(lastText.length, replEnd - lastNode.flatStart));
+    const oldSpanLength = lastNode.flatEnd - firstNode.flatStart;
 
-    // Set first node to: text-before-replacement + replacement + text-after-replacement-in-last-node
-    setUnitText(firstNode, keepBefore + replacement + keepAfter);
-
-    // Clear intermediate and last nodes
-    for (let i = 1; i < affectedNodes.length; i++) {
+    // Text first, positions after: setUnitText derives slice lengths from
+    // the current flat positions.
+    setUnitText(firstNode, keepBefore + replacement);
+    for (let i = 1; i < affectedNodes.length - 1; i++) {
       setUnitText(affectedNodes[i], '');
     }
+    setUnitText(lastNode, keepAfter);
 
-    // Recalculate flat positions
-    const newFirstLength = (keepBefore + replacement + keepAfter).length;
-    const oldSpanLength = lastNode.flatEnd - firstNode.flatStart;
-    const lengthDiff = newFirstLength - oldSpanLength;
-
-    // For cleared intermediate/last nodes, collapse their ranges
-    firstNode.flatEnd = firstNode.flatStart + newFirstLength;
-    for (let i = 1; i < affectedNodes.length; i++) {
+    firstNode.flatEnd = firstNode.flatStart + keepBefore.length + replacement.length;
+    for (let i = 1; i < affectedNodes.length - 1; i++) {
       affectedNodes[i].flatStart = firstNode.flatEnd;
       affectedNodes[i].flatEnd = firstNode.flatEnd;
     }
+    lastNode.flatStart = firstNode.flatEnd;
+    lastNode.flatEnd = lastNode.flatStart + keepAfter.length;
 
+    const lengthDiff = (lastNode.flatEnd - firstNode.flatStart) - oldSpanLength;
     updateSubsequentNodes(textNodes, lastNode, lengthDiff);
   }
 }

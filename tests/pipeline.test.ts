@@ -275,7 +275,16 @@ describe('propagateEntities', () => {
     const text = 'Herrn\nDennis Kowalczyk\nVenloer Straße 311\n50823 Köln\n';
     const ml = [entity('Venloer Straße 311\n50823', text.indexOf('Venloer'), { type: 'ADDRESS', detector: 'bardsai:POSTAL_ADDRESS' })];
     const out = detectEntities(text, ml, detectWithRegex(text, 'de'));
-    expect(out.some((e) => e.value === 'Köln' && e.type === 'ADDRESS')).toBe(true);
+    // The model's span stops at the line break (T260), so the postal rule keeps its whole match and
+    // the city is covered with its code instead of as a leftover.
+    expect(out.map((e) => [e.type, e.value])).toEqual([
+      ['PERSON', 'Dennis Kowalczyk'],
+      ['ADDRESS', 'Venloer Straße 311'],
+      ['ADDRESS', '50823 Köln'],
+    ].filter(([, v]) => out.some((e) => e.value === v)));
+    expect(out.some((e) => e.value === '50823 Köln' && e.type === 'ADDRESS')).toBe(true);
+    expect(out.some((e) => e.value === 'Venloer Straße 311')).toBe(true);
+    expect(out.every((e) => !/[\r\n]/.test(e.value))).toBe(true);
   });
 
   it('propagates a company name without its legal form (T246)', () => {

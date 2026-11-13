@@ -6,6 +6,88 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-13
+
+**Restoring originals inside a docx** (WLojek/DocCloak#3, T254). A
+pseudonymized docx goes to an assistant and comes back edited; the
+placeholders in it can now be replaced with the originals in place.
+
+- `AnonymizationSession.restoreSpans(text)` returns the restores the session
+  performs on a text as sorted, non-overlapping spans (`start`, `end`,
+  `replacement`, the map key as `token`, `exact`): exact keys first, then
+  the tokens an assistant mangled (case, spacing, markdown, dropped
+  brackets) that identify one key. `deanonymize(text)` is built on these
+  spans and gives the same results as before.
+- `AnonymizationSession.unresolvedTokens(text)` lists the tokens that look
+  like the session's placeholders but identify no key or more than one
+  (`[PERSON_9]` when the map has `[PERSON_1]`), so a host can show what
+  stayed in the document, variant-shaped ones included (`[PERSON_1_FIRST]`
+  written by analogy with `[PERSON_1_LAST]`). A token of one of DocCloak's
+  own types is listed whatever the map holds: `[COMPANY_1]` against a map
+  without companies (a text redacted with companies kept visible), or against
+  an empty map, is a label that stayed, not an all-clear. Bracket text of
+  other families (`[Table 1]`) is not listed.
+- `writeRestoredDocx(extraction, spans)` (`/dom`) applies the spans to the
+  text nodes `readDocx` mapped (body, tables, headers, footers, footnotes,
+  comments, text boxes) and repackages the file. A placeholder split across
+  runs is restored once; none of the anonymizer's clean-up steps run, the
+  rest of the file is kept as it is. What the anonymizer removed on purpose
+  (author metadata, picture descriptions, mailto targets) is not brought
+  back, and a value that ran across a paragraph break comes back as one
+  piece where its placeholder stands.
+
+**A detected value never runs across a line break** (T260). Word-level models
+merge neighbouring words of one type, and the end of a paragraph or table
+cell got glued to the start of the next ("Banque Phocéenne de Crédit\n40",
+"18 000,00\nB"). `detectEntities` now passes model spans through
+`splitAtLineBreaks(text, entities)` (exported): each line's part is its own
+value, so a two-line address is two values that go back where they were, the
+redacted text keeps its lines, and a document keeps the start of the next
+paragraph. A part too short to be a value joins the model span it touches on
+its line (the house number joins its address), otherwise it is dropped.
+
+**Spreadsheet dates** (T176 step 2, T265). Excel stores a date as a day count
+and shows it through the cell's number format, so a column of birth dates
+was a column of numbers no detector read. `readXlsx` now resolves each
+cell's style (`xl/styles.xml`, built-in and custom formats, the 1904
+calendar) and a cell shown as a date enters the text as `YYYY-MM-DD`; ISO
+date cells (`t="d"`) are in the text too. `writeAnonymizedXlsx*` turns a
+replaced date into an inline string (dropping a formula that would bring the
+date back) and writes every other date cell back as the number it was.
+`XlsxExtraction.stats` counts the date cells, the long-integer identifier
+cells and the other number cells (amounts and counts, which stay out of the
+text), so a host can tell the user. `excelSerialToIsoDate` is exported.
+
+**Sheets named after a replaced value** (T265). Replacing the value in a
+sheet name gave `[PERSON_1]`, which Excel refuses as a sheet name, and
+`'[PERSON_1]'!A1` reads as a reference to another workbook: the file opened
+only after a repair. `writeAnonymizedXlsx*` now renames such a sheet to a
+valid name (`PERSON_1`, at most 31 characters, unique in the workbook;
+`safeSheetName` is exported) and rewrites every reference to it: formulas,
+defined names, data validation and conditional formatting formulas, chart
+ranges, hyperlink locations, pivot cache sources. The new names are in
+`result.renamedSheets`.
+
+`canonicalPlaceholderForm` is exported: the form in which restore compares
+labels (`[PERSON_2]`, `[person 2]` and `Person-2` are one label), so a host
+can refuse a rename that restore would read as another value's label.
+
+`readXlsx` also returns `uncheckedCells`: sheet name, cell address and value
+of the number cells that are not part of the text (the first
+`XLSX_UNCHECKED_LISTED`, 200; the count in `stats.otherNumberCells` is always
+complete). They stay readable in the exported workbook, and a host can now
+show which they are.
+
+### Fixed
+
+- Legacy comments stored as `xl/comments/commentN.xml` and their VML drawing
+  under any name (the layout openpyxl writes) are read and redacted like
+  Excel's `xl/commentsN.xml`; they were reported as unknown parts and copied
+  unchanged.
+- A replacement that ends inside a run with other formatting no longer moves
+  the words after it into the first run: they stay in their own run and keep
+  their formatting (`applyTextReplacements`, so `writeAnonymizedDocx*` too).
+
 ## [0.16.0] - 2026-11-04
 
 **Which models are on the device, removing one** (T250).

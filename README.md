@@ -99,9 +99,14 @@ ONNX Runtime also needs its WASM binaries at runtime; point
   occur in the document so no surrogate ever equals a real value from it
   (`anonymizeText` does this automatically); `getAmbiguousValues()` lists the
   values whose person-variant match was a tie and therefore got a new
-  placeholder instead of being merged with an existing person.
+  placeholder instead of being merged with an existing person. `deanonymize(text)`
+  writes the originals back; `restoreSpans(text)` gives the same restores as
+  spans over the text (for writers that apply them to a document's text
+  nodes) and `unresolvedTokens(text)` lists the placeholder-like tokens it
+  could not restore.
 - **Documents** (`/dom`) - `readDocx` / `writeAnonymizedDocx` /
-  `writeAnonymizedDocxWithReport`, `readXlsx` / `writeAnonymizedXlsx`,
+  `writeAnonymizedDocxWithReport`, `writeRestoredDocx` (originals back into
+  a pseudonymized docx, see below), `readXlsx` / `writeAnonymizedXlsx`,
   `analyzeOfficeFile` / `redactOfficeFile`, legacy `.doc` support on the main
   entry (`readDocText`, `writeAnonymizedDoc`, `inspectDoc`), OCR helpers
   (`loadImageToCanvas`, `recognizeCanvas`, `renderRedactedImage`) built on
@@ -185,6 +190,32 @@ All of these are exported from `@doccloak/core/dom`.
 streams: { data, objectPool, macros } }` without throwing, so a host can show
 the same consent card for a .doc whose `ObjectPool` (embedded objects) or
 `Macros` (VBA) storage will be copied unchanged.
+
+### Restoring originals in a docx
+
+A pseudonymized docx that an assistant edited can get its originals back in
+place, formatting kept:
+
+```ts
+const extraction = await readDocx(editedFile);
+const spans = session.restoreSpans(extraction.plainText);
+const left = session.unresolvedTokens(extraction.plainText); // e.g. ['[PERSON_9]']
+const blob = await writeRestoredDocx(extraction, spans);
+```
+
+The session is the one that produced the placeholders (or one rebuilt with
+`AnonymizationSession.deserialize`). A placeholder split across runs is
+restored once, into the first run; mangled tokens (`[person_1]`, `PERSON_1`)
+are restored when they identify one key; unknown tokens stay as written and
+are listed by `unresolvedTokens`, including a token of a built-in type the
+map does not hold at all (`[COMPANY_1]` when no company was pseudonymized).
+No clean-up step runs on this path, and
+what the anonymizer removed on purpose (author metadata, picture
+descriptions, mailto targets) is not brought back. Grammar is not adjusted:
+the original is written as it was mapped. A value that ran across a
+paragraph or line break (one placeholder for the end of a paragraph and the
+start of the next) is written back as one piece where its placeholder
+stands.
 
 ## PDF: redaction that keeps the text layer
 
@@ -413,9 +444,19 @@ Independently of what was detected, every exported .docx / .xlsx has:
   verbatim only with `allowUnredactable: true` (see above). Removing them
   (instead of copying them) is planned for a later release (T199), gated on
   the real-file corpus (T196); 0.13.0 keeps the report-and-ask behaviour.
-- Spreadsheets: sheet names with an entity are reported in `warnings`, not
-  renamed; numeric and date cells, formula literals, defined names and data
-  validation texts are not extracted yet (T176).
+- Spreadsheets: text cells, comments, headers and footers, text boxes and
+  chart texts are read; so are cells shown as dates (as `YYYY-MM-DD`) and
+  integers of seven or more digits. Other numbers (amounts, counts, short
+  codes) stay out of the text and are never replaced; `extraction.stats`
+  counts each kind and `extraction.uncheckedCells` lists the cells left out
+  (sheet, address, value; the first 200), so a host can show what stays
+  readable in the exported workbook. Sheet names, defined names, table column names, data
+  validation texts and pivot caches are not read as text: a value detected
+  elsewhere is replaced there too (layer zero), a value that occurs only
+  there stays. A sheet whose name holds a replaced value is renamed to a
+  valid name (`PERSON_1`) and the references to it follow
+  (`result.renamedSheets`). A replaced number or date cell becomes text, so
+  a formula that used it shows an error (T176).
 - A bookmark rename keeps the identifier valid (`PERSON_1`, never
   `[PERSON_1]`); field instructions are replaced only inside their quoted
   arguments and bookmark tokens.
