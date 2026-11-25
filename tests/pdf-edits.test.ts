@@ -19,7 +19,16 @@ import { nodeCanvasFactory } from './helpers/pdf-canvas.ts';
 import { buildScanPdf, SCAN_DPI } from './helpers/fixtures/pdf-scan.ts';
 
 const FONTS = join(__dirname, '..', 'fonts', 'liberation');
-const ASSETS: PdfAssetPaths = { loadFont: async (file) => new Uint8Array(readFileSync(join(FONTS, file))) };
+const PDFJS_DIR = join(__dirname, '..', 'node_modules', 'pdfjs-dist');
+// pdf.js gets its own standard fonts and CMaps: the test files show Helvetica without embedding it,
+// and the system is never asked for a font (oracle.ts). Without these files the text of a page was
+// drawn on a Mac (the canvas found a face of its own) and not on the Linux of the CI, where the
+// checks that count the ink of a page then saw none.
+const ASSETS: PdfAssetPaths = {
+  loadFont: async (file) => new Uint8Array(readFileSync(join(FONTS, file))),
+  cMapUrl: join(PDFJS_DIR, 'cmaps') + '/',
+  standardFontDataUrl: join(PDFJS_DIR, 'standard_fonts') + '/',
+};
 
 /** A text PDF: one page per list of lines, Helvetica 12 pt from (40, 250) downwards. */
 async function textPdf(pages: string[][], size: [number, number] = [400, 300]): Promise<Uint8Array> {
