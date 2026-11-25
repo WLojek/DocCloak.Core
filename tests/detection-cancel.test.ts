@@ -13,6 +13,7 @@ const ortMock = vi.hoisted(() => ({
   Tensor: class {},
 }));
 vi.mock('onnxruntime-web/webgpu', () => ortMock);
+vi.mock('onnxruntime-web/wasm', () => ortMock);
 vi.mock('onnxruntime-web', () => ortMock);
 
 import { createEngine } from '../src/engine.ts';

@@ -26,7 +26,12 @@
  * within the encoder's 512 training positions, prompt included.
  */
 
-import * as ort from 'onnxruntime-web/webgpu';
+// The plain build of ONNX Runtime (T289): this model runs on the WASM execution provider only.
+// The WebGPU build (`onnxruntime-web/webgpu`, the asyncify binary) costs Safari gigabytes: with it
+// the page's process held 6 GB once a session existed and grew on with nothing running, and Safari
+// reloaded a background tab "because it was using significant memory". The plain build holds
+// 1.3 GB flat there, gives the same output to the last bit and is no slower in Chrome.
+import * as ort from 'onnxruntime-web/wasm';
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
 import { throwIfAborted } from '../types.ts';
 import type { CoreEnv } from '../env.ts';

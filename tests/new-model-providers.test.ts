@@ -13,6 +13,11 @@ vi.mock('onnxruntime-web/webgpu', () => ({
   InferenceSession: { create: vi.fn() },
   Tensor: class {},
 }));
+vi.mock('onnxruntime-web/wasm', () => ({
+  env: { wasm: {} },
+  InferenceSession: { create: vi.fn() },
+  Tensor: class {},
+}));
 
 import {
   accountNumberType,

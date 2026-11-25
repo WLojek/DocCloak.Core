@@ -6,6 +6,37 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-25
+
+One fix, for Safari. Nothing a 0.18.0 host uses was removed, but a host must
+now serve one more pair of runtime files (see below).
+
+### Fixed
+
+- **Safari held gigabytes of memory as soon as a model was loaded.** Every
+  provider loaded the WebGPU build of ONNX Runtime (`onnxruntime-web/webgpu`,
+  the asyncify binary), also the ones that only ever run on the WASM
+  execution provider. In Safari 18.3 a session made with that build cost
+  about 6 GB (BardS.ai v3, a 309 MB file; 2.6 GB with the 83 MB GLiNER
+  Small), the process then grew on with nothing running and by about a
+  gigabyte a second during detection, and Safari reloaded a background tab
+  "because it was using significant memory". A bare page with ONNX Runtime
+  alone shows the same; the same session made with the plain build
+  (`onnxruntime-web/wasm`) holds 1.3 GB, flat over a long run, and is ready
+  in 0.8 s instead of 5.5 s. Providers on the WASM execution provider
+  (`gliner`, `gliner-base`, `bardsai`, `bardsai-v2`, `bardsai-v3`, both
+  GLiNER2) now load the plain build; `openai-pf` and `bardsai-v3-gpu` keep
+  the WebGPU build. Outputs are the same to the last bit (logits checksum in
+  Chrome and Safari), Chrome is no slower (674 ms a window against 687 ms on
+  four threads) and uses less memory (1.25 GB against 1.47 GB).
+
+### Changed
+
+- **Hosts serve two pairs of ONNX Runtime files** under `CoreEnv.wasm.paths`:
+  `ort-wasm-simd-threaded.wasm` / `.mjs` (13 MB, for the WASM models) next to
+  `ort-wasm-simd-threaded.asyncify.wasm` / `.mjs` (for the WebGPU models). A
+  host that serves only the asyncify pair fails to load a WASM model.
+
 ## [0.18.0] - 2026-11-25
 
 A faster model on the graphics card, PDF pages left out and areas hidden by

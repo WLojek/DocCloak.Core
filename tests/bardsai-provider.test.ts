@@ -25,6 +25,7 @@ const ortMock = vi.hoisted(() => {
 });
 
 vi.mock('onnxruntime-web/webgpu', () => ortMock);
+vi.mock('onnxruntime-web/wasm', () => ortMock);
 
 import {
   BardsaiProvider,

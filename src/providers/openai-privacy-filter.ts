@@ -27,7 +27,18 @@
  * CoreEnv.buildTokenizer.
  */
 
-import * as ort from 'onnxruntime-web/webgpu';
+// Two builds of ONNX Runtime (T289). A model on the WASM execution provider loads the plain build;
+// only a model that runs on WebGPU loads the WebGPU build (the asyncify binary), which costs Safari
+// gigabytes of memory as soon as a session exists (6 GB and growing, against 1.3 GB flat for the
+// plain build with the same model and the same output).
+import * as ortWasm from 'onnxruntime-web/wasm';
+import * as ortWebGpu from 'onnxruntime-web/webgpu';
+import type { InferenceSession } from 'onnxruntime-web/wasm';
+
+/** The build for an execution provider; both builds have the same API. */
+function ortFor(executionProvider: 'wasm' | 'webgpu'): typeof ortWasm {
+  return executionProvider === 'webgpu' ? (ortWebGpu as unknown as typeof ortWasm) : ortWasm;
+}
 import type { DetectedEntity, DetectionProvider, EntityType, ProgressCallback } from '../types.ts';
 import { throwIfAborted } from '../types.ts';
 import type { CoreEnv } from '../env.ts';
@@ -382,7 +393,7 @@ export class OpenAiPrivacyFilterProvider implements DetectionProvider {
   private readonly options: OpenAiPrivacyFilterOptions;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private tokenizer: any = null;
-  private session: ort.InferenceSession | null = null;
+  private session: InferenceSession | null = null;
   private loading = false;
   private loadError: Error | null = null;
   private loadWaiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
@@ -418,6 +429,7 @@ export class OpenAiPrivacyFilterProvider implements DetectionProvider {
       const variantId = this.options.variant ?? (ep === 'webgpu' ? await pickVariant() : 'q4');
       const variant = OPENAI_PF_VARIANTS[variantId];
       const graph = this.options.graphOverride ?? variant.graph;
+      const ort = ortFor(ep);
       ort.env.wasm.wasmPaths = this.env.wasm.paths;
       ort.env.wasm.numThreads = this.env.wasm.numThreads ?? 1;
 
@@ -488,6 +500,7 @@ export class OpenAiPrivacyFilterProvider implements DetectionProvider {
     onProgress?.(0.05);
 
     const windows = Math.max(1, Math.ceil(rows / WINDOW_CORE));
+    const ort = ortFor(this.options.executionProvider ?? 'webgpu');
     for (let w = 0; w < windows; w++) {
       throwIfAborted(signal);
       const coreStart = w * WINDOW_CORE;

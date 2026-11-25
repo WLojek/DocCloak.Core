@@ -73,7 +73,13 @@ if (await isProviderCached(index, 'gliner2-pii-yethdev', { assetBaseUrl })) awai
 
 ONNX Runtime also needs its WASM binaries at runtime; point
 `CoreEnv.wasm.paths` at wherever your host serves the `onnxruntime-web`
-`*.wasm` assets from.
+`*.wasm` assets from. Since 0.18.1 serve two pairs from
+`node_modules/onnxruntime-web/dist`: `ort-wasm-simd-threaded.wasm` and `.mjs`
+(the plain build, loaded by every model that runs on the WASM execution
+provider) and `ort-wasm-simd-threaded.asyncify.wasm` and `.mjs` (the WebGPU
+build, loaded by `openai-pf` and `bardsai-v3-gpu` only). The split is for
+Safari: with the WebGPU build its process held about 6 GB as soon as a
+session existed and grew on, with the plain build 1.3 GB.
 
 ## API overview
 
