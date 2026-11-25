@@ -6,6 +6,104 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-25
+
+A faster model on the graphics card, PDF pages left out and areas hidden by
+hand, and three fixes: a leak in redacted PDFs whose pages share resources,
+private data left behind a removed `/PieceInfo`, and words hyphenated at a
+line end. Nothing a 0.17.1 host uses was removed.
+
+### Added
+
+- **BardS.ai EU PII v3 at full precision on WebGPU** (provider
+  `bardsai-v3-gpu`, [#5](https://github.com/WLojek/DocCloak.Core/issues/5)):
+  the unquantized ONNX export of v3 (`onnx/model.onnx`, 1 230 934 625 bytes,
+  the same pinned commit, tokenizer, labels and threshold as `bardsai-v3`)
+  on the WebGPU execution provider. The int8 file gains almost nothing from
+  WebGPU; the float file runs on the graphics card: 74 ms for a 512-token
+  window against 2.65 s for the int8 file on one WASM thread and 0.68 s on
+  four (Chrome 158, Apple M4 Pro), and the same 74 ms in a hidden tab, where
+  Chrome lowers the priority of the page's process but not of the GPU
+  process. On the 112-document corpus (`eval/multilang.mts --provider
+  bardsai-v3-gpu`, the float graph on the CPU kernels) F1 91.8, strict
+  recall 86.6, precision 97.7, against 91.6 / 85.9 / 98.1 for the int8 file.
+  Flagged `requiresWebGpu`; without an adapter it refuses with
+  `WebGpuUnavailableError` before anything is downloaded.
+  `BardsaiV2Provider` takes `executionProvider` (eval: the float graph on
+  WASM); `WebGpuUnavailableError` takes the model's name.
+- **PDF: pages left out and areas hidden by hand** (`@doccloak/core/pdf`,
+  [#6](https://github.com/WLojek/DocCloak.Core/issues/6)). For what no
+  detector finds: a signature, a handwritten name, a page the OCR could not
+  read. `applyPdfEdits(extraction, { removedPages, regions })` returns the
+  extraction without the removed pages' text and without the glyphs a
+  rectangle touches (`plainText`, `pages`, `runs`), with `kept` (how old
+  offsets map to new ones, see `mapKeptRange`), `addedText` (detection must
+  run again) and `covered` (the letters painted over with the rectangles).
+  It takes the full set of edits each time and reads nothing again (no
+  pdf.js, no OCR); `readPdf(file, { edits })` does the same while reading.
+  The extraction carries the edits (`edits`, `unedited`), a removed page
+  stays listed in `pages` with `removed: true`.
+- `openPdfPreview(extraction)` opens the file with pdf.js once and renders a
+  page when asked (`pageSize`, `render`, `close`), for a host's page view;
+  `pixelRectToUserRect` / `userRectToPixelRect` convert a rectangle between
+  the pixels of a render and the page's user space, /Rotate included.
+- `writeAnonymizedPdfWithReport` leaves removed pages out and exports a page
+  with a hidden area as a picture with the area, and every letter it
+  touches, black in the pixels; values on such a page are painted over as on
+  a scan and its remaining text stays as an invisible layer. The result
+  lists `removedPages` and `regionPages` (also on `redactOfficeFile`'s
+  report). With edits, the copied pages keep only the resources their
+  content names, so the picture or text of a page left out cannot ride along
+  in a resource dictionary the pages share.
+- The post-write check refuses (`PdfVerifyError`) an edited file unless the
+  page count is right, no text of a removed page is in the output beyond
+  what kept pages hold, no stream only a page left out uses is in it, every
+  page exported for a hidden area is one image plus invisible text, and
+  every hidden area renders black with no text inside (`VerifyFinding.pass`:
+  `page-count`, `removed-page`, `foreign-stream`, `region-page`,
+  `region-pixels`, `region-text`).
+
+### Fixed
+
+- **A word hyphenated at a line end is one value** (`joinHyphenatedWords`, in
+  `detectEntities`). Values stop at line breaks, so "ALTA-" at the end of a
+  line and "MIR" at the start of the next were two values with two labels.
+  The halves are short enough to stand inside words that are no value, and
+  the post-write check of a PDF then found "ris" (of "Pa-" / "ris") in
+  another word and "MO-" in a PDF name: a 17-page scanned judgment
+  ([#1](https://github.com/WLojek/DocCloak.Core/issues/1)) was refused
+  outright, with every model. Where a found value ends with the hyphen or
+  starts right after the break, the whole broken word is now one value (the
+  type of the unbroken word where it was found elsewhere, else of the half
+  the detector was surer of). A broken word of which no half is found stays
+  as it is.
+- **A redacted PDF could carry the original of a page it had painted over,
+  as an object nothing draws.** The output is built by copying pages, and a
+  copied page brings every entry of its resource dictionary. In a file whose
+  pages share one resource dictionary (FPDF, TCPDF and many scanners write
+  them so), a page that was copied brought along what only a painted page
+  drew: the original picture of a scan whose values were covered in the
+  picture (`scanPages`, since 0.14.0; a text page with a value inside an
+  image, since 0.15.0), and the form XObjects of a rasterized page
+  (`rasterizedPages`, since 0.13.0), with the redacted text in them. The
+  picture is pixels and the form's text may be glyph ids, so the byte scan
+  of the post-write check did not see either: the value was covered on the
+  page and still in the file. Files whose pages each have their own
+  resources were not affected, and a page copied as live text never was.
+  The writer now takes out of the copied pages' resources every entry their
+  content does not name that leads to a stream of a page not copied, and
+  the post-write check refuses (`PdfVerifyError`, `foreign-stream`) an
+  output that holds such a stream. Where a copied page's content could not
+  be read to the end, nothing is taken out and such a file is refused
+  instead of exported.
+- **Private application data under `/PieceInfo` of a copied XObject stayed
+  in the output** (since 0.13.0). The entry was removed, the streams it
+  referred to were still written, unreferenced (Illustrator keeps a copy of
+  the whole drawing there). They are removed with the entry.
+
+A file without edits whose pages share nothing with a painted page, and
+without such private data, is written exactly as before.
+
 ## [0.17.1] - 2026-11-13
 
 Two defects found by an independent review of the live product.

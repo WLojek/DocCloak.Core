@@ -353,10 +353,11 @@ export interface OpenAiPrivacyFilterOptions {
   graphOverride?: TokenizerFileSpec;
 }
 
-/** Thrown when the browser has no WebGPU adapter: this model does not run there. */
+/** Thrown when the browser has no WebGPU adapter: a model that runs only there does not load. */
 export class WebGpuUnavailableError extends Error {
-  constructor(detail: string) {
-    super(`OpenAI Privacy Filter needs WebGPU: ${detail}`);
+  constructor(detail: string, model: string = MODEL_NAME) {
+    // Hosts match "needs WebGPU" in the message (it crosses the worker boundary as text).
+    super(`${model} needs WebGPU: ${detail}`);
     this.name = 'WebGpuUnavailableError';
   }
 }

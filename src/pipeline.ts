@@ -389,6 +389,68 @@ export function splitAtLineBreaks(text: string, entities: DetectedEntity[]): Det
   return whole;
 }
 
+// ── joinHyphenatedWords ────────────────────────────────────
+
+/**
+ * A word broken at a line end: a letter, a hyphen (or a soft hyphen), the line break (with at most
+ * a few blank lines: a page break), and a letter that starts the next line.
+ */
+const HYPHEN_BREAK = /(?<=[\p{L}\p{M}])[-\u2010\u00AD][^\S\r\n\u000B\u000C\u2028\u2029]*[\r\n\u000B\u000C\u2028\u2029]\s{0,12}(?=\p{L})/gu;
+/** A character of a word, combining marks included (an accent written as a mark of its own). */
+const WORD_PART = /[\p{L}\p{M}\p{N}]/u;
+
+/**
+ * A word hyphenated at a line end is one value, not two (T288). Values stop at line breaks
+ * (splitAtLineBreaks), so "ALTA-" at the end of a line and "MIR" at the start of the next came
+ * out as two values of their own. Each half was replaced by its own label, and the halves are so
+ * short that they also stand inside words that are no value at all: the post-write check of a
+ * PDF found "ris" (of "Pa-" / "ris") in another word and "MO-" in a PDF name, and refused a
+ * 17-page judgment outright. Leaving such halves out as values would show the name in clear at
+ * exactly these places.
+ *
+ * Where a found value ends with the hyphen, or one starts with the letter after the break, the
+ * whole broken word becomes one value: from the start of the first half (or of the word, when
+ * only the second half was found) to the end of the second half (or of the word). Its type is
+ * the type the unbroken word has elsewhere in the text when it was found there, else that of the
+ * half the detector was surer of. This is the one case in which a value runs across a line
+ * break: the break is inside a word, so the placeholder stands where the word began and nothing
+ * of another line is taken along.
+ */
+export function joinHyphenatedWords(text: string, entities: DetectedEntity[]): DetectedEntity[] {
+  HYPHEN_BREAK.lastIndex = 0;
+  if (entities.length === 0 || !HYPHEN_BREAK.test(text)) return entities;
+  let list = entities;
+  HYPHEN_BREAK.lastIndex = 0;
+  for (let m = HYPHEN_BREAK.exec(text); m !== null; m = HYPHEN_BREAK.exec(text)) {
+    const hyphen = m.index;
+    const next = m.index + m[0].length;
+    // The half before the break ends with the hyphen (or right before it), the half after starts the line.
+    const left = list.find((e) => (e.end === hyphen + 1 || e.end === hyphen) && e.start < hyphen);
+    const right = list.find((e) => e.start === next);
+    if (!left && !right) continue;
+    let wordStart = hyphen;
+    while (wordStart > 0 && WORD_PART.test(text[wordStart - 1])) wordStart--;
+    let wordEnd = next;
+    while (wordEnd < text.length && WORD_PART.test(text[wordEnd])) wordEnd++;
+    const start = left ? left.start : wordStart;
+    const end = right ? Math.max(right.end, wordEnd) : wordEnd;
+    const unbroken = text.slice(wordStart, hyphen) + text.slice(next, wordEnd);
+    const elsewhere = list.find((e) => e !== left && e !== right && e.value === unbroken);
+    const surer = left && right ? (right.confidence > left.confidence ? right : left) : (left ?? right)!;
+    const joined: DetectedEntity = {
+      ...surer,
+      type: elsewhere?.type ?? surer.type,
+      start,
+      end,
+      value: text.slice(start, end),
+      confidence: Math.max(left?.confidence ?? 0, right?.confidence ?? 0),
+    };
+    // Anything the joined value now covers (the two halves, a value inside the second half) gives way.
+    list = [...list.filter((e) => e !== left && e !== right && !(e.start >= start && e.end <= end)), joined];
+  }
+  return list === entities ? entities : list.sort((a, b) => a.start - b.start);
+}
+
 // ── filterFalsePositives ───────────────────────────────────
 
 /**
@@ -695,7 +757,8 @@ export function detectEntities(
 
   const mlResults = filterFalsePositives(trimSpanPunctuation(splitAtLineBreaks(text, mlEntities)));
   const regexResults = regexEntities;
-  const initial = resolveOverlaps(splitCatchAlls(text, [...mlResults, ...regexResults]));
+  // T288: the halves of a word broken at a line end become one value before anything is spread.
+  const initial = resolveOverlaps(splitCatchAlls(text, joinHyphenatedWords(text, [...mlResults, ...regexResults])));
   const propagated = propagateEntities(text, initial);
   return resolveOverlaps([...initial, ...propagated]);
 }

@@ -30,7 +30,7 @@ import { REGEX_REGIONS, type RegexRegionId } from './regex/index.ts';
 
 export type ProviderId =
   | 'gliner' | 'gliner-base' | 'bardsai'
-  | 'bardsai-v2' | 'bardsai-v3' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
+  | 'bardsai-v2' | 'bardsai-v3' | 'bardsai-v3-gpu' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
 
 export interface ProviderEntry {
   id: ProviderId;
@@ -73,6 +73,13 @@ export const PROVIDERS: ProviderEntry[] = [
     label: 'BardS.ai EU PII v3',
     description: 'Newest BardS.ai model (ModernBERT), 24 EU languages, 37 PII types incl. dates and URLs (~343 MB with the tokenizer)',
     customLabels: false,
+  },
+  {
+    id: 'bardsai-v3-gpu',
+    label: 'BardS.ai EU PII v3 (full precision, WebGPU)',
+    description: 'The v3 model unquantized, run on the graphics card: much faster, also in a background tab; needs WebGPU; large download (~1.27 GB with the tokenizer)',
+    customLabels: false,
+    requiresWebGpu: true,
   },
   {
     id: 'gliner2-pii',
@@ -235,6 +242,7 @@ export function createEngine(
     bardsai: (e) => new BardsaiProvider(e),
     'bardsai-v2': (e) => new BardsaiV2Provider(e, { variant: 'v2' }),
     'bardsai-v3': (e) => new BardsaiV2Provider(e, { variant: 'v3' }),
+    'bardsai-v3-gpu': (e) => new BardsaiV2Provider(e, { variant: 'v3-gpu' }),
     'gliner2-pii': (e) => new Gliner2Provider(e, { variant: 'okasi-q8' }),
     'gliner2-pii-yethdev': (e) => new Gliner2Provider(e, { variant: 'yethdev' }),
     'openai-pf': (e) => new OpenAiPrivacyFilterProvider(e),

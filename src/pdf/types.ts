@@ -174,9 +174,35 @@ export interface PdfPageInfo {
    * no text found (the page stays as it is). Absent when the page was not read.
    */
   ocrWholePage?: number;
+  /**
+   * True when the page was left out by hand (`PdfEdits.removedPages`): it is not in the text
+   * (`textStart` equals `textEnd`) and the writer does not copy it. The page keeps its place in
+   * `pages`, so a host can still list it.
+   */
+  removed?: boolean;
   /** Flat-text range of the page. */
   textStart: number;
   textEnd: number;
+}
+
+/** A rectangle hidden by hand on one page. */
+export interface PdfRegion {
+  /** 0-based index of the page in the file as read. */
+  page: number;
+  /** The rectangle in the page's user space (points, origin bottom-left: the space of `Glyph.x` / `Glyph.y`). */
+  rect: Rect;
+}
+
+/**
+ * Hand edits of a PDF (WLojek/DocCloak.Core#6): pages left out and areas hidden, for what no
+ * detector finds (a signature, a handwritten name, a stamp). Page indexes are 0-based indexes of
+ * the file as read, whatever else is removed.
+ */
+export interface PdfEdits {
+  /** Pages left out of the output and of the text. */
+  removedPages?: number[];
+  /** Rectangles painted black in the output. A region on a removed page is kept and does nothing while the page is out. */
+  regions?: PdfRegion[];
 }
 
 /** A document part the writer drops instead of redacting (reported to the user). */
@@ -231,6 +257,8 @@ export interface PdfReadOptions {
   ocrConcurrency?: number;
   /** Node hosts and tests: canvas factory for that check. Browsers use OffscreenCanvas. */
   canvasFactory?: CanvasFactory;
+  /** Hand edits to apply to what is read (the same as `applyPdfEdits` on the result). */
+  edits?: PdfEdits;
   /**
    * OCR for text a scan page's OCR layer does not have: read `region` (pixels) of `canvas` (the page
    * rendered at `dpi`, 300) and return its lines, relative to the region. Without it such text is only
@@ -301,6 +329,15 @@ export interface PdfWriteResult {
    * picture (placeholder labels at the values' places); each is exported as an image.
    */
   scanPages: number[];
+  /** 0-based indexes (of the file as read) of the pages left out by hand; they are not in the output. */
+  removedPages: number[];
+  /**
+   * 0-based indexes (of the file as read) of the pages with an area hidden by hand. Each is exported
+   * as a picture with the areas painted black in its pixels, and is also listed in `scanPages` (its
+   * values painted over, its text kept as an invisible layer) or in `rasterizedPages` (its text
+   * could not be edited safely: black boxes, no text layer), by how it was written.
+   */
+  regionPages: number[];
   /** Placeholders whose fit needed a line shift (informational). */
   shiftedLines: number;
 }

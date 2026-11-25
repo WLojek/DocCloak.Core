@@ -6,7 +6,7 @@
  * line, or goes.
  */
 import { describe, it, expect } from 'vitest';
-import { splitAtLineBreaks, detectEntities, detectWithRegex } from '../src/pipeline.ts';
+import { splitAtLineBreaks, joinHyphenatedWords, detectEntities, detectWithRegex } from '../src/pipeline.ts';
 import { AnonymizationSession } from '../src/session.ts';
 import type { DetectedEntity, EntityType } from '../src/types.ts';
 
@@ -105,5 +105,99 @@ describe('detectEntities with spans across line breaks', () => {
     expect(redacted).not.toMatch(/\]anque/);
     // The company named twice is one value, and everything comes back exactly.
     expect(session.deanonymize(redacted)).toBe(text);
+  });
+});
+
+// T288: the French judgment of WLojek/DocCloak.Core#1 could not be exported at all: the halves of
+// words broken at a line end ("MO-" / "NETA", "Pa-" / "ris") were values of their own, and the
+// post-write check of the PDF found "ris" inside another word and "MO-" in a PDF name.
+describe('joinHyphenatedWords', () => {
+  it('returns the same array when no word is broken at a line end', () => {
+    const text = 'ALTAMIR et MONETA,\nParis - Lyon';
+    const entities = [ml(text, 'ALTAMIR', 'COMPANY'), ml(text, 'MONETA', 'COMPANY')];
+    expect(joinHyphenatedWords(text, entities)).toBe(entities);
+  });
+
+  it('two halves found become one value over the whole word', () => {
+    const text = 'la société ALTA-\nMIR a conclu';
+    const out = joinHyphenatedWords(text, [ml(text, 'ALTA-', 'COMPANY'), ml(text, 'MIR', 'COMPANY')]);
+    expect(shape(out)).toEqual([['COMPANY', 'ALTA-\nMIR', text.indexOf('ALTA-')]]);
+    expect(out[0].end).toBe(text.indexOf('MIR') + 3);
+  });
+
+  it('takes the type the unbroken word has elsewhere when the halves disagree', () => {
+    const text = 'MONETA ASSET MANAGEMENT a assigné. Selon MO-\nNETA, la demande';
+    const out = joinHyphenatedWords(text, [
+      ml(text, 'MONETA ASSET MANAGEMENT', 'COMPANY'),
+      { ...ml(text, 'MONETA', 'COMPANY'), start: 0, end: 6 },
+      ml(text, 'MO-', 'COMPANY'),
+      { ...ml(text, 'NETA', 'PERSON', text.indexOf('\n')), confidence: 0.99 },
+    ]);
+    const shapes = shape(out);
+    expect(shapes[shapes.length - 1]).toEqual(['COMPANY', 'MO-\nNETA', text.indexOf('MO-')]);
+    expect(out.map((e) => e.value)).not.toContain('MO-');
+    expect(out.map((e) => e.value)).not.toContain('NETA');
+  });
+
+  it('without the word elsewhere, the half the detector was surer of gives the type', () => {
+    const text = 'siège à Pa-\nris, France';
+    const out = joinHyphenatedWords(text, [
+      { ...ml(text, 'Pa-', 'COMPANY'), confidence: 0.6 },
+      { ...ml(text, 'ris', 'ADDRESS'), confidence: 0.97 },
+    ]);
+    expect(shape(out)).toEqual([['ADDRESS', 'Pa-\nris', text.indexOf('Pa-')]]);
+    expect(out[0].confidence).toBe(0.97);
+  });
+
+  it('one half found: the value grows over the rest of the word, never over the next word', () => {
+    const first = 'M. TCHE-\nNIO soutient';
+    expect(shape(joinHyphenatedWords(first, [ml(first, 'M. TCHE-', 'PERSON')]))).toEqual([['PERSON', 'M. TCHE-\nNIO', 0]]);
+    const second = 'la société MONE-\nTA demande';
+    expect(shape(joinHyphenatedWords(second, [ml(second, 'TA', 'PERSON')]))).toEqual([['PERSON', 'MONE-\nTA', second.indexOf('MONE-')]]);
+  });
+
+  it('a second half of several words keeps all of them', () => {
+    const text = 'contre MO-\nNETA ASSET MANAGEMENT, société';
+    const out = joinHyphenatedWords(text, [ml(text, 'MO-', 'COMPANY'), ml(text, 'NETA ASSET MANAGEMENT', 'COMPANY')]);
+    expect(shape(out)).toEqual([['COMPANY', 'MO-\nNETA ASSET MANAGEMENT', text.indexOf('MO-')]]);
+  });
+
+  it('a break over a page end (blank lines) is still one word', () => {
+    const text = 'Maurice TCHE-\n\n\n\nNIO. Il';
+    const out = joinHyphenatedWords(text, [ml(text, 'Maurice TCHE-', 'PERSON'), ml(text, 'NIO', 'COMPANY')]);
+    expect(out).toHaveLength(1);
+    expect(out[0].value).toBe('Maurice TCHE-\n\n\n\nNIO');
+    expect(out[0].type).toBe('PERSON');
+  });
+
+  it('a dash that is not inside a word joins nothing', () => {
+    const spaced = 'Paris -\nLyon';
+    const a = [ml(spaced, 'Paris', 'ADDRESS'), ml(spaced, 'Lyon', 'ADDRESS')];
+    expect(joinHyphenatedWords(spaced, a)).toBe(a);
+    const years = 'exercices 2024-\n2025 de Lyon';
+    const b = [ml(years, '2024', 'DATE'), ml(years, '2025', 'DATE'), ml(years, 'Lyon', 'ADDRESS')];
+    expect(shape(joinHyphenatedWords(years, b))).toEqual(shape(b));
+    const untouched = 'un rapport dé-\ntaillé de Lyon';
+    const c = [ml(untouched, 'Lyon', 'ADDRESS')];
+    expect(joinHyphenatedWords(untouched, c)).toBe(c);
+  });
+
+  it('through the whole pipeline: no half is a value, one label stands for the broken word, the next line keeps its words', () => {
+    const text = 'La société ALTAMIR est gérée par ALTA-\nMIR GERANCE. Le tribunal de Pa-\nris a jugé.';
+    const out = detectEntities(text, [
+      ml(text, 'ALTAMIR', 'COMPANY'),
+      ml(text, 'ALTA-\nMIR GERANCE', 'COMPANY'),
+      ml(text, 'Pa-', 'ADDRESS'),
+      { ...ml(text, 'ris', 'ADDRESS', text.indexOf('Pa-')), confidence: 0.97 },
+    ], []);
+    const values = out.map((e) => e.value);
+    expect(values).toContain('ALTA-\nMIR GERANCE');
+    expect(values).toContain('Pa-\nris');
+    for (const half of ['ALTA-', 'MIR', 'MIR GERANCE', 'Pa-', 'ris']) expect(values, half).not.toContain(half);
+    // No value of three characters or fewer is left: nothing that also stands inside other words.
+    expect(values.filter((v) => v.replace(/\s/g, '').length <= 3)).toEqual([]);
+    const result = new AnonymizationSession().anonymizeText(text, out);
+    expect(result).not.toMatch(/ALTA|MIR|Pa-|ris\b/);
+    expect(result).toMatch(/est gérée par \[COMPANY_\d+\]\. Le tribunal de \[ADDRESS_\d+\] a jugé\./);
   });
 });

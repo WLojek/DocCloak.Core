@@ -23,7 +23,7 @@ import {
   viterbi,
   WebGpuUnavailableError,
 } from '../src/providers/openai-privacy-filter.ts';
-import { bardsaiV2Labels, bardsaiV2Windows, decodeWords, tokenizeWithOffsets } from '../src/providers/bardsai-v2.ts';
+import { BARDSAI_V2_VARIANTS, BardsaiV2Provider, bardsaiV2Labels, bardsaiV2Windows, decodeWords, tokenizeWithOffsets } from '../src/providers/bardsai-v2.ts';
 import { gliner2EntityType, gliner2Schema, gliner2Words } from '../src/providers/gliner2.ts';
 import { memoryBlobCache, memoryKV } from '../src/env.ts';
 
@@ -159,6 +159,33 @@ describe('BardS.ai v2/v3 decoding (T240)', () => {
       ['ORGANIZATION_NAME', 'ABC Sp. z o.o.'],
       ['EMAIL_ADDRESS', 'jan@x.pl'],
     ]);
+  });
+});
+
+describe('BardS.ai v3 full precision on WebGPU (T279)', () => {
+  it('is the v3 model with another graph file: same commit, tokenizer, labels and threshold', () => {
+    const v3 = BARDSAI_V2_VARIANTS.v3;
+    const gpu = BARDSAI_V2_VARIANTS['v3-gpu'];
+    expect(gpu.tokenizer).toEqual(v3.tokenizer);
+    expect(gpu.extraTypes).toEqual(v3.extraTypes);
+    expect(gpu.threshold).toBe(v3.threshold);
+    expect(gpu.model.url).toBe(v3.model.url.replace('model_quantized.onnx', 'model.onnx'));
+    expect(gpu.model.url).not.toContain('/resolve/main/');
+    expect(gpu.model.size).toBe(1_230_934_625);
+    expect(gpu.executionProvider).toBe('webgpu');
+    expect(v3.executionProvider).toBeUndefined();
+  });
+
+  it('refuses to load without WebGPU, before downloading 1.2 GB', async () => {
+    const fetchFn = vi.fn();
+    const provider = new BardsaiV2Provider({
+      kv: memoryKV(), modelCache: memoryBlobCache(), fetch: fetchFn as unknown as typeof fetch, wasm: { paths: '/' },
+    }, { variant: 'v3-gpu' });
+    const failure = await provider.load().catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(WebGpuUnavailableError);
+    // The web app tells this failure from a failed download by these words in the message.
+    expect((failure as Error).message).toMatch(/^BardS\.ai EU PII v3 \(full precision, WebGPU\) needs WebGPU: /);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 

@@ -13,7 +13,7 @@
  * within the value's width (`rasterizeScanPage`).
  */
 
-import type { CanvasFactory, OracleDocument } from './oracle.ts';
+import type { Canvas2D, CanvasFactory, OracleDocument } from './oracle.ts';
 import type { Rect } from './types.ts';
 
 export interface RasterizedPage {
@@ -23,11 +23,18 @@ export interface RasterizedPage {
   /** Displayed page size in points (CropBox with /Rotate applied), the size of a replacement page that shows the PNG unrotated. */
   widthPt: number;
   heightPt: number;
+  /** pdf.js viewport transform of the render: source user space to these pixels. */
+  transform: number[];
 }
 
 export interface RasterizeOptions {
   dpi: number;
   canvasFactory?: CanvasFactory;
+  /**
+   * `rasterizeScanPage`: user-space rectangles painted black in the pixels after every cover and
+   * label (areas hidden by hand), so nothing is ever drawn over them.
+   */
+  boxes?: Rect[];
 }
 
 /** Integer pixel box, top-left origin. */
@@ -104,12 +111,7 @@ export async function rasterizePage(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = '#000000';
-  for (const box of boxes) {
-    const px = padAndClamp(userRectToPixels(page.transform, box), BOX_PAD_PX, page.widthPx, page.heightPx);
-    if (px.w === 0 || px.h === 0) continue;
-    ctx.fillRect(px.x, px.y, px.w, px.h);
-  }
+  paintBlackBoxes(ctx, page.transform, boxes, page.widthPx, page.heightPx);
   ctx.restore();
 
   const png = await page.canvas.toPng();
@@ -119,7 +121,18 @@ export async function rasterizePage(
     heightPx: page.heightPx,
     widthPt: page.widthPt,
     heightPt: page.heightPt,
+    transform: page.transform,
   };
+}
+
+/** Paint user-space rectangles opaque black in device pixels, each padded by BOX_PAD_PX. The caller has reset the context. */
+function paintBlackBoxes(ctx: Canvas2D, transform: number[], boxes: Rect[], widthPx: number, heightPx: number): void {
+  ctx.fillStyle = '#000000';
+  for (const box of boxes) {
+    const px = padAndClamp(userRectToPixels(transform, box), BOX_PAD_PX, widthPx, heightPx);
+    if (px.w === 0 || px.h === 0) continue;
+    ctx.fillRect(px.x, px.y, px.w, px.h);
+  }
 }
 
 /**
@@ -164,6 +177,11 @@ export interface PaintMark {
    */
   columnStart?: number;
   columnEnd?: number;
+  /**
+   * A letter hidden by hand (a hidden area touches it): covered like a value, measured on its
+   * ink, but in black and without a label.
+   */
+  black?: boolean;
 }
 
 /** A rendered scan page: raw pixels, 1 (gray) or 3 (RGB) bytes each, row-major. */
@@ -318,7 +336,7 @@ export async function rasterizeScanPage(
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
   for (const cv of covers) {
-    const fill = `rgb(${cv.paper[0]}, ${cv.paper[1]}, ${cv.paper[2]})`;
+    const fill = cv.mark.black ? '#000000' : `rgb(${cv.paper[0]}, ${cv.paper[1]}, ${cv.paper[2]})`;
     ctx.fillStyle = fill;
     ctx.strokeStyle = fill;
     ctx.lineWidth = 2; // the stroke grows the cover by a pixel on every side (anti-aliased glyph edges)
@@ -355,7 +373,7 @@ export async function rasterizeScanPage(
     const m = cv.mark;
     // The label from the cover's start; the punctuation of a wrapped value's rest up to its end.
     for (const [text, alignEnd] of [[m.label, false], [m.labelEnd ?? '', true]] as const) {
-      if (!text) continue;
+      if (!text || m.black) continue;
       const pad = COVER_PAD_ALONG * m.size;
       let from = alignEnd ? cv.end - pad : cv.start + pad;
       const [ox, oy] = cv.at(from, 0);
@@ -402,6 +420,8 @@ export async function rasterizeScanPage(
       ctx.restore();
     }
   });
+  // Areas hidden by hand go last: no cover or label is ever painted into one.
+  if (options.boxes && options.boxes.length > 0) paintBlackBoxes(ctx, page.transform, options.boxes, page.widthPx, page.heightPx);
   ctx.restore();
 
   const rgba = page.canvas.getImageData();

@@ -51,6 +51,7 @@ export function providerFileSets(id: ProviderId, assetBaseUrl?: string): ModelFi
       case 'bardsai': return [[{ url: BARDSAI_MODEL_URL, sha256: BARDSAI_MODEL_SHA256 }, ...BARDSAI_TOKENIZER_FILES]];
       case 'bardsai-v2': return [[BARDSAI_V2_VARIANTS.v2.model, ...BARDSAI_V2_VARIANTS.v2.tokenizer]];
       case 'bardsai-v3': return [[BARDSAI_V2_VARIANTS.v3.model, ...BARDSAI_V2_VARIANTS.v3.tokenizer]];
+      case 'bardsai-v3-gpu': return [[BARDSAI_V2_VARIANTS['v3-gpu'].model, ...BARDSAI_V2_VARIANTS['v3-gpu'].tokenizer]];
       case 'gliner2-pii': return [gliner2Files(GLINER2_VARIANTS['okasi-q8'])];
       case 'gliner2-pii-yethdev': return [gliner2Files(GLINER2_VARIANTS.yethdev)];
       case 'openai-pf': return Object.values(OPENAI_PF_VARIANTS).map((v) => [v.graph, v.data, ...OPENAI_PF_TOKENIZER_FILES]);

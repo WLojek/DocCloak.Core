@@ -6,6 +6,14 @@
  * 8192 positions), 24 EU languages, the 35 entity types of v1 in BIO tags
  * (v3 adds DATE_TIME and URL). Official dynamic-int8 ONNX, ~309 MB.
  *
+ * v3-gpu (T279, WLojek/DocCloak.Core#5): the same v3 model in its unquantized
+ * ONNX export (float32, 1.23 GB) on the WebGPU execution provider. The int8
+ * file gains nothing from WebGPU (its integer kernels stay on the CPU:
+ * 2.25 s a window against 2.65 s on WASM, measured 2026-11-25 on an M4 Pro);
+ * the float file runs on the GPU: about 0.07 s a window, and as fast in a
+ * hidden tab, where Chrome lowers the priority of the page's own process but
+ * not of the GPU process. Tokenizer, windows and decoder are v3's.
+ *
  * Nothing of v1's decoding carries over: the tokenizer is a Gemma-style BPE
  * where every number starts with a lone "▁" token (v1's "first sub-token
  * of a word" picks that token, which the model labels O), and the label ids
@@ -32,8 +40,9 @@ import type { CoreEnv } from '../env.ts';
 import type { ModelLoaderEnv, ModelVerification, TokenizerFiles, TokenizerFileSpec } from '../model-loader.ts';
 import { fetchModelBlob, loadPinnedTokenizer } from '../model-loader.ts';
 import { LABEL_TO_ENTITY_TYPE } from './bardsai.ts';
+import { WebGpuUnavailableError } from './openai-privacy-filter.ts';
 
-export type BardsaiV2VariantId = 'v2' | 'v3';
+export type BardsaiV2VariantId = 'v2' | 'v3' | 'v3-gpu';
 
 interface BardsaiV2Variant {
   id: BardsaiV2VariantId;
@@ -51,6 +60,8 @@ interface BardsaiV2Variant {
   tokenizer: TokenizerFiles;
   /** Types after the 35 alphabetical ones (B then I each), in id order. */
   extraTypes: string[];
+  /** Where the graph runs: WASM on the CPU (default), or WebGPU only (the float graph). */
+  executionProvider?: 'wasm' | 'webgpu';
 }
 
 // Pinned 2026-11-02 (T240). v2: the model files last changed 2026-10-19;
@@ -85,7 +96,33 @@ export const BARDSAI_V2_VARIANTS: Record<BardsaiV2VariantId, BardsaiV2Variant> =
     ],
     extraTypes: ['DATE_TIME', 'URL'],
   },
+  // Same commit, tokenizer and labels as v3; only the graph file and where it runs differ.
+  'v3-gpu': {
+    id: 'v3-gpu',
+    name: 'BardS.ai EU PII v3 (full precision, WebGPU)',
+    threshold: 0.5,
+    repo: 'bardsai/eu-pii-anonimization-multilang-v3',
+    model: { url: `${V3}/onnx/model.onnx`, sha256: '5612139cb594bf524dd47e5fe0ade4d13ec018b556ab853c819e7cd0e9abdf6d', size: 1_230_934_625 },
+    tokenizer: [
+      { url: `${V3}/tokenizer.json`, sha256: TOKENIZER_JSON_SHA256, size: TOKENIZER_JSON_SIZE },
+      { url: `${V3}/tokenizer_config.json`, sha256: '02055b886266b1a475bc324da83e273fe96e4974002f9d970f26e94aa73e5885', size: 573 },
+    ],
+    extraTypes: ['DATE_TIME', 'URL'],
+    executionProvider: 'webgpu',
+  },
 };
+
+interface GpuLike {
+  requestAdapter(): Promise<unknown | null>;
+}
+
+/** Refuse before anything is downloaded where the browser has no WebGPU adapter. */
+async function requireWebGpu(model: string): Promise<void> {
+  const gpu = (globalThis as { navigator?: { gpu?: GpuLike } }).navigator?.gpu;
+  if (!gpu) throw new WebGpuUnavailableError('this browser does not offer it', model);
+  const adapter = await gpu.requestAdapter();
+  if (!adapter) throw new WebGpuUnavailableError('no GPU adapter is available', model);
+}
 
 /** The 35 types of v1, alphabetical: config.json id 2k+1 is B-type_k, 2k+2 is I-type_k. */
 const BASE_TYPES = Object.keys(LABEL_TO_ENTITY_TYPE).sort();
@@ -300,12 +337,20 @@ export class BardsaiV2Provider implements DetectionProvider {
   private threshold: number;
   private verification: ModelVerification | null = null;
 
-  constructor(env: CoreEnv, options: { variant?: BardsaiV2VariantId; modelOverride?: TokenizerFileSpec } = {}) {
+  private readonly executionProvider: 'wasm' | 'webgpu';
+
+  constructor(env: CoreEnv, options: {
+    variant?: BardsaiV2VariantId;
+    modelOverride?: TokenizerFileSpec;
+    /** Run the variant's graph elsewhere than it names (eval: the float graph on the CPU). */
+    executionProvider?: 'wasm' | 'webgpu';
+  } = {}) {
     this.env = env;
     this.variant = BARDSAI_V2_VARIANTS[options.variant ?? 'v2'];
     this.labels = bardsaiV2Labels(this.variant.extraTypes);
     this.threshold = this.variant.threshold;
     this.modelOverride = options.modelOverride;
+    this.executionProvider = options.executionProvider ?? this.variant.executionProvider ?? 'wasm';
   }
 
   get name(): string { return this.variant.name; }
@@ -324,6 +369,7 @@ export class BardsaiV2Provider implements DetectionProvider {
     }
     this.loading = true;
     try {
+      if (this.executionProvider === 'webgpu') await requireWebGpu(this.name);
       ort.env.wasm.wasmPaths = this.env.wasm.paths;
       ort.env.wasm.numThreads = this.env.wasm.numThreads ?? 1;
       const loaderEnv: ModelLoaderEnv = { cache: this.env.modelCache, fetch: this.env.fetch, persistStorage: this.env.persistStorage };
@@ -346,8 +392,8 @@ export class BardsaiV2Provider implements DetectionProvider {
       if (meta.length !== 1) throw new Error('BardS.ai v2: the tokenizer has no single "▁" token');
       this.metaId = meta[0];
       const bytes = new Uint8Array(await modelBlob.arrayBuffer());
-      this.session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
-      console.info(`[DocCloak] Model loaded: ${this.name} | inputs: [${this.session.inputNames.join(', ')}] | outputs: [${this.session.outputNames.join(', ')}]`);
+      this.session = await ort.InferenceSession.create(bytes, { executionProviders: [this.executionProvider] });
+      console.info(`[DocCloak] Model loaded: ${this.name} (${this.executionProvider}) | inputs: [${this.session.inputNames.join(', ')}] | outputs: [${this.session.outputNames.join(', ')}]`);
       this.loading = false;
       this.loadWaiters.forEach((w) => w.resolve());
       this.loadWaiters.length = 0;

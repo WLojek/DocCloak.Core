@@ -11,7 +11,8 @@ import { DEFAULT_MAX_BYTES, extractPdf } from './extract.ts';
 import { UnsupportedDocumentError } from '../dom/errors.ts';
 import { openWithOracle } from './oracle.ts';
 import { findTextWithoutOcr, ocrGlyphBoxes } from './coverage.ts';
-import type { ExtraOcrPage, ExtraOcrWord, GlyphRun, PdfAssetPaths, PdfPageInfo, PdfReadOptions, RemovedPart } from './types.ts';
+import { applyPdfEdits } from './edits.ts';
+import type { ExtraOcrPage, ExtraOcrWord, GlyphRun, PdfAssetPaths, PdfEdits, PdfPageInfo, PdfReadOptions, RemovedPart } from './types.ts';
 import type { OracleDocument } from './oracle.ts';
 import type { MissingLine } from './coverage.ts';
 import type { UnredactablePart } from '../dom/errors.ts';
@@ -19,12 +20,15 @@ import type { UnredactablePart } from '../dom/errors.ts';
 export interface PdfExtraction {
   /** Flat text detection runs on. */
   plainText: string;
+  /** Pages of the file as read; pages left out by hand count too (they stay in `pages`, flagged `removed`). */
   pageCount: number;
   pages: PdfPageInfo[];
   /** Glyph runs in flat-text order (internal geometry, exposed for hosts that draw previews). */
   runs: GlyphRun[];
   /** Parts that cannot be redacted (scanned pages, undecodable text); gate the export like docx. */
   unredactable: UnredactablePart[];
+  /** `unredactable` with one entry per page (before "pages 2-22" are joined); hand edits rebuild `unredactable` from it. */
+  unredactablePages?: UnredactablePart[];
   /** Parts the writer will drop from the output. */
   removed: RemovedPart[];
   warnings: string[];
@@ -38,6 +42,14 @@ export interface PdfExtraction {
   extraOcr?: ExtraOcrPage[];
   assets?: PdfAssetPaths;
   password?: string;
+  /**
+   * Hand edits this extraction carries (`applyPdfEdits`): its text, pages and runs are those of the
+   * file without the removed pages and the hidden areas, and the writer leaves both out. Absent on
+   * an extraction as read.
+   */
+  edits?: PdfEdits;
+  /** With `edits`: the extraction as read, which every new set of edits is applied to. */
+  unedited?: PdfExtraction;
 }
 
 export type PdfInput = Blob | ArrayBuffer | Uint8Array;
@@ -146,12 +158,13 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
         return !(m && scanned.has(Number(m[1]) - 1));
       });
     }
-    return {
+    const extraction: PdfExtraction = {
       plainText: res.plainText,
       pageCount: res.pages.length,
       pages: res.pages,
       runs: res.runs,
       unredactable: res.unredactable,
+      unredactablePages: res.unredactablePages,
       removed: res.removed,
       warnings: res.warnings,
       empty: res.empty,
@@ -161,6 +174,7 @@ export async function readPdf(input: PdfInput, options: PdfReadOptions = {}): Pr
       password: options.password,
       ...(extraOcr.length > 0 ? { extraOcr } : {}),
     };
+    return options.edits ? applyPdfEdits(extraction, options.edits).extraction : extraction;
   } finally {
     await oracle.close();
   }

@@ -8,18 +8,47 @@
 
 import { PDFDocument, PDFRawStream, PDFHexString, PDFString, PDFDict, PDFArray, PDFStream, PDFName } from '@cantoo/pdf-lib';
 import type { PDFObject } from '@cantoo/pdf-lib';
-import { decodeStream, isImageEncoded, namesOf } from './objects.ts';
+import { decodeStream, getDict, getName, isImageEncoded, namesOf } from './objects.ts';
 import { extractPdf } from './extract.ts';
-import { findOccurrences, searchIndex } from './oracle.ts';
+import type { ExtractionResult } from './extract.ts';
+import { findOccurrences, normalizeForCompare, searchIndex } from './oracle.ts';
 import type { SearchIndex } from './oracle.ts';
 import { lexContent } from './lexer.ts';
 import type { Operand } from './lexer.ts';
-import type { OracleDocument } from './oracle.ts';
+import type { CanvasFactory, OracleDocument } from './oracle.ts';
+import { streamFingerprint } from './carryover.ts';
+import { glyphsHitRects } from './edits.ts';
+import { userRectToPixels } from './raster.ts';
+import type { GlyphRun, PdfRegion } from './types.ts';
 
 export interface VerifyFinding {
-  pass: 'own-extractor' | 'oracle' | 'stream-bytes' | 'string-bytes' | 'code-sequence';
+  pass:
+    | 'own-extractor' | 'oracle' | 'stream-bytes' | 'string-bytes' | 'code-sequence'
+    // Hand edits (WLojek/DocCloak.Core#6): a page left out that is still there, an area hidden that still shows.
+    | 'page-count' | 'removed-page' | 'foreign-stream' | 'region-page' | 'region-pixels' | 'region-text';
   needle: string;
   where: string;
+}
+
+/**
+ * What the output of a file with hand edits must look like. Page indexes and rectangles are those
+ * of the OUTPUT (the writer maps them from the file as read).
+ */
+export interface VerifyEdits {
+  /** Pages the output must have: those of the input without the removed ones. */
+  pageCount: number;
+  /** Text of every page left out. */
+  removedTexts: string[];
+  /** Text the output may hold: the kept pages' text as analysed, and as it should read with the replacements made. */
+  keptTexts: string[];
+  /** Fingerprints (`streamFingerprint`) of the input's streams that only pages left out of the copy reach. */
+  foreignStreams: string[];
+  /** 0-based output pages that must be a picture and nothing else: those exported for a hidden area. */
+  picturePages: number[];
+  /** The hidden areas, by output page and in its user space. */
+  regions: PdfRegion[];
+  /** Node hosts and tests: canvas factory for rendering the output. Browsers use OffscreenCanvas. */
+  canvasFactory?: CanvasFactory;
 }
 
 export class PdfVerifyError extends Error {
@@ -41,13 +70,15 @@ export interface VerifyInput {
   oracle?: OracleDocument;
   /** Placeholder texts written into the output: a value found only inside one of them ("We" in "[WE]") is not a trace. */
   placeholders?: string[];
+  /** Hand edits the output must show (needs `oracle` to render the hidden areas). */
+  edits?: VerifyEdits;
 }
 
 /** Run every pass; returns the findings (empty when clean). */
 export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
   const findings: VerifyFinding[] = [];
   const needles = uniqueNeedles(input.needles);
-  if (needles.length === 0) return findings;
+  if (needles.length === 0 && !input.edits) return findings;
   const placeholders = uniqueNeedles(input.placeholders ?? []);
   // Occurrences of a needle that lie inside a placeholder holding that needle ("Name" in "[NAME]") are the placeholder, not the value.
   const outsidePlaceholders = (index: SearchIndex, needle: string): boolean => {
@@ -66,8 +97,11 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
   // against pdf.js page by page. Pages both extractors read identically are settled by this pass.
   let ownExtractorFailed = false;
   let unsettled: Set<number> | null = null; // pages pass 2 must still search (null: all of them)
+  let ours: ExtractionResult | undefined;
+  /** pdf.js's reading of the pages our extractor could not settle, for the removed-page check. */
+  const oracleTexts: string[] = [];
   try {
-    const ours = await extractPdf(input.bytes, { maxBytes: Number.MAX_SAFE_INTEGER, maxPages: Number.MAX_SAFE_INTEGER, oracle: input.oracle });
+    ours = await extractPdf(input.bytes, { maxBytes: Number.MAX_SAFE_INTEGER, maxPages: Number.MAX_SAFE_INTEGER, oracle: input.oracle });
     const index = searchIndex(ours.plainText);
     for (const n of needles) if (outsidePlaceholders(index, n)) findings.push({ pass: 'own-extractor', needle: n, where: 'text' });
     if (input.oracle) {
@@ -85,7 +119,7 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
 
   // Pass 2: pdf.js, for pages our extractor could not settle (its own spacing heuristics would
   // otherwise report "Jan" inside a kerned "Janusz").
-  if (input.oracle) {
+  if (input.oracle && (needles.length > 0 || (input.edits?.removedTexts.length ?? 0) > 0)) {
     for (let p = 0; p < input.oracle.pageCount; p++) {
       if (unsettled && !unsettled.has(p)) continue;
       let text: string;
@@ -98,10 +132,15 @@ export async function verifyPdf(input: VerifyInput): Promise<VerifyFinding[]> {
         findings.push({ pass: 'oracle', needle: '', where: `page ${p + 1} unreadable by pdf.js: ${(err as Error).message ?? String(err)}` });
         continue;
       }
+      oracleTexts.push(text);
       const index = searchIndex(text);
       for (const n of needles) if (outsidePlaceholders(index, n)) findings.push({ pass: 'oracle', needle: n, where: `page ${p + 1}` });
     }
   }
+
+  // Hand edits: removed pages gone, hidden areas black, nothing of either carried along.
+  if (input.edits && ours) findings.push(...await verifyEdits(input.edits, ours, oracleTexts, input.oracle));
+  if (needles.length === 0) return dedupe(findings);
 
   // Pass 3-5: bytes of every decoded stream, every string object, and the raw file. A needle that a
   // placeholder contains is left to the text passes (its bytes are in every placeholder).
@@ -471,4 +510,160 @@ function withoutHexStrings(decoded: Uint8Array): Uint8Array {
     out.push(decoded[i]);
   }
   return new Uint8Array(out);
+}
+
+/* ------------------------------------------------------------------ */
+/* Hand edits                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Characters (whitespace left out) that must match for a piece of a removed page to count as found in the output. */
+const REMOVED_GRAM = 8;
+/** A removed page with less text than a gram is searched for whole, from this many characters. */
+const REMOVED_MIN = 4;
+/** The output is rendered at this scale (144 dpi) to look at the hidden areas. */
+const REGION_SCALE = 2;
+/** Pixels left out at each edge of a hidden area (anti-aliasing where the picture was resampled). */
+const REGION_INSET_PX = 2;
+/** A painted pixel is black: no channel above this (resampling noise). */
+const REGION_DARK = 24;
+/** Text counts as inside a hidden area when it reaches this far into it (points): shows end where the area begins. */
+const REGION_TEXT_INSET = 0.5;
+/** What a page exported for a hidden area may hold: one picture and invisible text. */
+const PICTURE_PAGE_OPS: ReadonlySet<string> = new Set(['q', 'Q', 'cm', 'Do', 'BT', 'ET', 'Tr', 'Tf', 'Tz', 'Tm', 'Tj']);
+
+async function verifyEdits(edits: VerifyEdits, ours: ExtractionResult, oracleTexts: string[], oracle?: OracleDocument): Promise<VerifyFinding[]> {
+  const findings: VerifyFinding[] = [];
+  const { model } = ours;
+
+  // 1. As many pages as were kept.
+  if (model.pages.length !== edits.pageCount) {
+    findings.push({ pass: 'page-count', needle: '', where: `the output has ${model.pages.length} pages, ${edits.pageCount} were kept` });
+  }
+  if (oracle && oracle.pageCount !== edits.pageCount) {
+    findings.push({ pass: 'page-count', needle: '', where: `pdf.js sees ${oracle.pageCount} pages, ${edits.pageCount} were kept` });
+  }
+
+  // 2. No text of a removed page that the kept pages do not hold themselves.
+  const pieces = removedTextIn(edits.removedTexts, edits.keptTexts, [ours.plainText, ...oracleTexts]);
+  if (pieces.length > 0) findings.push({ pass: 'removed-page', needle: pieces[0], where: `text (${pieces.length} pieces of a removed page)` });
+
+  // 3. No stream that only a page left out of the copy uses (its picture, its form, its font).
+  if (edits.foreignStreams.length > 0) {
+    const foreign = new Set(edits.foreignStreams);
+    const lengths = new Set(edits.foreignStreams.map((k) => Number(k.slice(0, k.indexOf('.')))));
+    for (const [ref, obj] of model.ctx.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFRawStream) || !lengths.has(obj.contents.length)) continue;
+      if (foreign.has(streamFingerprint(obj.contents))) {
+        findings.push({ pass: 'foreign-stream', needle: '', where: `obj ${ref.objectNumber} is a stream only a page left out of the output uses` });
+      }
+    }
+  }
+
+  // 4. A page exported for a hidden area is one picture with invisible text: nothing live lies under the black.
+  for (const p of edits.picturePages) {
+    const why = notAPicture(ours, p);
+    if (why) findings.push({ pass: 'region-page', needle: '', where: `page ${p + 1} is not a plain picture: ${why}` });
+  }
+
+  // 5. Every hidden area is black in the rendered output, and no text lies in it.
+  const byPage = new Map<number, PdfRegion[]>();
+  for (const r of edits.regions) byPage.set(r.page, [...(byPage.get(r.page) ?? []), r]);
+  for (const [p, regions] of byPage) {
+    if (!oracle) {
+      findings.push({ pass: 'region-pixels', needle: '', where: `page ${p + 1}: the hidden areas cannot be checked without a renderer` });
+      continue;
+    }
+    let rendered: Awaited<ReturnType<OracleDocument['render']>>;
+    let rgba: Uint8ClampedArray;
+    try {
+      rendered = await oracle.render(p, REGION_SCALE, edits.canvasFactory);
+      rgba = rendered.canvas.getImageData();
+    } catch (err) {
+      // An output page that cannot be rendered cannot be shown to be black: fail closed.
+      findings.push({ pass: 'region-pixels', needle: '', where: `page ${p + 1} cannot be rendered: ${(err as Error).message ?? String(err)}` });
+      continue;
+    }
+    const record = model.pages[p];
+    const runs: GlyphRun[] = [...ours.runs.filter((r) => r.page === p), ...(record?.ownRuns ?? [])];
+    for (const { rect } of regions) {
+      const at = `(${rect.x0.toFixed(1)}, ${rect.y0.toFixed(1)}) - (${rect.x1.toFixed(1)}, ${rect.y1.toFixed(1)})`;
+      const box = userRectToPixels(rendered.transform, rect);
+      const x0 = Math.max(0, box.x);
+      const y0 = Math.max(0, box.y);
+      const x1 = Math.min(rendered.widthPx, box.x + box.w);
+      const y1 = Math.min(rendered.heightPx, box.y + box.h);
+      // An area off the page shows nothing; a thin one keeps at least its middle row and column.
+      if (x1 > x0 && y1 > y0) {
+        const ix = Math.min(REGION_INSET_PX, Math.floor((x1 - x0 - 1) / 2));
+        const iy = Math.min(REGION_INSET_PX, Math.floor((y1 - y0 - 1) / 2));
+        let light = 0;
+        for (let y = y0 + iy; y < y1 - iy; y++) {
+          for (let x = x0 + ix; x < x1 - ix; x++) {
+            const i = (y * rendered.widthPx + x) * 4;
+            if (rgba[i] > REGION_DARK || rgba[i + 1] > REGION_DARK || rgba[i + 2] > REGION_DARK) light++;
+          }
+        }
+        if (light > 0) findings.push({ pass: 'region-pixels', needle: '', where: `page ${p + 1}: the hidden area ${at} is not painted over (${light} pixels show through)` });
+      }
+      const e = Math.min(REGION_TEXT_INSET, (rect.x1 - rect.x0) / 4, (rect.y1 - rect.y0) / 4);
+      const inner = [{ x0: rect.x0 + e, y0: rect.y0 + e, x1: rect.x1 - e, y1: rect.y1 - e }];
+      const inside = runs.some((run) => !run.space && run.glyphs.some((g, i) => g.unicode.trim() !== '' && glyphsHitRects(run, i, i + 1, inner)));
+      if (inside) findings.push({ pass: 'region-text', needle: '', where: `page ${p + 1}: text lies inside the hidden area ${at}` });
+    }
+  }
+  return findings;
+}
+
+/**
+ * Pieces of the removed pages' text that turn up in the output although no kept page holds them.
+ * Texts are compared without whitespace. A removed page's text is cut into every run of
+ * REMOVED_GRAM characters; one of them in the output is a trace unless the kept text has it too
+ * (a letterhead on every page, a sentence two pages share).
+ */
+function removedTextIn(removed: string[], kept: string[], outputs: string[]): string[] {
+  const grams = new Set<string>();
+  const short: string[] = [];
+  for (const r of removed) {
+    const t = normalizeForCompare(r);
+    if (t.length < REMOVED_MIN) continue;
+    if (t.length < REMOVED_GRAM) { short.push(t); continue; }
+    for (let i = 0; i + REMOVED_GRAM <= t.length; i++) grams.add(t.slice(i, i + REMOVED_GRAM));
+  }
+  if (grams.size === 0 && short.length === 0) return [];
+  const hits = new Set<string>();
+  for (const o of outputs) {
+    const t = normalizeForCompare(o);
+    if (grams.size > 0) for (let i = 0; i + REMOVED_GRAM <= t.length; i++) { const g = t.slice(i, i + REMOVED_GRAM); if (grams.has(g)) hits.add(g); }
+    for (const sh of short) if (t.includes(sh)) hits.add(sh);
+  }
+  for (const k of kept) {
+    if (hits.size === 0) break;
+    const t = normalizeForCompare(k);
+    for (let i = 0; i + REMOVED_GRAM <= t.length && hits.size > 0; i++) hits.delete(t.slice(i, i + REMOVED_GRAM));
+    for (const sh of short) if (hits.has(sh) && t.includes(sh)) hits.delete(sh);
+  }
+  return [...hits];
+}
+
+/** Why output page `p` is not "one picture and invisible text", or null when it is. */
+function notAPicture(ours: ExtractionResult, p: number): string | null {
+  const { model } = ours;
+  const record = model.pages[p];
+  if (!record) return 'the page is missing';
+  if (record.streams.length !== 1) return 'it draws a form, a pattern or a soft mask';
+  const stream = model.streams.get(record.streams[0]);
+  if (!stream) return 'its content cannot be read';
+  const xobjects = getDict(model.ctx, stream.resources, 'XObject');
+  for (const op of stream.ops) {
+    if (!PICTURE_PAGE_OPS.has(op.op)) return op.op === '' ? 'content that cannot be parsed' : `operator ${op.op}`;
+    if (op.op === 'Do') {
+      const name = op.operands[0];
+      const drawn = name?.kind === 'name' ? getDict(model.ctx, xobjects, name.value) : undefined;
+      if (!drawn || getName(model.ctx, drawn, 'Subtype') !== 'Image') return 'it draws something that is not an image';
+    }
+  }
+  // Whatever text the page holds paints nothing (render mode 3).
+  const runs = record.ownRuns ?? ours.runs.filter((r) => r.page === p);
+  if (runs.some((r) => r.renderMode !== 3)) return 'it shows text';
+  return null;
 }

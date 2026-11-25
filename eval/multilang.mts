@@ -5,7 +5,7 @@
  *   npm run bench:multilang
  *   node --experimental-strip-types eval/multilang.mts --provider gliner --lang pl,de --limit 5
  *
- * Providers: all | gliner | gliner-base | bardsai | bardsai-v2 | bardsai-v3 | gliner2-pii | gliner2-pii-yethdev | openai-pf
+ * Providers: all | gliner | gliner-base | bardsai | bardsai-v2 | bardsai-v3 | bardsai-v3-gpu | gliner2-pii | gliner2-pii-yethdev | openai-pf
  * Langs:     all | comma,list (subset of the 14 corpus languages)
  * Limit:     max docs per language (after the lang filter)
  *
@@ -37,8 +37,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CACHE = join(HERE, 'data', 'cache');
 const RESULTS = join(HERE, 'results');
 
-type ProviderId = 'gliner' | 'gliner-base' | 'bardsai' | 'bardsai-v2' | 'bardsai-v3' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
-const ALL_PROVIDERS: ProviderId[] = ['gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf'];
+type ProviderId = 'gliner' | 'gliner-base' | 'bardsai' | 'bardsai-v2' | 'bardsai-v3' | 'bardsai-v3-gpu' | 'gliner2-pii' | 'gliner2-pii-yethdev' | 'openai-pf';
+const ALL_PROVIDERS: ProviderId[] = ['gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'bardsai-v3-gpu', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf'];
 
 /**
  * Local graph files for models whose browser graph does not run in Node:
@@ -79,6 +79,12 @@ async function createProvider(id: ProviderId, env: CoreEnv): Promise<DetectionPr
   if (id === 'gliner-base') {
     const { GlinerBaseProvider } = await import('../src/providers/gliner-base.ts');
     return new GlinerBaseProvider(env);
+  }
+  if (id === 'bardsai-v3-gpu') {
+    // T279: the float graph the browser runs on WebGPU; here on the CPU kernels (Node has no
+    // WebGPU), which scores the weights. WebGPU differs from them by rounding only.
+    const { BardsaiV2Provider } = await import('../src/providers/bardsai-v2.ts');
+    return new BardsaiV2Provider(env, { variant: 'v3-gpu', executionProvider: 'wasm' });
   }
   if (id === 'bardsai-v2' || id === 'bardsai-v3') {
     const { BardsaiV2Provider } = await import('../src/providers/bardsai-v2.ts');

@@ -45,6 +45,12 @@ describe('model files per provider (T250)', () => {
       }
     }
     expect(providerFileSets('openai-pf', BASE)).toHaveLength(2);
+    // T279: the full-precision v3 shares v3's tokenizer files and differs in the graph alone.
+    const [quantized, ...quantizedTokenizer] = providerFileSets('bardsai-v3', BASE)[0];
+    const [full, ...fullTokenizer] = providerFileSets('bardsai-v3-gpu', BASE)[0];
+    expect(fullTokenizer).toEqual(quantizedTokenizer);
+    expect(full.url).not.toBe(quantized.url);
+    expect(full.size).toBe(1_230_934_625);
     expect(providerFileSets('gliner2-pii', BASE)[0][0].url).toBe(`${BASE}models/gliner2/model_q8_dynlabels.onnx`);
   });
 

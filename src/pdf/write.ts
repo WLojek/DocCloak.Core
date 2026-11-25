@@ -20,9 +20,20 @@
  *    pages whose OCR text layer holds a redacted value are rendered at the
  *    scan's resolution with each value covered and its placeholder painted in;
  * 7. verify the output with both extractors and a byte scan; refuse on any trace.
+ *
+ * Hand edits (WLojek/DocCloak.Core#6, see edits.ts): when the extraction carries them, step 1
+ * applies the same edits to the fresh extraction before the texts are compared; a removed page is
+ * not copied; a page with a hidden area is exported as a picture (as in step 6) with the area and
+ * every letter it touches painted black in the pixels; and step 7 also checks the page count,
+ * that nothing of a removed page came along and that every hidden area is black.
+ *
+ * Whenever a page is not copied (painted in step 6, or removed), what only such pages use is taken
+ * out of the resources the copied pages share with them before step 5 (carryover.ts), and step 7
+ * refuses an output that holds a stream only those pages reach: the original scan of a painted
+ * page must not ship as an object nothing draws.
  */
 
-import { PDFDict, PDFDocument, PDFName, PDFRawStream, PDFString, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from '@cantoo/pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFStream, PDFString, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from '@cantoo/pdf-lib';
 import { PDFRef } from '@cantoo/pdf-lib';
 import { UnsupportedDocumentError } from '../dom/errors.ts';
 import type { ValueReplacement } from '../docx.ts';
@@ -42,12 +53,16 @@ import { serializeToUnicode } from './cmap.ts';
 import type { ToUnicodeEntry } from './cmap.ts';
 import { planEdits, rewriteStream, segmentsFor } from './surgery.ts';
 import type { PlaceholderResolver, Segment } from './surgery.ts';
-import type { GlyphRun, PdfWriteOptions, PdfWriteResult, Rect } from './types.ts';
+import type { Glyph, GlyphRun, PdfRegion, PdfWriteOptions, PdfWriteResult, Rect } from './types.ts';
 import { PdfVerifyError, verifyPdf } from './verify.ts';
+import type { VerifyEdits } from './verify.ts';
 import type { PdfExtraction } from './read.ts';
 import { lexContent } from './lexer.ts';
-import { mul } from './textstate.ts';
+import { apply, mul } from './textstate.ts';
 import type { Matrix } from './types.ts';
+import { baselineBoxHitsRects, editedRangeToBase, glyphsHitRects, isEmptyEdits, resolvePdfEdits } from './edits.ts';
+import type { ResolvedEdits } from './edits.ts';
+import { dropForeignResources } from './carryover.ts';
 
 /** Scan pages render at the scan's own resolution, up to this. */
 const MAX_SCAN_DPI = 300;
@@ -103,18 +118,37 @@ export async function writeAnonymizedPdfWithReport(
       await oracle.close();
       throw err;
     }
-    if (fresh.plainText !== extraction.plainText) {
+    // Hand edits the extraction carries are applied to the fresh extraction the same way the host
+    // applied them: the analysed text is the edited one, and it must come out the same here.
+    let edits: ResolvedEdits | null = null;
+    try {
+      if (!isEmptyEdits(extraction.edits)) edits = resolvePdfEdits(fresh, extraction.edits!);
+    } catch {
+      // Edits that do not fit this file (a page it does not have) belong to another analysis.
+      await oracle.close();
+      throw new StalePdfExtractionError();
+    }
+    const analysed = edits ? edits.plainText : fresh.plainText;
+    if (analysed !== extraction.plainText) {
       await oracle.close();
       throw new StalePdfExtractionError();
     }
     const model = fresh.model;
+    const removedPages = edits ? edits.removed : new Set<number>();
+    const regionPages = new Set(edits ? edits.regions.keys() : []);
 
     try {
-      // 2. Layer zero: every occurrence of every value.
-      const all = normalizeReplacements(withLayerZero(fresh.plainText, replacements, valueReplacements));
+      // 2. Layer zero: every occurrence of every value (in the text as analysed).
+      const located = normalizeReplacements(withLayerZero(analysed, replacements, valueReplacements));
       const needles = new Set<string>();
-      for (const r of all) needles.add(fresh.plainText.slice(r.start, r.end));
+      for (const r of located) needles.add(analysed.slice(r.start, r.end));
       for (const v of valueReplacements) if (v.value.trim().length >= 2) needles.add(v.value);
+      // From here on everything works on the file as read: each range of the edited text becomes
+      // the piece or pieces of the full text it stands for. A piece never holds text that was taken
+      // out, so no replacement can land on a removed page or on a letter hidden by hand.
+      const all = edits
+        ? located.flatMap((r) => editedRangeToBase(edits.kept, r.start, r.end).map(([start, end]) => ({ start, end, replacement: r.replacement })))
+        : located;
 
       // 3. Segments and plan.
       const segments = segmentsFor(fresh.runs, all);
@@ -146,14 +180,19 @@ export async function writeAnonymizedPdfWithReport(
       for (const s of segments) editedPages.add(s.run.page);
       const rasterPages = new Set<number>();
       for (const page of model.pages) {
-        if (!editedPages.has(page.index)) continue;
+        if (!editedPages.has(page.index) && !regionPages.has(page.index)) continue;
         if (page.issues.length > 0 || page.oracleText) rasterPages.add(page.index);
       }
       // Scan pages: an edit in an OCR text layer would leave the value in the picture under it, so the
       // page is rendered and the value painted over where the layer says it is.
       const scanPages = new Set<number>();
       for (const s of segments) if (s.run.ocr && !rasterPages.has(s.run.page)) scanPages.add(s.run.page);
+      // A page with an area hidden by hand is exported the same way: a picture cannot keep anything
+      // under the black, and its values are painted over as on a scan (its text stays as a layer).
+      for (const p of regionPages) if (!rasterPages.has(p)) scanPages.add(p);
       const paintedPages = new Set([...rasterPages, ...scanPages]);
+      /** Pages whose content is not copied into the output: painted ones (a new picture) and removed ones. */
+      const notCopied = (p: number): boolean => paintedPages.has(p) || removedPages.has(p);
       // Text in a pattern cell or soft-mask group cannot be blacked out in a raster (the cell is tiled
       // over its fill area, the group sits behind a mask): such a page must be edited in place or not at all.
       const hostile = [...paintedPages].filter((p) => model.pages[p]?.hostile);
@@ -194,8 +233,8 @@ export async function writeAnonymizedPdfWithReport(
       for (const key of streamsToRewrite) {
         const stream = model.streams.get(key);
         if (!stream) continue;
-        if ([...stream.pages].every((p) => paintedPages.has(p))) continue;
-        const segs = (plan.byStream.get(key) ?? []).filter((s) => !paintedPages.has(s.run.page));
+        if ([...stream.pages].every(notCopied)) continue;
+        const segs = (plan.byStream.get(key) ?? []).filter((s) => !notCopied(s.run.page));
         const result = rewriteStream(model, stream, runsByStreamOp.get(key) ?? new Map(), segs, plan.shiftedRuns);
         for (const [k, codes] of result.usedCodes) mergeCodes(usedCodes, k, codes);
         removedSequences.push(...result.removedSequences);
@@ -214,20 +253,55 @@ export async function writeAnonymizedPdfWithReport(
       scrubSourceSideChannels(model);
 
       // 5. Rebuild into the fresh document.
-      const keptIndexes = model.pages.map((p) => p.index).filter((i) => !paintedPages.has(i));
+      const keptIndexes = model.pages.map((p) => p.index).filter((i) => !notCopied(i));
+      // What only the pages not copied use must not ride along in resources the copied pages share
+      // with them: the original of a painted page (the scan with the values still in its pixels, the
+      // form with the text a raster blacked out), the picture of a removed page.
+      const leftOut = model.pages.map((p) => p.index).filter(notCopied);
+      const foreignStreams = leftOut.length > 0 ? dropForeignResources(model, keptIndexes, leftOut) : [];
       const copied = keptIndexes.length > 0 ? await outDoc.copyPages(model.doc, keptIndexes) : [];
       const copiedByIndex = new Map<number, (typeof copied)[number]>();
       keptIndexes.forEach((idx, k) => copiedByIndex.set(idx, copied[k]));
 
       const rasterized: number[] = [];
       const scanned: number[] = [];
+      /** Hidden areas as they lie on the output's pages, for the verifier. */
+      const outRegions: PdfRegion[] = [];
+      const picturePages: number[] = [];
+      let outIndex = -1;
       const sortedReplacements = [...all].sort((a, b) => a.start - b.start || a.end - b.end); // segmentsFor's order
       for (const page of model.pages) {
+        if (removedPages.has(page.index)) continue;
+        outIndex++;
+        const hiddenAreas = edits?.regions.get(page.index) ?? [];
+        // The letters a hidden area touches, as stretches of their runs: painted over whole.
+        const hiddenLetters: Segment[] = hiddenAreas.length > 0
+          ? edits!.stretches.filter((st) => st.run.page === page.index).map((st, i) => ({ run: st.run, from: st.from, to: st.to, replacementIndex: i }))
+          : [];
+        const noteHiddenAreas = (raster: { transform: number[]; widthPx: number; heightPx: number; widthPt: number; heightPt: number }): void => {
+          if (hiddenAreas.length === 0) return;
+          picturePages.push(outIndex);
+          const m = pictureMatrix(raster);
+          for (const rect of hiddenAreas) {
+            const corners = [apply(m, rect.x0, rect.y0), apply(m, rect.x1, rect.y0), apply(m, rect.x0, rect.y1), apply(m, rect.x1, rect.y1)];
+            const xs = corners.map((c) => c[0]);
+            const ys = corners.map((c) => c[1]);
+            // Only the part on the page can be looked at.
+            const on = { x0: Math.max(0, Math.min(...xs)), y0: Math.max(0, Math.min(...ys)), x1: Math.min(raster.widthPt, Math.max(...xs)), y1: Math.min(raster.heightPt, Math.max(...ys)) };
+            if (on.x1 > on.x0 && on.y1 > on.y0) outRegions.push({ page: outIndex, rect: on });
+          }
+        };
+        const areas = `${hiddenAreas.length} ${hiddenAreas.length === 1 ? 'area' : 'areas'} hidden by hand, painted black in the picture`;
         if (scanPages.has(page.index)) {
           const marks = withTextColumn(paintMarksForPage(segments, page.index, sortedReplacements), extraction.runs, page.index);
+          // Hidden letters of an OCR layer are covered like a value, on the ink the picture shows (the
+          // layer's letter boxes are estimates), but in black and without a label; letters of real
+          // text are where their glyphs say, and get a black box each.
+          for (const m of paintMarksForPage(hiddenLetters.filter((h) => h.run.ocr), page.index, [])) marks.push({ ...m, label: '', labelEnd: undefined, black: true });
+          const black = hiddenAreas.length > 0 ? [...boxesForPage(hiddenLetters.filter((h) => !h.run.ocr), page.index, fresh.runs), ...hiddenAreas] : [];
           let raster: Awaited<ReturnType<typeof rasterizeScanPage>>;
           try {
-            raster = await rasterizeScanPage(oracle, page.index, marks, { dpi: scanDpi(page, options.rasterDpi), canvasFactory: options.canvasFactory });
+            raster = await rasterizeScanPage(oracle, page.index, marks, { dpi: scanDpi(page, options.rasterDpi), canvasFactory: options.canvasFactory, boxes: black });
           } catch (err) {
             throw new UnsupportedDocumentError('unredactable-parts', `page ${page.index + 1} cannot be rendered: ${(err as Error).message ?? String(err)}`, [`page ${page.index + 1}`]);
           }
@@ -245,22 +319,23 @@ export async function writeAnonymizedPdfWithReport(
           newPage.pushOperators(pushGraphicsState(), concatTransformationMatrix(raster.widthPt, 0, 0, raster.heightPt, 0, 0), drawObject(name), popGraphicsState());
           // The page stays searchable: its text, values replaced by their placeholders, as an
           // invisible layer over the picture (as the scan's own OCR layer was).
-          // Source user space -> picture pixels (the render) -> the picture page's user space.
-          const [ta, tb, tc, td, te, tf] = raster.transform;
-          const sx = raster.widthPt / raster.widthPx;
-          const sy = raster.heightPt / raster.heightPx;
-          const toPage: Matrix = [sx * ta, -sy * tb, sx * tc, -sy * td, sx * te, raster.heightPt - sy * tf];
-          const layer = await searchableTextLayer(fresh.runs, segments, page.index, sortedReplacements, embedder, toPage);
+          const toPage = pictureMatrix(raster);
+          const hidden = hiddenAreas.length > 0 ? { letters: edits!.dropped, areas: hiddenAreas } : undefined;
+          const layer = await searchableTextLayer(fresh.runs, segments, page.index, sortedReplacements, embedder, toPage, hidden);
           if (layer) {
             newPage.node.setFontDictionary(PDFName.of(layer.fontName), layer.fontRef);
             newPage.node.addContentStream(outDoc.context.register(outDoc.context.flateStream(layer.content)));
           }
           scanned.push(page.index);
-          warnings.push(`page ${page.index + 1}: scan with an OCR text layer; the values are painted over in the picture with their placeholders and the page is exported as an image, with its text (placeholders in place of the values) as an invisible layer`);
+          noteHiddenAreas(raster);
+          warnings.push(hiddenAreas.length > 0
+            ? `page ${page.index + 1}: ${areas}; the page is exported as an image, with its text (placeholders in place of the values) as an invisible layer`
+            : `page ${page.index + 1}: scan with an OCR text layer; the values are painted over in the picture with their placeholders and the page is exported as an image, with its text (placeholders in place of the values) as an invisible layer`);
           continue;
         }
         if (rasterPages.has(page.index)) {
           const boxes = boxesForPage(segments, page.index, fresh.runs, page, [...needles]);
+          if (hiddenAreas.length > 0) boxes.push(...boxesForPage(hiddenLetters, page.index, fresh.runs), ...hiddenAreas);
           const dpi = options.rasterDpi ?? 150;
           let raster: Awaited<ReturnType<typeof rasterizePage>>;
           try {
@@ -273,7 +348,9 @@ export async function writeAnonymizedPdfWithReport(
           const newPage = outDoc.addPage([raster.widthPt, raster.heightPt]);
           newPage.drawImage(img, { x: 0, y: 0, width: raster.widthPt, height: raster.heightPt });
           rasterized.push(page.index);
+          noteHiddenAreas(raster);
           warnings.push(`page ${page.index + 1}: rasterized (${page.issues[0] ?? 'unsafe to edit'}); its text layer is gone`);
+          if (hiddenAreas.length > 0) warnings.push(`page ${page.index + 1}: ${areas}`);
           continue;
         }
         const cp = copiedByIndex.get(page.index);
@@ -299,7 +376,43 @@ export async function writeAnonymizedPdfWithReport(
       stampMetadata(outDoc);
 
       const bytes = await outDoc.save({ useObjectStreams: false, updateFieldAppearances: false, addDefaultPage: false });
-      return { bytes, needles: [...needles], removedSequences, rasterized, scanned, shiftedLines: plan.shiftedLines, removed: fresh.removed, placeholders: [...new Set(all.map((r) => r.replacement))] };
+      // What the verifier holds the output against when pages were left out of the copy: always the
+      // page count and the streams only those pages reach; with hand edits also the removed text
+      // and the hidden areas.
+      let expected: VerifyEdits | undefined;
+      if (!edits && foreignStreams.length > 0) {
+        expected = { pageCount: fresh.pages.length, removedTexts: [], keptTexts: [], foreignStreams, picturePages: [], regions: [] };
+      }
+      if (edits) {
+        const chunkEnd = (p: number): number => (p + 1 < fresh.pages.length ? fresh.pages[p + 1].textStart : fresh.plainText.length);
+        const removedTexts: string[] = [];
+        for (const p of removedPages) {
+          removedTexts.push(fresh.plainText.slice(fresh.pages[p].textStart, chunkEnd(p)));
+          // Our own reading of a page whose text came from pdf.js is text of the page too.
+          const own = model.pages[p].ownText;
+          if (own) removedTexts.push(own);
+        }
+        let redacted = '';
+        let at = 0;
+        for (const r of located) {
+          redacted += analysed.slice(at, r.start) + r.replacement;
+          at = r.end;
+        }
+        redacted += analysed.slice(at);
+        expected = {
+          pageCount: fresh.pages.length - removedPages.size,
+          removedTexts,
+          keptTexts: [analysed, redacted],
+          foreignStreams,
+          picturePages,
+          regions: outRegions,
+          canvasFactory: options.canvasFactory,
+        };
+      }
+      return {
+        bytes, needles: [...needles], removedSequences, rasterized, scanned, shiftedLines: plan.shiftedLines, removed: fresh.removed, placeholders: [...new Set(all.map((r) => r.replacement))],
+        expected, removedPages: [...removedPages].sort((a, b) => a - b), regionPages: [...regionPages].sort((a, b) => a - b),
+      };
     } finally {
       await oracle.close();
     }
@@ -310,7 +423,7 @@ export async function writeAnonymizedPdfWithReport(
     const outOracle = await openWithOracle(produced.bytes, assets);
     let findings;
     try {
-      findings = await verifyPdf({ bytes: produced.bytes, needles: produced.needles, removedSequences: produced.removedSequences, oracle: outOracle, placeholders: produced.placeholders });
+      findings = await verifyPdf({ bytes: produced.bytes, needles: produced.needles, removedSequences: produced.removedSequences, oracle: outOracle, placeholders: produced.placeholders, edits: produced.expected });
     } finally {
       await outOracle.close();
     }
@@ -323,8 +436,21 @@ export async function writeAnonymizedPdfWithReport(
     removed: produced.removed,
     rasterizedPages: produced.rasterized,
     scanPages: produced.scanned,
+    removedPages: produced.removedPages,
+    regionPages: produced.regionPages,
     shiftedLines: produced.shiftedLines,
   };
+}
+
+/**
+ * Source user space to the user space of the picture page a render becomes: through the render's
+ * pixels (`transform`, with rotation and crop box) and the picture's size in points.
+ */
+function pictureMatrix(raster: { transform: number[]; widthPx: number; heightPx: number; widthPt: number; heightPt: number }): Matrix {
+  const [ta, tb, tc, td, te, tf] = raster.transform;
+  const sx = raster.widthPt / raster.widthPx;
+  const sy = raster.heightPt / raster.heightPx;
+  return [sx * ta, -sy * tb, sx * tc, -sy * td, sx * te, raster.heightPt - sy * tf];
 }
 
 /* ------------------------------------------------------------------ */
@@ -561,17 +687,47 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
  * XMP streams on XObjects, fonts or anything else (/Metadata), optional-content group names
  * (/Name of an OCG or OCMD), font descriptor strings (/FontFamily, /CharSet) and /PieceInfo.
  * None of them is needed to render the page; all of them can carry text.
+ *
+ * What hangs under a dropped entry goes with it: an application's private data under /PieceInfo
+ * (Illustrator keeps a copy of the whole drawing there) is a stream of its own, and pdf-lib
+ * writes every object of the context whether anything refers to it or not.
  */
 function scrubOutputObjects(outDoc: PDFDocument): void {
   const ctx = outDoc.context;
+  const under = new Set<PDFRef>();
   for (const [, obj] of ctx.enumerateIndirectObjects()) {
     const dict = obj instanceof PDFRawStream ? obj.dict : obj instanceof PDFDict ? obj : null;
     if (!dict) continue;
-    scrubDict(ctx, dict, new Set());
+    scrubDict(ctx, dict, new Set(), under);
+  }
+  if (under.size === 0) return;
+  // An object under a dropped entry that the document still uses elsewhere stays.
+  const reached = new Set<PDFRef>();
+  const { Root, Info, Encrypt, ID } = ctx.trailerInfo;
+  for (const root of [Root, Info, Encrypt, ID]) if (root) refsReachedFrom(ctx, root, reached);
+  for (const ref of under) if (!reached.has(ref)) ctx.delete(ref);
+}
+
+/** Every indirect reference `root` leads to (itself included when it is one), added to `into`. */
+function refsReachedFrom(ctx: PDFDocument['context'], root: PDFObject, into: Set<PDFRef>): void {
+  const stack: PDFObject[] = [root];
+  const seen = new Set<PDFObject>();
+  while (stack.length > 0) {
+    const raw = stack.pop()!;
+    if (raw instanceof PDFRef) {
+      if (into.has(raw)) continue;
+      into.add(raw);
+    }
+    const obj = raw instanceof PDFRef ? ctx.lookup(raw) : raw;
+    if (!obj || seen.has(obj)) continue;
+    seen.add(obj);
+    const dict = obj instanceof PDFStream ? obj.dict : obj instanceof PDFDict ? obj : null;
+    if (dict) for (const [, v] of dict.entries()) stack.push(v);
+    else if (obj instanceof PDFArray) for (let i = 0; i < obj.size(); i++) stack.push(obj.get(i));
   }
 }
 
-function scrubDict(ctx: PDFDocument['context'], dict: PDFDict, seen: Set<PDFDict>): void {
+function scrubDict(ctx: PDFDocument['context'], dict: PDFDict, seen: Set<PDFDict>, under: Set<PDFRef>): void {
   if (seen.has(dict)) return;
   seen.add(dict);
   const type = dict.get(PDFName.of('Type'));
@@ -582,6 +738,7 @@ function scrubDict(ctx: PDFDocument['context'], dict: PDFDict, seen: Set<PDFDict
     const v = dict.get(PDFName.of(key));
     if (v === undefined) continue;
     dict.delete(PDFName.of(key));
+    refsReachedFrom(ctx, v, under);
     if (v instanceof PDFRef) ctx.delete(v);
   }
   if (typeName === 'OCG' || typeName === 'OCMD') dict.set(PDFName.of('Name'), PDFString.of('Layer'));
@@ -591,7 +748,7 @@ function scrubDict(ctx: PDFDocument['context'], dict: PDFDict, seen: Set<PDFDict
   }
   for (const [, v] of dict.entries()) {
     const inner = v instanceof PDFDict ? v : undefined; // direct dictionaries only; indirect ones are enumerated
-    if (inner) scrubDict(ctx, inner, seen);
+    if (inner) scrubDict(ctx, inner, seen, under);
   }
 }
 
@@ -654,9 +811,14 @@ const MAX_LAYER_STRETCH = 1000;
  * stretched (Tz) over the run's width, so a reader can search and select the page as before and
  * the selection sits over the picture. `toPage` maps the source page's user space to the picture
  * page's (rotation and crop box included).
+ *
+ * `hidden` (a page with areas hidden by hand): the letters taken out are not written, and a run is
+ * written as one show per stretch of letters that stay, each ending before a hidden area begins,
+ * so no show lies across one.
  */
 async function searchableTextLayer(
   runs: GlyphRun[], segments: Segment[], page: number, replacements: Replacement[], embedder: FallbackFontEmbedder, toPage: Matrix,
+  hidden?: { letters: Set<Glyph>; areas: Rect[] },
 ): Promise<{ content: Uint8Array; fontName: string; fontRef: PDFRef } | null> {
   const pageRuns = runs.filter((r) => r.page === page && !r.space && r.glyphs.length > 0);
   if (pageRuns.length === 0) return null;
@@ -679,61 +841,93 @@ async function searchableTextLayer(
   const ops: string[] = ['q BT 3 Tr'];
   for (const run of pageRuns) {
     const segs = segsByRun.get(run) ?? [];
-    let text = '';
-    // The show starts at the first glyph that puts text in it: after the end of a value that began
-    // in an earlier show (Tesseract writes one show per word), the rest sits where it is printed.
-    let first = -1;
-    let labelAtEnd: Segment | null = null;
-    for (let i = 0; i < run.glyphs.length; i++) {
-      const seg = segs.find((s) => i >= s.from && i < s.to);
-      if (!seg) {
-        if (first < 0) first = i;
-        text += run.glyphs[i].unicode;
-        if (run.glyphs[i].unicode.trim() !== '') labelAtEnd = null;
-        continue;
-      }
-      if (i === seg.from && !labelled.has(seg.replacementIndex)) {
-        labelled.add(seg.replacementIndex);
-        if (first < 0) first = i;
-        text += replacements[seg.replacementIndex]?.replacement ?? '';
-        labelAtEnd = seg;
-      }
-    }
-    text = [...text.replace(/\s+/g, ' ')].map((ch) => (font.canShow(ch) ? ch : '?')).join('');
-    if (first < 0 || text.trim() === '') continue;
     const exLen = Math.hypot(run.emX[0], run.emX[1]) || 1;
     const eyLen = Math.hypot(run.emY[0], run.emY[1]) || 1;
     const ux = run.emX[0] / exLen;
     const uy = run.emX[1] / exLen;
     const vx = run.emY[0] / eyLen;
     const vy = run.emY[1] / eyLen;
-    const g0 = run.glyphs[first];
-    const along = (p: { x: number; y: number }): number => (p.x - g0.x) * ux + (p.y - g0.y) * uy;
     const size = Math.max(...run.glyphs.map((g) => g.fontSize));
-    let width = along(glyphEnd(run, run.glyphs.length - 1));
-    // A placeholder that ends the show while its value runs on into the next shows of the line
-    // spans the whole value, so it selects as one word with whatever follows it.
-    if (labelAtEnd) {
-      for (const s of segments) {
-        if (s.replacementIndex !== labelAtEnd.replacementIndex || s.run === run || s.run.page !== page || s.to <= s.from) continue;
-        const end = glyphEnd(s.run, s.to - 1);
-        const across = (end.x - g0.x) * vx + (end.y - g0.y) * vy;
-        if (Math.abs(across) < 0.4 * size) width = Math.max(width, along(end));
+    for (const [lo, hi] of showPieces(run, hidden)) {
+      let text = '';
+      // The show starts at the first glyph that puts text in it: after the end of a value that began
+      // in an earlier show (Tesseract writes one show per word), the rest sits where it is printed.
+      let first = -1;
+      let labelAtEnd: Segment | null = null;
+      for (let i = lo; i < hi; i++) {
+        const seg = segs.find((s) => i >= s.from && i < s.to);
+        if (!seg) {
+          if (first < 0) first = i;
+          text += run.glyphs[i].unicode;
+          if (run.glyphs[i].unicode.trim() !== '') labelAtEnd = null;
+          continue;
+        }
+        if (i === seg.from && !labelled.has(seg.replacementIndex)) {
+          labelled.add(seg.replacementIndex);
+          if (first < 0) first = i;
+          text += replacements[seg.replacementIndex]?.replacement ?? '';
+          labelAtEnd = seg;
+        }
       }
+      text = [...text.replace(/\s+/g, ' ')].map((ch) => (font.canShow(ch) ? ch : '?')).join('');
+      if (first < 0 || text.trim() === '') continue;
+      const g0 = run.glyphs[first];
+      const along = (p: { x: number; y: number }): number => (p.x - g0.x) * ux + (p.y - g0.y) * uy;
+      let width = along(glyphEnd(run, hi - 1));
+      // A placeholder that ends the show while its value runs on into the next shows of the line
+      // spans the whole value, so it selects as one word with whatever follows it.
+      if (labelAtEnd) {
+        let reach = width;
+        for (const s of segments) {
+          if (s.replacementIndex !== labelAtEnd.replacementIndex || s.run === run || s.run.page !== page || s.to <= s.from) continue;
+          const end = glyphEnd(s.run, s.to - 1);
+          const across = (end.x - g0.x) * vx + (end.y - g0.y) * vy;
+          if (Math.abs(across) < 0.4 * size) reach = Math.max(reach, along(end));
+        }
+        // Never across a hidden area that lies between the value's shows.
+        if (!hidden || !baselineBoxHitsRects([g0.x, g0.y], [ux, uy], [vx, vy], 0, reach, size, hidden.areas)) width = reach;
+      }
+      const natural = font.measure(text, size);
+      if (!(width > 0) || !(natural > 0) || !(size > 0)) continue;
+      const tz = (100 * width) / natural;
+      if (tz > MAX_LAYER_STRETCH) continue;
+      const hex = [...font.encode(text)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const n = (v: number): string => (Math.abs(v) < 1e-6 ? '0' : v.toFixed(4).replace(/\.?0+$/, ''));
+      // The run's text matrix, carried into the picture page's user space.
+      const tm = mul([ux * size, uy * size, vx * size, vy * size, g0.x, g0.y], toPage);
+      ops.push(`/${font.resourceName} 1 Tf ${n(tz)} Tz ${tm.map(n).join(' ')} Tm <${hex}> Tj`);
     }
-    const natural = font.measure(text, size);
-    if (!(width > 0) || !(natural > 0) || !(size > 0)) continue;
-    const tz = (100 * width) / natural;
-    if (tz > MAX_LAYER_STRETCH) continue;
-    const hex = [...font.encode(text)].map((b) => b.toString(16).padStart(2, '0')).join('');
-    const n = (v: number): string => (Math.abs(v) < 1e-6 ? '0' : v.toFixed(4).replace(/\.?0+$/, ''));
-    // The run's text matrix, carried into the picture page's user space.
-    const tm = mul([ux * size, uy * size, vx * size, vy * size, g0.x, g0.y], toPage);
-    ops.push(`/${font.resourceName} 1 Tf ${n(tz)} Tz ${tm.map(n).join(' ')} Tm <${hex}> Tj`);
   }
   if (ops.length === 1) return null;
   ops.push('ET Q');
   return { content: new TextEncoder().encode(ops.join('\n')), fontName: font.resourceName, fontRef: font.pdfFont.ref };
+}
+
+/**
+ * The stretches of a run's glyphs that the text layer of a painted page writes as one show each:
+ * the whole run, or with hidden areas the stretches between the letters taken out, cut again
+ * where a gap between two letters lies under an area.
+ */
+function showPieces(run: GlyphRun, hidden?: { letters: Set<Glyph>; areas: Rect[] }): Array<[number, number]> {
+  const n = run.glyphs.length;
+  if (!hidden) return [[0, n]];
+  const out: Array<[number, number]> = [];
+  let lo = -1;
+  for (let i = 0; i < n; i++) {
+    if (hidden.letters.has(run.glyphs[i])) {
+      if (lo >= 0) out.push([lo, i]);
+      lo = -1;
+      continue;
+    }
+    // Two neighbours that both stay, with an area in the gap between them.
+    if (lo >= 0 && glyphsHitRects(run, i - 1, i + 1, hidden.areas)) {
+      out.push([lo, i]);
+      lo = -1;
+    }
+    if (lo < 0) lo = i;
+  }
+  if (lo >= 0) out.push([lo, n]);
+  return out;
 }
 
 /**

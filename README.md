@@ -45,6 +45,7 @@ hosts):
 | `bardsai` | BardS.ai EU PII v1 (24+ EU languages, 35 PII types) | ~279 MB |
 | `bardsai-v2` | BardS.ai EU PII v2 (ModernBERT, 24 EU languages) | ~343 MB |
 | `bardsai-v3` | BardS.ai EU PII v3 (ModernBERT, adds dates and URLs) | ~343 MB |
+| `bardsai-v3-gpu` | BardS.ai EU PII v3, the unquantized graph on WebGPU (needs WebGPU; about 0.07 s for a 512-token window on an M4 Pro, also in a background tab) | ~1.27 GB |
 | `gliner2-pii` | GLiNER2 Privacy Filter, okasi export (custom labels; a 1 MB graph the host serves, see `CoreEnv.assetBaseUrl`) | ~551 MB |
 | `gliner2-pii-yethdev` | GLiNER2 Privacy Filter, yethdev export (custom labels) | ~462 MB |
 | `openai-pf` | OpenAI Privacy Filter (8 categories, WebGPU only) | ~837 MB (q4f16) or ~945 MB (q4) |
@@ -378,6 +379,77 @@ Each page in flight costs a 300 dpi render and Tesseract's working memory
 1, 2, 4, 6 and 8 pages at a time took 51, 27, 14, 12 and 9 s. The web app
 uses one worker per core but one: six at most with 8 GB of memory or more,
 four when the browser does not report its memory, two on phones and tablets.
+
+**Edits by hand: pages left out, areas hidden.** What no detector finds (a
+signature, a handwritten name, a stamp, a page the OCR could not read) the
+user takes out by hand. The host shows the pages, the user removes pages and
+draws rectangles, and the extraction carries the result:
+
+```ts
+import { readPdf, openPdfPreview, pixelRectToUserRect, applyPdfEdits, mapKeptRange, writeAnonymizedPdfWithReport } from '@doccloak/core/pdf';
+
+let extraction = await readPdf(file, { assets });
+const preview = await openPdfPreview(extraction);            // pdf.js opened once
+const { width, height } = await preview.pageSize(3);         // as shown, in points: lay out before rendering
+const view = await preview.render(3, 2);                     // one page, when it is shown (scale 1 = 72 dpi)
+// the user drags a rectangle on view.canvas (pixels, origin top-left):
+const rect = pixelRectToUserRect(view.transform, { x0, y0, x1, y1 });
+
+const edited = applyPdfEdits(extraction, { removedPages: [5], regions: [{ page: 3, rect }] });
+if (edited.addedText) entities = await engine.detect(edited.extraction.plainText);
+else entities = entities.flatMap((e) => {                     // nothing new: keep what still stands
+  const at = mapKeptRange(edited.kept, e.start, e.end);
+  return at ? [{ ...e, ...at }] : [];
+});
+extraction = edited.extraction;                               // plainText without the page and the area
+await preview.close();
+const { blob, removedPages, regionPages } = await writeAnonymizedPdfWithReport(extraction, replacements, session.getEntries(), { assets });
+```
+
+`applyPdfEdits(extraction, edits)` takes the FULL set of edits each time (it
+replaces the set before; `{}` gives back the extraction as read) and reads
+nothing again: no pdf.js, no OCR. Page indexes are those of the file as
+read; a removed page stays in `pages` with `removed: true` and an empty text
+range, so a page view can still list it. Rectangles are in the page's user
+space (points, origin bottom-left, the space of `Glyph.x` / `Glyph.y`);
+`pixelRectToUserRect` / `userRectToPixelRect` convert through
+`RenderedPage.transform`, /Rotate and crop box included. The preview renders
+the pages as the file has them (without annotations, which the writer drops
+anyway); the host draws its own marks over them.
+
+A hidden area takes every glyph whose box it touches out of the text: of an
+OCR layer the whole word (the layer knows where a word is, not its letters),
+of real text the letters touched, the rest of the word stays. Such a letter
+is also painted over whole (`covered` lists those boxes for the page view):
+a letter half under a rectangle would otherwise stay readable in the picture
+while no detector could see it. Where text taken out stood between two
+words, one space stays, so they do not read as one.
+
+The writer leaves removed pages out (`removedPages`) and exports a page with
+a hidden area as a picture, like a scan (`regionPages`, and `scanPages`, or
+`rasterizedPages` when its text cannot be edited safely): the rectangles and
+the letters they touch are black in the pixels, detected values are painted
+over with their placeholders, and the remaining text stays as an invisible
+layer written in shows that end where a hidden area begins. Many files keep
+one resource dictionary for all pages, so a copied page would bring the scan
+of a removed page along as an object nothing draws: whenever a page is not
+copied as it is (left out, or painted over), the copied pages keep only the
+resources their content names. Then the output is
+checked, and `PdfVerifyError` is thrown unless: it has as many pages as were
+kept; its text holds no run of 8 characters of a removed page that the kept
+pages do not hold themselves; no stream of the input that only pages left
+out use is in it (by fingerprint: their pictures, forms, fonts); every page
+exported for a hidden area is one image plus invisible text; every hidden
+area renders black (2 px in from its edges at 144 dpi) and no text of the
+output lies in it. The writer applies the edits to its own fresh reading of
+the bytes and refuses a text that differs (`StalePdfExtractionError`), as
+without edits. A file without edits is written exactly as before.
+
+Limits: text inside a tiling pattern or a soft mask has no place on the
+page, so a hidden area does not take it out of the text (the reader warns;
+the pixels are black all the same); a page hostile to a viewer cannot be
+rasterized, so an area on it is refused; a picture page is larger than the
+vector page it replaces (300 dpi for text pages).
 
 **Refusals.** Encrypted files (`'encrypted'`, pass `password`), files over
 50 MB or 500 pages (`'too-large'`), non-PDF bytes (`'invalid-package'`).

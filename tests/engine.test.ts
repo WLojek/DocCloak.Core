@@ -529,13 +529,13 @@ describe('detect', () => {
 describe('PROVIDERS catalog', () => {
   it('lists the built-in providers with stable ids', () => {
     expect(PROVIDERS.map((p) => p.id)).toEqual([
-      'gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf',
+      'gliner', 'gliner-base', 'bardsai', 'bardsai-v2', 'bardsai-v3', 'bardsai-v3-gpu', 'gliner2-pii', 'gliner2-pii-yethdev', 'openai-pf',
     ]);
   });
 
   it('flags the zero-shot models for custom labels and the WebGPU-only model (T240-T242)', () => {
     expect(PROVIDERS.filter((p) => p.customLabels).map((p) => p.id)).toEqual(['gliner', 'gliner-base', 'gliner2-pii', 'gliner2-pii-yethdev']);
-    expect(PROVIDERS.filter((p) => p.requiresWebGpu).map((p) => p.id)).toEqual(['openai-pf']);
+    expect(PROVIDERS.filter((p) => p.requiresWebGpu).map((p) => p.id)).toEqual(['bardsai-v3-gpu', 'openai-pf']);
   });
 
   it('describes each model by languages, labels and download size, without accuracy claims (T127, T249)', () => {

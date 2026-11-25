@@ -71,6 +71,11 @@ export interface PageRecord {
   ownText?: string;
   /** Highest effective resolution of the images drawn on the page (pixels per inch; 0 without images). */
   imageDpi: number;
+  /**
+   * True when part of the page's content was not walked (a stream that cannot be decoded or
+   * parsed, nesting or size past a cap): which resources the page uses is then not known.
+   */
+  partialWalk?: boolean;
 }
 
 export interface PdfModel {
@@ -87,6 +92,8 @@ export interface ExtractionResult {
   runs: GlyphRun[];
   pages: PdfPageInfo[];
   unredactable: UnredactablePart[];
+  /** `unredactable` before pages with the same problem are joined ("pages 2-22"): one entry per page and kind. */
+  unredactablePages: UnredactablePart[];
   removed: RemovedPart[];
   warnings: string[];
   empty: boolean;
@@ -211,6 +218,7 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
         chunks.push(decodeStream(ctx, part.stream));
       } catch (err) {
         record.issues.push(`content stream unreadable: ${(err as Error).message}`);
+        record.partialWalk = true;
       }
     }
     const source = joinWithNewlines(chunks);
@@ -218,7 +226,10 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
       throw new UnsupportedDocumentError('too-large', `page ${p + 1} holds ${source.length} bytes of content; the limit is ${MAX_CONTENT_BYTES_PER_PAGE}`, [String(source.length)]);
     }
     const ops = lexContent(source);
-    if (ops.length > MAX_OPS_PER_PAGE) record.issues.push('content stream too large');
+    if (ops.length > MAX_OPS_PER_PAGE) {
+      record.issues.push('content stream too large');
+      record.partialWalk = true;
+    }
     const key = `p${p}`;
     const stream: StreamRecord = {
       key, kind: 'page', page: p, ref: null, stream: null, source, ops,
@@ -233,6 +244,7 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
       record.hostile = true;
       record.issues.push('page content is hostile to a viewer (rasterization refused)');
     }
+    if (walker.hostile || walker.skipped) record.partialWalk = true;
     const maxGlyphs = options.maxGlyphs ?? DEFAULT_MAX_GLYPHS;
     // Every run costs about as much as a few glyphs (its own objects and arrays).
     let glyphCount = 0;
@@ -329,6 +341,7 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
 
   const removed = scanDocumentLevelParts(ctx, doc, model, warnings);
   const plainText = ocrRulesAsSpaces(text.toString(), runs);
+  const unredactablePages = unredactable.map((u) => ({ ...u }));
   aggregatePageParts(unredactable);
   // Reading-order insertion can put a later operator's text before an earlier one's: keep the
   // runs in flat-text order (the writer's segment mapping relies on it).
@@ -338,6 +351,7 @@ export async function extractPdf(bytes: Uint8Array, options: ExtractOptions = {}
     runs,
     pages: pageInfos,
     unredactable,
+    unredactablePages,
     removed,
     warnings,
     empty: runs.every((r) => r.glyphs.every((g) => g.unicode.trim() === '')),
@@ -769,6 +783,8 @@ class Walker {
   private contentBytes = 0;
   /** Set when a cap fired: pdf.js would walk the same content without our caps. */
   hostile = false;
+  /** Set when a stream of the page was left out of the walk (unreadable, unparsable, nested too deep). */
+  skipped = false;
   private readonly model: PdfModel;
   private readonly page: PageRecord;
   private readonly runs: GlyphRun[];
@@ -801,6 +817,7 @@ class Walker {
       const op = ops[i];
       if (op.op === '') {
         this.page.issues.push(`${stream.key}: unparsable content at operator ${i}`);
+        this.skipped = true;
         continue;
       }
       if (TEXT_SHOW_OPS.has(op.op)) {
@@ -922,6 +939,7 @@ class Walker {
     if (this.walkedAux.has(key) || active.has(key)) return;
     if (depth >= MAX_XOBJECT_DEPTH) {
       this.page.issues.push(`${parent.key}: ${label} nested deeper than ${MAX_XOBJECT_DEPTH}`);
+      this.skipped = true;
       return;
     }
     this.walkedAux.add(key);
@@ -932,6 +950,7 @@ class Walker {
         source = decodeStream(ctx, xobj);
       } catch (err) {
         this.page.issues.push(`${label} unreadable: ${err instanceof StreamDecodeError ? err.message : String(err)}`);
+        this.skipped = true;
         return;
       }
       if (!this.accountBytes(source.length, key)) return;
@@ -984,6 +1003,7 @@ class Walker {
     if (subtype !== 'Form') return;
     if (depth >= MAX_XOBJECT_DEPTH) {
       this.page.issues.push(`${stream.key}: form XObject nesting deeper than ${MAX_XOBJECT_DEPTH}`);
+      this.skipped = true;
       return;
     }
     if (++this.draws > MAX_XOBJECT_DRAWS_PER_PAGE) {
@@ -1004,6 +1024,7 @@ class Walker {
         source = decodeStream(ctx, xobj);
       } catch (err) {
         this.page.issues.push(`form XObject ${key} unreadable: ${err instanceof StreamDecodeError ? err.message : String(err)}`);
+        this.skipped = true;
         return;
       }
       if (!this.accountBytes(source.length, key)) return;
@@ -1186,7 +1207,7 @@ function glyphInside(b: Box, g: Glyph, run: GlyphRun): boolean {
  * Consecutive pages with the same kind of problem collapse into one part ("pages 2-22"), so a
  * document whose body font is unreadable shows one line to consent to, not one per page.
  */
-function aggregatePageParts(parts: UnredactablePart[]): void {
+export function aggregatePageParts(parts: UnredactablePart[]): void {
   const pageOf = (p: UnredactablePart): number | null => {
     const m = /^page (\d+)$/.exec(p.part);
     return m ? Number(m[1]) : null;
